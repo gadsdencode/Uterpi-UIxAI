@@ -21,7 +21,8 @@ import {
   AlertCircle,
   Download,
   Copy,
-  ExternalLink
+  ExternalLink,
+  Settings
 } from "lucide-react";
 import { Message, CommandSuggestion, LLMModel, ModelCapabilities } from "../types";
 import { useAzureAI, SYSTEM_MESSAGE_PRESETS } from "../hooks/useAzureAI";
@@ -1139,7 +1140,7 @@ const FuturisticAIChat: React.FC = () => {
                 onClick={() => setShowEditModal(true)}
                 className="p-2 bg-slate-800/50 hover:bg-slate-700/50 rounded-lg border border-slate-700/50"
               >
-                <Edit3 className="w-4 h-4" />
+                <Settings className="w-4 h-4" />
               </RippleButton>
             </div>
           </div>
@@ -1451,7 +1452,7 @@ const FuturisticAIChat: React.FC = () => {
       <OrigamiModal
         isOpen={showEditModal}
         onClose={() => setShowEditModal(false)}
-        title="Azure AI Settings"
+        title="NomadAI Settings"
       >
         <div className="space-y-4">
           <div>

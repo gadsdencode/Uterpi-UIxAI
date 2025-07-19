@@ -529,28 +529,28 @@ const AuthenticatedApp: React.FC = () => {
 
         {/* Auth Forms - positioned to cover the entire screen */}
         <div className="relative z-10 min-h-screen flex items-center justify-center p-4">
-          {authMode === 'login' ? (
+        {authMode === 'login' ? (
             <div className="w-full max-w-md mx-auto">
-              <LoginForm
-                onSwitchToRegister={() => setAuthMode('register')}
-                onSuccess={() => setShowAuth(false)}
-              />
+          <LoginForm
+            onSwitchToRegister={() => setAuthMode('register')}
+            onSuccess={() => setShowAuth(false)}
+          />
             </div>
-          ) : (
+        ) : (
             <div className="w-full max-w-md mx-auto">
-              <RegisterForm
-                onSwitchToLogin={() => setAuthMode('login')}
-                onSuccess={() => setShowAuth(false)}
-              />
+          <RegisterForm
+            onSwitchToLogin={() => setAuthMode('login')}
+            onSuccess={() => setShowAuth(false)}
+          />
             </div>
-          )}
-          
+        )}
+        
           <div className="absolute top-6 left-6">
             <RippleButton
-              onClick={() => setShowAuth(false)}
+            onClick={() => setShowAuth(false)}
               className="px-4 py-2 bg-slate-800/50 hover:bg-slate-700/50 border border-slate-600/50 rounded-lg text-white font-medium transition-all duration-200"
-            >
-              ← Back
+          >
+            ← Back
             </RippleButton>
           </div>
         </div>

@@ -31,6 +31,48 @@ export class AzureAIService {
   }
 
   /**
+   * Estimate token count for messages (rough approximation)
+   * This is a simplified estimation - in production, you'd use tiktoken or similar
+   */
+  private estimateTokenCount(messages: AzureAIMessage[]): number {
+    return messages.reduce((total, message) => {
+      // Rough estimation: 1 token ≈ 0.75 words, 1 word ≈ 1.3 tokens
+      const contentTokens = Math.ceil(message.content.length / 4);
+      // Add tokens for role and formatting
+      return total + contentTokens + 10;
+    }, 0);
+  }
+
+  /**
+   * Truncate conversation history while preserving system message and recent context
+   */
+  private truncateConversationHistory(messages: AzureAIMessage[], maxTokens: number): AzureAIMessage[] {
+    if (messages.length === 0) return messages;
+    
+    // Always preserve the system message (first message)
+    const systemMessage = messages[0];
+    let remainingMessages = messages.slice(1);
+    
+    // Calculate tokens for system message
+    let totalTokens = this.estimateTokenCount([systemMessage]);
+    
+    // Add messages from most recent, working backwards
+    const result = [systemMessage];
+    for (let i = remainingMessages.length - 1; i >= 0; i--) {
+      const messageTokens = this.estimateTokenCount([remainingMessages[i]]);
+      if (totalTokens + messageTokens <= maxTokens) {
+        totalTokens += messageTokens;
+        result.splice(1, 0, remainingMessages[i]); // Insert after system message
+      } else {
+        console.log(`🔄 Truncated ${i + 1} older messages to stay within token limit`);
+        break;
+      }
+    }
+    
+    return result;
+  }
+
+  /**
    * Get available Azure AI models
    * Note: This returns a curated list since Azure AI doesn't provide a direct models API
    */
@@ -245,6 +287,20 @@ export class AzureAIService {
       // Get model-specific configuration and parameters
       const modelConfig = getModelConfiguration(this.config.modelName);
       
+      // ESTIMATE TOKEN COUNT TO PREVENT CONTEXT OVERFLOW
+      const estimatedTokens = this.estimateTokenCount(messages);
+      const maxContextTokens = modelConfig.contextLength || 4096;
+      const reserveTokensForResponse = options.maxTokens || 1024;
+      
+      console.log(`🔢 Token estimate: ${estimatedTokens}/${maxContextTokens} (reserving ${reserveTokensForResponse} for response)`);
+      
+      // If we're approaching the token limit, truncate older messages but keep system message
+      let processedMessages = messages;
+      if (estimatedTokens + reserveTokensForResponse > maxContextTokens) {
+        console.warn(`⚠️ Approaching token limit (${estimatedTokens} + ${reserveTokensForResponse} > ${maxContextTokens}), truncating conversation history`);
+        processedMessages = this.truncateConversationHistory(messages, maxContextTokens - reserveTokensForResponse);
+      }
+      
       // Use validated parameters based on the model's capabilities and limits
       const validatedParams = validateModelParameters(this.config.modelName, {
         maxTokens: options.maxTokens,
@@ -256,7 +312,7 @@ export class AzureAIService {
 
       // Build request body with only supported parameters
       const requestBody: any = {
-        messages,
+        messages: processedMessages,
         max_tokens: validatedParams.maxTokens,
         temperature: validatedParams.temperature,
         top_p: validatedParams.topP,
@@ -293,6 +349,12 @@ export class AzureAIService {
         endpoint: this.config.endpoint,
         model: this.config.modelName,
         messageCount: messages.length
+      });
+
+      // ADD DETAILED CONVERSATION LOGGING
+      console.log('📝 Full conversation being sent to Azure AI:');
+      messages.forEach((msg, index) => {
+        console.log(`  [${index}] ${msg.role}: ${msg.content.substring(0, 100)}${msg.content.length > 100 ? '...' : ''}`);
       });
 
       const response = await this.client.path("/chat/completions").post({

@@ -18,7 +18,10 @@ import {
   Brain,
   Cpu,
   CircuitBoard,
-  AlertCircle
+  AlertCircle,
+  Download,
+  Copy,
+  ExternalLink
 } from "lucide-react";
 import { Message, CommandSuggestion, LLMModel, ModelCapabilities } from "../types";
 import { useAzureAI, SYSTEM_MESSAGE_PRESETS } from "../hooks/useAzureAI";
@@ -33,6 +36,12 @@ import AnalyzeModal from './AnalyzeModal';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import { toast } from "sonner";
 import { useAuth } from '../hooks/useAuth';
+import { 
+  downloadTranscript, 
+  copyTranscriptToClipboard, 
+  shareTranscript, 
+  isWebShareSupported 
+} from '../lib/transcriptUtils';
 
 interface ParticlesProps {
   className?: string;
@@ -833,6 +842,13 @@ const FuturisticAIChat: React.FC = () => {
     };
 
     const updatedMessages = [...messages, userMessage];
+    
+    // DEBUG: Log current conversation state
+    console.log('🗨️ Current conversation state before sending to AI:');
+    updatedMessages.forEach((msg, index) => {
+      console.log(`  [${index}] ${msg.role} (${msg.id}): ${msg.content.substring(0, 60)}...`);
+    });
+    
     setMessages(updatedMessages);
     setInput("");
     setAttachments([]);
@@ -987,6 +1003,38 @@ const FuturisticAIChat: React.FC = () => {
     setAttachments(prev => prev.filter((_, i) => i !== index));
   };
 
+  // Transcript handling functions
+  const handleDownloadTranscript = async () => {
+    try {
+      downloadTranscript(messages, true);
+      toast.success('Transcript downloaded successfully!');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to download transcript');
+    }
+  };
+
+  const handleCopyTranscript = async () => {
+    try {
+      await copyTranscriptToClipboard(messages, true);
+      toast.success('Transcript copied to clipboard!');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to copy transcript');
+    }
+  };
+
+  const handleShareTranscript = async () => {
+    try {
+      const result = await shareTranscript(messages, true);
+      if (result.method === 'share') {
+        toast.success('Transcript shared successfully!');
+      } else {
+        toast.success('Transcript copied to clipboard for sharing!');
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to share transcript');
+    }
+  };
+
 
 
   const handleModelSelection = (model: LLMModel) => {
@@ -1076,7 +1124,7 @@ const FuturisticAIChat: React.FC = () => {
                 <h1 className="text-xl font-bold bg-gradient-to-r from-violet-400 to-purple-400 bg-clip-text text-transparent">
                   NomadAI
                 </h1>
-                <p className="text-xs text-slate-400">The UI for AI</p>
+                <p className="text-xs text-slate-400">UI x AI</p>
               </div>
             </div>
             
@@ -1346,21 +1394,57 @@ const FuturisticAIChat: React.FC = () => {
         onClose={() => setShowShareModal(false)}
         title="Share Conversation"
       >
-        <div className="space-y-4">
-          <p className="text-slate-300">Share this conversation with others</p>
-                     <div className="flex gap-2">
-             <input
-               type="text"
-               value="https://neural-ai.com/chat/abc123"
-               readOnly
-               placeholder="Share link"
-               aria-label="Share conversation link"
-               className="flex-1 px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white"
-             />
-             <RippleButton className="px-4 py-2 bg-violet-600 hover:bg-violet-700 rounded-lg">
-               Copy
-             </RippleButton>
-           </div>
+        <div className="space-y-6">
+          <div>
+            <p className="text-slate-300 mb-4">Export and share your chat transcript</p>
+            
+            {/* Download Transcript */}
+            <div className="space-y-3">
+              <h4 className="text-sm font-medium text-slate-200">Download Transcript</h4>
+              <RippleButton
+                onClick={handleDownloadTranscript}
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-slate-800/50 hover:bg-slate-700/50 border border-slate-600/50 rounded-lg text-white transition-colors"
+                aria-label="Download chat transcript as text file"
+              >
+                <Download className="w-4 h-4" />
+                Download as .txt file
+              </RippleButton>
+              <p className="text-xs text-slate-400">
+                Downloads a formatted text file with your complete conversation
+              </p>
+            </div>
+
+            {/* Share Options */}
+            <div className="space-y-3">
+              <h4 className="text-sm font-medium text-slate-200">Share Options</h4>
+              <div className="grid grid-cols-1 gap-2">
+                {isWebShareSupported() && (
+                  <RippleButton
+                    onClick={handleShareTranscript}
+                    className="flex items-center justify-center gap-2 px-4 py-3 bg-violet-600/80 hover:bg-violet-600 border border-violet-500/50 rounded-lg text-white transition-colors"
+                    aria-label="Share transcript using system share dialog"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                    Share Transcript
+                  </RippleButton>
+                )}
+                <RippleButton
+                  onClick={handleCopyTranscript}
+                  className="flex items-center justify-center gap-2 px-4 py-3 bg-slate-800/50 hover:bg-slate-700/50 border border-slate-600/50 rounded-lg text-white transition-colors"
+                  aria-label="Copy transcript to clipboard"
+                >
+                  <Copy className="w-4 h-4" />
+                  Copy to Clipboard
+                </RippleButton>
+              </div>
+              <p className="text-xs text-slate-400">
+                {isWebShareSupported() 
+                  ? "Use your device's native sharing options or copy to clipboard"
+                  : "Copy the transcript text to share via your preferred method"
+                }
+              </p>
+            </div>
+          </div>
         </div>
       </OrigamiModal>
 

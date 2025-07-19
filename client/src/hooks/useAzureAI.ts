@@ -10,10 +10,22 @@ export const SYSTEM_MESSAGE_PRESETS = {
    * General-purpose, robust default. Focuses on clarity, safety, and understanding user intent.
    */
   DEFAULT: `You are Nomad, a versatile and helpful AI assistant. Your primary goal is to understand the user's intent and provide the most relevant, accurate, and clearly communicated response.
-1.  **Clarify Ambiguity:** If a user's request is vague or could be interpreted in multiple ways, ask targeted, clarifying questions before generating a full response.
-2.  **Prioritize Accuracy & Safety:** Base your responses on established facts and sound reasoning. If information is speculative or your knowledge is limited, state it clearly. Do not provide dangerous or harmful instructions.
-3.  **Structure for Clarity:** Use lists, bullet points, and bolding to make complex information easy to digest.
-4.  **Be Concise yet Comprehensive:** Provide enough detail to be thorough, but avoid unnecessary verbosity. Get to the point efficiently.`,
+
+CONVERSATION GUIDELINES:
+- This is an ongoing conversation with context maintained across all interactions
+- Respond naturally to each message based on the full conversation context
+- DO NOT repeat greetings, introductions, or acknowledgments unless specifically requested
+- DO NOT act as if you're meeting the user for the first time in subsequent messages
+- Build upon previous exchanges and maintain conversational flow
+- Use the user's name and context naturally when it adds value to the response
+- Focus on the user's current question or request, not on establishing identity
+- If you have access to user profile information, use it contextually without announcing it
+
+CORE PRINCIPLES:
+1. **Clarify Ambiguity:** If a user's request is vague or could be interpreted in multiple ways, ask targeted, clarifying questions before generating a full response.
+2. **Prioritize Accuracy & Safety:** Base your responses on established facts and sound reasoning. If information is speculative or your knowledge is limited, state it clearly. Do not provide dangerous or harmful instructions.
+3. **Structure for Clarity:** Use lists, bullet points, and bolding to make complex information easy to digest.
+4. **Be Concise yet Comprehensive:** Provide enough detail to be thorough, but avoid unnecessary verbosity. Get to the point efficiently.`,
 
   /**
    * For professional, business, and corporate contexts. Emphasizes actionability, structure, and a polished tone.
@@ -138,51 +150,60 @@ const createPersonalizedSystemMessage = (baseSystemMessage: string, user?: User 
     return baseSystemMessage;
   }
 
-  const userInfo = [];
+  // Build user profile repository for EVERY interaction
+  // This ensures the AI always has context about the user
+  const userProfileData = [];
   
   // Add user's name if available
   if (user.firstName || user.lastName) {
     const fullName = [user.firstName, user.lastName].filter(Boolean).join(' ');
-    userInfo.push(`The user's name is ${fullName}.`);
+    userProfileData.push(`Name: ${fullName}`);
   } else if (user.username) {
-    userInfo.push(`The user goes by ${user.username}.`);
+    userProfileData.push(`Username: ${user.username}`);
   }
 
   // Add age if available
   if (user.age) {
-    userInfo.push(`They are ${user.age} years old.`);
+    userProfileData.push(`Age: ${user.age}`);
   }
 
-  // Add bio if available
+  // Add bio/interests if available
   if (user.bio) {
-    userInfo.push(`About them: ${user.bio}`);
+    userProfileData.push(`Interests: ${user.bio}`);
   }
 
-  // Add date of birth if available (for context like birthday wishes, etc.)
+  // Add birthday if available
   if (user.dateOfBirth) {
     const birthDate = new Date(user.dateOfBirth);
     const today = new Date();
     const isToday = birthDate.getMonth() === today.getMonth() && birthDate.getDate() === today.getDate();
     
     if (isToday) {
-      userInfo.push(`Today is their birthday! 🎉`);
+      userProfileData.push(`Birthday: TODAY! 🎉`);
     } else {
       const birthMonth = birthDate.toLocaleDateString('en-US', { month: 'long' });
       const birthDay = birthDate.getDate();
-      userInfo.push(`Their birthday is ${birthMonth} ${birthDay}.`);
+      userProfileData.push(`Birthday: ${birthMonth} ${birthDay}`);
     }
   }
 
-  // If we have user information, add it to the system message
-  if (userInfo.length > 0) {
-    const userContextSection = `
+  // Always include user information when available
+  if (userProfileData.length > 0) {
+    const userRepositorySection = `
 
-USER CONTEXT:
-${userInfo.join(' ')}
+---
+USER PROFILE REPOSITORY:
+${userProfileData.join('\n')}
 
-Please use this information to personalize your responses naturally. Address them by name when appropriate, reference their interests or background when relevant, and make the conversation feel more personal and engaging.`;
+IMPORTANT CONTEXT GUIDELINES:
+- You have ongoing access to this user's profile information
+- Use this context naturally when relevant to the conversation
+- DO NOT greet the user or introduce yourself repeatedly
+- DO NOT acknowledge having "new" access to their information
+- Simply use the context appropriately as the conversation flows
+- Respond to their actual questions and requests, not their identity`;
 
-    return baseSystemMessage + userContextSection;
+    return baseSystemMessage + userRepositorySection;
   }
 
   return baseSystemMessage;
@@ -274,9 +295,15 @@ export const useAzureAI = (options: AzureAIOptions = {}): UseAzureAIReturn => {
   // Convert app messages to Azure AI format
   const convertToAzureAIMessages = useCallback((messages: Message[]): AzureAIMessage[] => {
     const systemContent = options.systemMessage || SYSTEM_MESSAGE_PRESETS.DEFAULT;
-    const personalizedSystemContent = createPersonalizedSystemMessage(systemContent, options.userContext?.user);
+    
+    // Always include user context when available - this aligns with Azure AI best practices
+    // Azure AI models have no memory, so context must be provided with every request
+    const personalizedSystemContent = createPersonalizedSystemMessage(
+      systemContent, 
+      options.userContext?.user
+    );
       
-    // Add system message
+    // Add system message with user context
     const azureMessages: AzureAIMessage[] = [
       {
         role: "system",
@@ -284,8 +311,13 @@ export const useAzureAI = (options: AzureAIOptions = {}): UseAzureAIReturn => {
       }
     ];
 
-    // Convert user and assistant messages
+    // Convert user and assistant messages, but exclude the initial welcome message
     messages.forEach(message => {
+      // Skip the initial welcome message (id "1") as it's just for UI display
+      if (message.id === "1") {
+        return;
+      }
+      
       if (message.role === "user" || message.role === "assistant") {
         azureMessages.push({
           role: message.role,
@@ -293,7 +325,7 @@ export const useAzureAI = (options: AzureAIOptions = {}): UseAzureAIReturn => {
         });
       }
     });
-
+    
     return azureMessages;
   }, [options.systemMessage, options.userContext?.user]);
 

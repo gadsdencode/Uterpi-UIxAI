@@ -27,6 +27,7 @@ SESSION_SECRET="your-session-secret-change-this-in-production"
 # Google OAuth Configuration (optional)
 GOOGLE_CLIENT_ID="your-google-client-id"
 GOOGLE_CLIENT_SECRET="your-google-client-secret"
+GOOGLE_CALLBACK_URL="https://nomadai.replit.app/api/auth/google/callback"
 ```
 
 ## Database Setup
@@ -49,8 +50,10 @@ GOOGLE_CLIENT_SECRET="your-google-client-secret"
 5. Set application type to "Web application"
 6. Add authorized redirect URIs:
    - For development: `http://localhost:5000/api/auth/google/callback`
+   - For Replit deployment: `https://nomadai.replit.app/api/auth/google/callback`
    - For production: `https://yourdomain.com/api/auth/google/callback`
 7. Copy the Client ID and Client Secret to your `.env` file
+8. Set the `GOOGLE_CALLBACK_URL` environment variable to match your deployment URL
 
 ## Usage
 
@@ -114,11 +117,28 @@ The application automatically switches between:
 - **Development**: Memory storage (if no DATABASE_URL)
 - **Production**: PostgreSQL storage (with DATABASE_URL)
 
+## Replit Deployment
+
+For Replit deployments, set these environment variables in your Replit project's Secrets:
+
+```
+DATABASE_URL=your-postgresql-connection-string
+SESSION_SECRET=your-random-session-secret
+GOOGLE_CLIENT_ID=your-google-client-id
+GOOGLE_CLIENT_SECRET=your-google-client-secret
+GOOGLE_CALLBACK_URL=https://nomadai.replit.app/api/auth/google/callback
+```
+
+**Important**: The callback URL must exactly match what you register in Google Cloud Console.
+
 ## Troubleshooting
 
 1. **Database connection issues**: Verify your DATABASE_URL is correct
 2. **Session not persisting**: Check SESSION_SECRET is set
-3. **Google OAuth not working**: Verify redirect URIs match exactly
+3. **Google OAuth "redirect_uri_mismatch" error**: 
+   - Verify the `GOOGLE_CALLBACK_URL` environment variable matches exactly what's registered in Google Cloud Console
+   - Ensure you've added `https://nomadai.replit.app/api/auth/google/callback` to your Google OAuth client's authorized redirect URIs
+   - Check that the domain in the error message matches your environment variable
 4. **CORS issues**: Ensure your frontend and backend origins are configured correctly
 
 ## Next Steps

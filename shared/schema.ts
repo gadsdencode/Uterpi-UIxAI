@@ -13,30 +13,31 @@ export const sessions = pgTable("session", {
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   email: text("email").notNull().unique(),
-  username: text("username").unique(), // Make username optional for OAuth users
-  password: text("password"), // Optional for OAuth-only users
-  emailVerified: boolean("email_verified").default(false),
-  
-  // OAuth fields
-  googleId: text("google_id").unique(),
-  
-  // Profile information
+  username: text("username").unique(), // Make username optional for OAuth
+  password: text("password"), // Optional for OAuth users
   firstName: text("first_name"),
   lastName: text("last_name"),
-  avatar: text("avatar"), // URL to profile picture
+  googleId: text("google_id").unique(),
+  avatar: text("avatar"),
   age: integer("age"),
-  dateOfBirth: date("date_of_birth"),
+  dateOfBirth: date("date_of_birth", { mode: "date" }),
   bio: text("bio"),
+  emailVerified: boolean("email_verified").default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
   
-  // Subscription fields
+  // Subscription-related fields
   stripeCustomerId: text("stripe_customer_id").unique(),
   subscriptionStatus: text("subscription_status").default("free"), // free, active, past_due, canceled, etc.
   subscriptionTier: text("subscription_tier").default("free"), // free, basic, premium, etc.
   subscriptionEndsAt: timestamp("subscription_ends_at"),
   
-  // Timestamps
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
+  // Access override fields for admin control
+  accessOverride: boolean("access_override").default(false),
+  overrideReason: text("override_reason"),
+  overrideGrantedBy: integer("override_granted_by"), // Admin user ID who granted override
+  overrideGrantedAt: timestamp("override_granted_at"),
+  overrideExpiresAt: timestamp("override_expires_at"), // Optional expiration for temporary overrides
 });
 
 // Subscription plans table

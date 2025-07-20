@@ -7,6 +7,8 @@ import { registerUserSchema, loginUserSchema, publicUserSchema, updateProfileSch
 import { db } from "./db";
 import { eq, desc } from "drizzle-orm";
 import { createStripeCustomer, createSetupIntent, createSubscription, cancelSubscription, reactivateSubscription, createBillingPortalSession, syncSubscriptionFromStripe } from "./stripe";
+import { requireActiveSubscription, enhanceWithSubscription } from "./subscription-middleware";
+import { handleStripeWebhook, rawBodyParser } from "./webhooks";
 import multer from 'multer';
 import ModelClient from "@azure-rest/ai-inference";
 import { AzureKeyCredential } from "@azure/core-auth";
@@ -770,7 +772,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // =============================================================================
-  // EXISTING ROUTES BELOW
+  // STRIPE WEBHOOK ROUTES
+  // =============================================================================
+  
+  // Stripe webhooks for subscription events
+  app.post("/api/webhooks/stripe", rawBodyParser(), handleStripeWebhook);
+
+  // =============================================================================
+  // AI-POWERED FEATURE ROUTES (SUBSCRIPTION PROTECTED)
   // =============================================================================
   
   // Model capabilities checking endpoint - now returns optimized configurations
@@ -823,8 +832,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Clone UI endpoints
-  app.post("/api/clone-ui/analyze", upload.single('image'), async (req: MulterRequest, res) => {
+  // Clone UI endpoints (requires subscription)
+  app.post("/api/clone-ui/analyze", requireActiveSubscription({
+    customMessage: "AI-powered UI analysis requires a paid subscription"
+  }), upload.single('image'), async (req: MulterRequest, res) => {
     try {
       if (!req.file) {
         return res.status(400).json({ error: "No image file provided" });
@@ -919,8 +930,10 @@ Please respond in JSON format with this structure:
     }
   });
 
-  // Create Page endpoints
-  app.post("/api/create-page/generate", async (req, res) => {
+  // Create Page endpoints (requires subscription)
+  app.post("/api/create-page/generate", requireActiveSubscription({
+    customMessage: "AI-powered page generation requires a paid subscription"
+  }), async (req, res) => {
     try {
       const { template, requirements, style } = req.body;
       const { client, config } = createAzureAIClient();
@@ -952,8 +965,10 @@ Please respond in JSON format with this structure:
     });
   });
 
-  // Improve functionality endpoints
-  app.post("/api/improve/analyze", upload.single('codeFile'), async (req: MulterRequest, res) => {
+  // Improve functionality endpoints (requires subscription)
+  app.post("/api/improve/analyze", requireActiveSubscription({
+    customMessage: "AI-powered code analysis requires a paid subscription"
+  }), upload.single('codeFile'), async (req: MulterRequest, res) => {
     try {
       const { code, component } = req.body;
       let codeToAnalyze = code;
@@ -982,8 +997,10 @@ Please respond in JSON format with this structure:
     }
   });
 
-  // Analyze functionality endpoints
-  app.post("/api/analyze/performance", async (req, res) => {
+  // Analyze functionality endpoints (requires subscription)
+  app.post("/api/analyze/performance", requireActiveSubscription({
+    customMessage: "AI-powered performance analysis requires a paid subscription"
+  }), async (req, res) => {
     try {
       const { projectPath, metrics } = req.body;
       const { client, config } = createAzureAIClient();
@@ -1001,7 +1018,9 @@ Please respond in JSON format with this structure:
     }
   });
 
-  app.post("/api/analyze/design-patterns", async (req, res) => {
+  app.post("/api/analyze/design-patterns", requireActiveSubscription({
+    customMessage: "AI-powered design pattern analysis requires a paid subscription"
+  }), async (req, res) => {
     try {
       const { codebase } = req.body;
       const { client, config } = createAzureAIClient();

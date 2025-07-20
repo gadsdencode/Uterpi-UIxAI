@@ -6,6 +6,7 @@ import { AuthProvider, useAuth } from './hooks/useAuth'
 import { LoginForm } from './components/auth/LoginForm'
 import { RegisterForm } from './components/auth/RegisterForm'
 import { UserMenu } from './components/auth/UserMenu'
+import { SubscriptionGuard } from './components/SubscriptionGuard'
 import { Button } from './components/ui/button'
 import { Card, CardContent } from './components/ui/card'
 import { Loader2, Zap } from 'lucide-react'
@@ -473,6 +474,17 @@ const AuthenticatedApp: React.FC = () => {
                 <p className="text-sm bg-gradient-to-r from-violet-400 to-purple-400 bg-clip-text text-transparent font-bold pt-2">
                 Please sign in or create an account
                 </p>
+                <div className="mt-4 p-3 bg-violet-500/10 rounded-lg border border-violet-400/20">
+                  <p className="text-sm text-white">
+                    🚀 <span className="font-bold">Universal Interface for AI</span> - Just <span className="text-violet-400 font-bold">$5/month</span>
+                  </p>
+                  <div className="text-xs text-slate-300 mt-2 space-y-1">
+                    <p>• Use any AI model + NomadAI's proprietary model</p>
+                    <p>• Custom templates & personas to make Nomad your own</p>
+                    <p>• AI analyzes and suggests optimizations to your workflow</p>
+                    <p>• Ongoing feature updates & versioning of evolving AI models</p>
+                  </div>
+                </div>
               </div>
               
               <div className="flex flex-col gap-4 w-full">
@@ -492,8 +504,11 @@ const AuthenticatedApp: React.FC = () => {
                   }}
                   className="w-full py-3 bg-slate-800/50 hover:bg-slate-700/50 border border-slate-600/50 rounded-xl text-white font-medium transition-all duration-200"
                 >
-                  Create Account
+                  Join the Journey for $5/month
                 </RippleButton>
+                <p className="text-xs text-slate-400 text-center">
+                  ⚠️ Some LLM models may have parameters that are not currently supported by NomadAI.
+                </p>
               </div>
             </HolographicBubble>
           </div>
@@ -561,7 +576,12 @@ const AuthenticatedApp: React.FC = () => {
       <div className="absolute top-4 right-4 z-50">
         <UserMenu />
       </div>
-      <FuturisticAIChat />
+      <SubscriptionGuard 
+        feature="NomadAI" 
+        requiredTier="basic"
+      >
+        <FuturisticAIChat />
+      </SubscriptionGuard>
       <Toaster />
     </main>
   );

@@ -8,7 +8,7 @@ import { RegisterForm } from './components/auth/RegisterForm'
 import { UserMenu } from './components/auth/UserMenu'
 import { Button } from './components/ui/button'
 import { Card, CardContent } from './components/ui/card'
-import { Loader2, Zap, Brain } from 'lucide-react'
+import { Loader2, Zap } from 'lucide-react'
 
 interface ParticlesProps {
   className?: string;
@@ -456,22 +456,20 @@ const AuthenticatedApp: React.FC = () => {
           <div className="relative z-10 w-full max-w-md mx-auto">
             <HolographicBubble>
               <div className="text-center mb-8">
-                <div className="flex items-center justify-center gap-3 mb-4">
+                <div className="flex items-center justify-center mb-4">
                   <div className="relative">
-                    <Brain className="w-8 h-8 text-violet-400" />
+                    <img 
+                      src="/images/nomadai-logo2.png" 
+                      alt="NomadAI Logo" 
+                      className="w-72 h-72 rounded-full"
+                    />
                     <motion.div
                       className="absolute inset-0 bg-violet-400/20 rounded-full blur-lg"
                       animate={{ scale: [1, 1.2, 1] }}
                       transition={{ duration: 2, repeat: Infinity }}
                     />
                   </div>
-                  <h1 className="text-3xl font-bold bg-gradient-to-r from-violet-400 to-purple-400 bg-clip-text text-transparent">
-                    NomadAI
-                  </h1>
                 </div>
-                <p className="text-lg text-slate-300 mb-2 font-bold">
-                  UI x AI
-                </p>
                 <p className="text-sm bg-gradient-to-r from-violet-400 to-purple-400 bg-clip-text text-transparent font-bold pt-2">
                 Please sign in or create an account
                 </p>

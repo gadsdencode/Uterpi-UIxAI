@@ -4,7 +4,7 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Alert, AlertDescription } from '../ui/alert';
-import { Loader2, Zap, Lock, Mail, Eye, EyeOff, User, UserPlus } from 'lucide-react';
+import { Loader2, Lock, Mail, Eye, EyeOff, User } from 'lucide-react';
 import { useAuth, RegisterData } from '../../hooks/useAuth';
 
 interface RegisterFormProps {
@@ -467,21 +467,25 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin, onS
     <HolographicBubble>
           {/* Header */}
           <div className="text-center mb-8">
-            <div className="flex items-center justify-center gap-3 mb-4">
+            <div className="flex items-center justify-center mb-4">
               <div className="relative">
-                <UserPlus className="w-8 h-8 text-violet-400" />
+                <img 
+                  src="/images/nomadai-logo2.png" 
+                  alt="NomadAI Logo" 
+                  className="w-72 h-72 rounded-full"
+                />
                 <motion.div
                   className="absolute inset-0 bg-violet-400/20 rounded-full blur-lg"
                   animate={{ scale: [1, 1.2, 1] }}
                   transition={{ duration: 2, repeat: Infinity }}
                 />
               </div>
-              <h1 className="text-2xl font-bold bg-gradient-to-r from-violet-400 to-purple-400 bg-clip-text text-transparent">
-                Join NomadAI
-              </h1>
             </div>
+            <h1 className="text-2xl font-bold bg-gradient-to-r from-violet-400 to-purple-400 bg-clip-text text-transparent mb-2">
+              Join the Journey
+            </h1>
             <p className="text-slate-300">
-              Create your account to start exploring AI
+              Create your account to start exploring Nomad
             </p>
           </div>
           

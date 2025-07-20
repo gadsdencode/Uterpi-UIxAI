@@ -14,7 +14,6 @@ import {
   Edit3,
   Share2,
   Plus,
-  Zap,
   Brain,
   Cpu,
   CircuitBoard,
@@ -1114,18 +1113,16 @@ const FuturisticAIChat: React.FC = () => {
           <div className="flex items-center justify-between max-w-4xl mx-auto">
             <div className="flex items-center gap-3">
               <div className="relative">
-                <Zap className="w-8 h-8 text-violet-400" />
+                <img 
+                  src="/images/nomadai-logo2.png" 
+                  alt="NomadAI Logo" 
+                  className="w-24 h-24 rounded-full"
+                />
                 <motion.div
                   className="absolute inset-0 bg-violet-400/20 rounded-full blur-lg"
                   animate={{ scale: [1, 1.2, 1] }}
                   transition={{ duration: 2, repeat: Infinity }}
                 />
-              </div>
-              <div>
-                <h1 className="text-xl font-bold bg-gradient-to-r from-violet-400 to-purple-400 bg-clip-text text-transparent">
-                  NomadAI
-                </h1>
-                <p className="text-xs text-slate-400">UI x AI</p>
               </div>
             </div>
             
@@ -1452,7 +1449,7 @@ const FuturisticAIChat: React.FC = () => {
       <OrigamiModal
         isOpen={showEditModal}
         onClose={() => setShowEditModal(false)}
-        title="NomadAI Settings"
+        title="NomadAI Settings & Status"
       >
         <div className="space-y-4">
           <div>
@@ -1517,19 +1514,23 @@ const FuturisticAIChat: React.FC = () => {
             </div>
             <div className="mt-2">
               <p className="text-xs text-slate-400">
-                Endpoint: {import.meta.env.VITE_AZURE_AI_ENDPOINT ? "Configured" : "Not configured"}
+                AzureAI API: {import.meta.env.VITE_AZURE_AI_ENDPOINT ? "Configured" : "Not configured"}
               </p>
             </div>
           </div>
 
           <div>
             <label className="block text-sm font-medium text-slate-300 mb-2">
-              Configuration Help
+              NomadAI Terms & Conditions
             </label>
-            <div className="text-xs text-slate-400 space-y-1">
-              <p>1. Copy env.template to .env</p>
-              <p>2. Add your Azure AI endpoint and API key</p>
-              <p>3. Restart the development server</p>
+            <div className="text-xs text-slate-400 space-y-1 max-h-32 overflow-y-auto">
+              <p className="text-sm font-thin text-slate-300 mb-2 text-center">By using NomadAI, you agree to the following terms & conditions:</p>
+              <p>1. NomadAI is an ongoing project; always check AI responses for accuracy.</p>
+              <p>2. NomadAI is not responsible for any damage caused by the use of NomadAI.</p>
+              <p>3. NomadAI is not responsible for any data loss or corruption caused by the use of NomadAI.</p>
+              <p>4. NomadAI is not responsible for any legal issues caused by the use of NomadAI.</p>
+              <p>5. NomadAI is not responsible for any ethical issues caused by the use of NomadAI.</p>
+              <p>6. NomadAI is not responsible for any issues caused by the use of NomadAI.</p>
             </div>
           </div>
         </div>

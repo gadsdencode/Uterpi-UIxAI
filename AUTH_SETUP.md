@@ -28,6 +28,11 @@ SESSION_SECRET="your-session-secret-change-this-in-production"
 GOOGLE_CLIENT_ID="your-google-client-id"
 GOOGLE_CLIENT_SECRET="your-google-client-secret"
 GOOGLE_CALLBACK_URL="https://nomadai.replit.app/api/auth/google/callback"
+
+# Stripe Configuration
+STRIPE_SECRET_KEY="sk_test_..."
+STRIPE_PUBLISHABLE_KEY="pk_test_..."
+STRIPE_WEBHOOK_SECRET="whsec_..."
 ```
 
 ## Database Setup

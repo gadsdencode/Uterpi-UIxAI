@@ -3,7 +3,10 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { requireAuth, requireGuest } from "./auth";
 import passport from "./auth";
-import { registerUserSchema, loginUserSchema, publicUserSchema, updateProfileSchema } from "@shared/schema";
+import { registerUserSchema, loginUserSchema, publicUserSchema, updateProfileSchema, subscriptionPlans, subscriptions, users } from "@shared/schema";
+import { db } from "./db";
+import { eq, desc } from "drizzle-orm";
+import { createStripeCustomer, createSetupIntent, createSubscription, cancelSubscription, reactivateSubscription, createBillingPortalSession, syncSubscriptionFromStripe } from "./stripe";
 import multer from 'multer';
 import ModelClient from "@azure-rest/ai-inference";
 import { AzureKeyCredential } from "@azure/core-auth";
@@ -477,6 +480,292 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else {
         res.status(500).json({ error: "Failed to update profile" });
       }
+    }
+  });
+
+  // =============================================================================
+  // SUBSCRIPTION ROUTES
+  // =============================================================================
+  
+  // Get available subscription plans
+  app.get("/api/subscription/plans", async (req, res) => {
+    try {
+      const plans = await db.select().from(subscriptionPlans)
+        .where(eq(subscriptionPlans.isActive, true))
+        .orderBy(subscriptionPlans.sortOrder);
+      
+      res.json({ 
+        success: true, 
+        plans 
+      });
+    } catch (error) {
+      console.error("Get subscription plans error:", error);
+      res.status(500).json({ error: "Failed to get subscription plans" });
+    }
+  });
+
+  // Get user's subscription status
+  app.get("/api/subscription/status", requireAuth, async (req, res) => {
+    try {
+      const user = await storage.getUser(req.user!.id);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      // Get user's current subscription
+      const subscription = await db.select().from(subscriptions)
+        .where(eq(subscriptions.userId, req.user!.id))
+        .orderBy(desc(subscriptions.createdAt))
+        .limit(1);
+
+      const subscriptionData = subscription[0] || null;
+      let planData = null;
+
+      if (subscriptionData?.planId) {
+        const plan = await db.select().from(subscriptionPlans)
+          .where(eq(subscriptionPlans.id, subscriptionData.planId))
+          .limit(1);
+        planData = plan[0] || null;
+      }
+
+      res.json({
+        success: true,
+        subscription: {
+          status: user.subscriptionStatus || 'free',
+          tier: user.subscriptionTier || 'free',
+          endsAt: user.subscriptionEndsAt,
+          plan: planData,
+          details: subscriptionData,
+        }
+      });
+    } catch (error) {
+      console.error("Get subscription status error:", error);
+      res.status(500).json({ error: "Failed to get subscription status" });
+    }
+  });
+
+  // Create setup intent for payment method collection
+  app.post("/api/subscription/setup-intent", requireAuth, async (req, res) => {
+    try {
+      const user = await storage.getUser(req.user!.id);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      let customerId = user.stripeCustomerId;
+
+      // Create Stripe customer if doesn't exist
+      if (!customerId) {
+        const customer = await createStripeCustomer({
+          email: user.email,
+          name: `${user.firstName || ''} ${user.lastName || ''}`.trim() || undefined,
+          metadata: { userId: user.id.toString() }
+        });
+        
+        customerId = customer.id;
+        
+        // Update user with Stripe customer ID
+        await db.update(users)
+          .set({ stripeCustomerId: customerId })
+          .where(eq(users.id, user.id));
+      }
+
+      const setupIntent = await createSetupIntent(customerId);
+
+      res.json({
+        success: true,
+        clientSecret: setupIntent.client_secret,
+        customerId
+      });
+    } catch (error) {
+      console.error("Create setup intent error:", error);
+      res.status(500).json({ error: "Failed to create setup intent" });
+    }
+  });
+
+  // Create subscription
+  app.post("/api/subscription/create", requireAuth, async (req, res) => {
+    try {
+      const { planId, paymentMethodId } = req.body;
+      
+      if (!planId) {
+        return res.status(400).json({ error: "Plan ID is required" });
+      }
+
+      const user = await storage.getUser(req.user!.id);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      // Get the subscription plan
+      const plan = await db.select().from(subscriptionPlans)
+        .where(eq(subscriptionPlans.id, planId))
+        .limit(1);
+
+      if (!plan[0]) {
+        return res.status(404).json({ error: "Subscription plan not found" });
+      }
+
+      const planData = plan[0];
+
+      // For free plans, just update user status
+      if (planData.price === '0.00') {
+        await db.update(users)
+          .set({
+            subscriptionStatus: 'active',
+            subscriptionTier: planData.name.toLowerCase(),
+            updatedAt: new Date()
+          })
+          .where(eq(users.id, user.id));
+
+        return res.json({
+          success: true,
+          message: "Free plan activated successfully"
+        });
+      }
+
+      // For paid plans, require payment method
+      if (!paymentMethodId) {
+        return res.status(400).json({ error: "Payment method is required for paid plans" });
+      }
+
+      let customerId = user.stripeCustomerId;
+
+      // Create Stripe customer if doesn't exist
+      if (!customerId) {
+        const customer = await createStripeCustomer({
+          email: user.email,
+          name: `${user.firstName || ''} ${user.lastName || ''}`.trim() || undefined,
+          metadata: { userId: user.id.toString() }
+        });
+        
+        customerId = customer.id;
+        
+        // Update user with Stripe customer ID
+        await db.update(users)
+          .set({ stripeCustomerId: customerId })
+          .where(eq(users.id, user.id));
+      }
+
+      // Create subscription in Stripe
+      const subscription = await createSubscription({
+        customerId,
+        priceId: planData.stripePriceId,
+        paymentMethodId
+      });
+
+      // Sync subscription data to database
+      await syncSubscriptionFromStripe(subscription.id, user.id);
+
+      res.json({
+        success: true,
+        subscription: {
+          id: subscription.id,
+          status: subscription.status,
+          clientSecret: (typeof subscription.latest_invoice === 'object' && subscription.latest_invoice) 
+            ? (subscription.latest_invoice as any)?.payment_intent?.client_secret 
+            : undefined
+        }
+      });
+    } catch (error) {
+      console.error("Create subscription error:", error);
+      res.status(500).json({ error: "Failed to create subscription" });
+    }
+  });
+
+  // Cancel subscription
+  app.post("/api/subscription/cancel", requireAuth, async (req, res) => {
+    try {
+      const { immediate = false } = req.body;
+      
+      const user = await storage.getUser(req.user!.id);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      // Get user's active subscription
+      const subscription = await db.select().from(subscriptions)
+        .where(eq(subscriptions.userId, req.user!.id))
+        .orderBy(desc(subscriptions.createdAt))
+        .limit(1);
+
+      if (!subscription[0]?.stripeSubscriptionId) {
+        return res.status(404).json({ error: "No active subscription found" });
+      }
+
+      const canceledSubscription = await cancelSubscription(
+        subscription[0].stripeSubscriptionId,
+        !immediate
+      );
+
+      // Sync updated subscription data
+      await syncSubscriptionFromStripe(canceledSubscription.id, user.id);
+
+      res.json({
+        success: true,
+        message: immediate ? "Subscription canceled immediately" : "Subscription will cancel at period end"
+      });
+    } catch (error) {
+      console.error("Cancel subscription error:", error);
+      res.status(500).json({ error: "Failed to cancel subscription" });
+    }
+  });
+
+  // Reactivate subscription
+  app.post("/api/subscription/reactivate", requireAuth, async (req, res) => {
+    try {
+      const user = await storage.getUser(req.user!.id);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      // Get user's subscription
+      const subscription = await db.select().from(subscriptions)
+        .where(eq(subscriptions.userId, req.user!.id))
+        .orderBy(desc(subscriptions.createdAt))
+        .limit(1);
+
+      if (!subscription[0]?.stripeSubscriptionId) {
+        return res.status(404).json({ error: "No subscription found" });
+      }
+
+      const reactivatedSubscription = await reactivateSubscription(
+        subscription[0].stripeSubscriptionId
+      );
+
+      // Sync updated subscription data
+      await syncSubscriptionFromStripe(reactivatedSubscription.id, user.id);
+
+      res.json({
+        success: true,
+        message: "Subscription reactivated successfully"
+      });
+    } catch (error) {
+      console.error("Reactivate subscription error:", error);
+      res.status(500).json({ error: "Failed to reactivate subscription" });
+    }
+  });
+
+  // Create billing portal session
+  app.post("/api/subscription/billing-portal", requireAuth, async (req, res) => {
+    try {
+      const user = await storage.getUser(req.user!.id);
+      if (!user?.stripeCustomerId) {
+        return res.status(404).json({ error: "No Stripe customer found" });
+      }
+
+      const session = await createBillingPortalSession(
+        user.stripeCustomerId,
+        `${req.protocol}://${req.get('host')}/dashboard`
+      );
+
+      res.json({
+        success: true,
+        url: session.url
+      });
+    } catch (error) {
+      console.error("Create billing portal session error:", error);
+      res.status(500).json({ error: "Failed to create billing portal session" });
     }
   });
 

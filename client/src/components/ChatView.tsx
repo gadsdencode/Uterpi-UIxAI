@@ -349,8 +349,8 @@ const commandSuggestions: CommandSuggestion[] = [
   },
   {
     icon: <Brain className="w-4 h-4" />,
-    label: "Analyze",
-    description: "Analyze design patterns",
+    label: "NomadAI System Status",
+    description: "NomadAI system status report",
     prefix: "/analyze"
   }
 ];

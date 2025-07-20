@@ -178,8 +178,8 @@ const AnalyzeModal: React.FC<AnalyzeModalProps> = ({ isOpen, onClose }) => {
                 <Brain className="w-6 h-6 text-purple-400" />
               </div>
               <div>
-                <h2 className="text-xl font-semibold text-white">Analyze Project</h2>
-                <p className="text-sm text-slate-400">Deep analysis of performance and design patterns</p>
+                <h2 className="text-xl font-semibold text-white">Analyze NomadAI System</h2>
+                <p className="text-sm text-slate-400">Analysis of performance and system architecture</p>
               </div>
             </div>
             <button
@@ -216,7 +216,7 @@ const AnalyzeModal: React.FC<AnalyzeModalProps> = ({ isOpen, onClose }) => {
                 }`}
               >
                 <Target className="w-4 h-4" />
-                Design Patterns
+                System Status & Architecture
               </button>
             </div>
 
@@ -228,7 +228,7 @@ const AnalyzeModal: React.FC<AnalyzeModalProps> = ({ isOpen, onClose }) => {
                       <BarChart3 className="w-16 h-16 text-purple-400 mx-auto mb-4" />
                       <h3 className="text-lg font-semibold text-white mb-2">Performance Analysis</h3>
                       <p className="text-slate-400 mb-6">
-                        Analyze your application's performance metrics including load time, bundle size, and render performance.
+                        Analyze NomadAI performance metrics including load time, bundle size, and render performance.
                       </p>
                       <motion.button
                         onClick={analyzePerformance}
@@ -377,9 +377,9 @@ const AnalyzeModal: React.FC<AnalyzeModalProps> = ({ isOpen, onClose }) => {
                   <div className="text-center space-y-6">
                     <div className="p-8 bg-slate-800/50 rounded-xl border border-slate-700/50">
                       <Target className="w-16 h-16 text-purple-400 mx-auto mb-4" />
-                      <h3 className="text-lg font-semibold text-white mb-2">Design Pattern Analysis</h3>
+                      <h3 className="text-lg font-semibold text-white mb-2">System Status</h3>
                       <p className="text-slate-400 mb-6">
-                        Analyze your codebase for design patterns, anti-patterns, and architectural best practices.
+                        NomadAI systems status.
                       </p>
                       <motion.button
                         onClick={analyzePatterns}
@@ -388,7 +388,7 @@ const AnalyzeModal: React.FC<AnalyzeModalProps> = ({ isOpen, onClose }) => {
                         whileTap={{ scale: 0.98 }}
                       >
                         <Target className="w-4 h-4" />
-                        Analyze Design Patterns
+                        System Status Report
                       </motion.button>
                     </div>
                   </div>
@@ -411,7 +411,7 @@ const AnalyzeModal: React.FC<AnalyzeModalProps> = ({ isOpen, onClose }) => {
                       </motion.div>
                     </div>
                     <div className="text-center">
-                      <h3 className="text-xl font-semibold text-white mb-2">Analyzing Design Patterns</h3>
+                      <h3 className="text-xl font-semibold text-white mb-2">Analyzing System Architecture</h3>
                       <p className="text-slate-400">Scanning code for patterns, anti-patterns, and architecture...</p>
                     </div>
                   </div>
@@ -420,8 +420,8 @@ const AnalyzeModal: React.FC<AnalyzeModalProps> = ({ isOpen, onClose }) => {
                 {patternsResult && (
                   <div className="space-y-6">
                     <div className="text-center">
-                      <h3 className="text-lg font-semibold text-white mb-2">Design Pattern Analysis</h3>
-                      <p className="text-slate-400">Detected patterns and recommendations</p>
+                      <h3 className="text-lg font-semibold text-white mb-2">Analyzing System Architecture</h3>
+                      <p className="text-slate-400">Scanning code for patterns, anti-patterns, and architecture...</p>
                     </div>
 
                     <div className="grid md:grid-cols-2 gap-6">
@@ -429,7 +429,7 @@ const AnalyzeModal: React.FC<AnalyzeModalProps> = ({ isOpen, onClose }) => {
                       <div className="space-y-4">
                         <h4 className="text-white font-medium flex items-center gap-2">
                           <CheckCircle className="w-5 h-5 text-green-400" />
-                          Detected Patterns
+                          System Architecture
                         </h4>
                         <div className="space-y-3">
                           {patternsResult.detected.map((pattern, index) => (

@@ -178,8 +178,8 @@ const AnalyzeModal: React.FC<AnalyzeModalProps> = ({ isOpen, onClose }) => {
                 <Brain className="w-6 h-6 text-purple-400" />
               </div>
               <div>
-                <h2 className="text-xl font-semibold text-white">Analyze NomadAI System</h2>
-                <p className="text-sm text-slate-400">Analysis of performance and system architecture</p>
+                <h2 className="text-xl font-semibold text-white">NomadAI System Performance & Status</h2>
+                <p className="text-sm text-slate-400">Analysis of performance, system architecture, and current status</p>
               </div>
             </div>
             <button
@@ -377,9 +377,9 @@ const AnalyzeModal: React.FC<AnalyzeModalProps> = ({ isOpen, onClose }) => {
                   <div className="text-center space-y-6">
                     <div className="p-8 bg-slate-800/50 rounded-xl border border-slate-700/50">
                       <Target className="w-16 h-16 text-purple-400 mx-auto mb-4" />
-                      <h3 className="text-lg font-semibold text-white mb-2">System Status</h3>
+                      <h3 className="text-lg font-semibold text-white mb-2">NomadAI System Status</h3>
                       <p className="text-slate-400 mb-6">
-                        NomadAI systems status.
+                        Run for a full system status report.
                       </p>
                       <motion.button
                         onClick={analyzePatterns}
@@ -388,7 +388,7 @@ const AnalyzeModal: React.FC<AnalyzeModalProps> = ({ isOpen, onClose }) => {
                         whileTap={{ scale: 0.98 }}
                       >
                         <Target className="w-4 h-4" />
-                        System Status Report
+                        Start System Status Analysis
                       </motion.button>
                     </div>
                   </div>

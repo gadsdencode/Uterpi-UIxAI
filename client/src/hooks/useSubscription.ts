@@ -265,27 +265,37 @@ export const useSubscription = (): UseSubscriptionReturn => {
   const needsPaymentUpdate = isPastDue;
 
   const canAccessFeature = useCallback((requiredTier?: string) => {
+    // Return false if still loading to prevent flash of wrong content
+    if (isLoading) return false;
+    
     if (!subscription) return false;
     
-    // Always allow access if user has active subscription or is trialing
-    if (hasActiveSubscription) {
-      if (!requiredTier) return true;
-      
-      // Check tier hierarchy
-      const tierHierarchy: Record<string, number> = { 
-        free: 0, 
-        basic: 1, 
-        premium: 2 
-      };
-      
-      const userTierLevel = tierHierarchy[subscription.tier?.toLowerCase()] || 0;
-      const requiredTierLevel = tierHierarchy[requiredTier.toLowerCase()] || 0;
-      
-      return userTierLevel >= requiredTierLevel;
+    // Check tier hierarchy first - Friends & Family should have premium access
+    const tierHierarchy: Record<string, number> = { 
+      free: 0, 
+      basic: 1, 
+      premium: 2,
+      friends_family: 2, // Friends & Family gets premium access
+      nomadai_pro: 2,    // Alias for premium
+      'nomadai pro': 2   // Handle potential space variations
+    };
+    
+    // Allow access for friends_family tier regardless of status for now (testing phase)
+    if (subscription.tier?.toLowerCase() === 'friends_family') {
+      return true; // Always allow Friends & Family users during testing
     }
     
-    return false;
-  }, [subscription, hasActiveSubscription]);
+    // For other tiers, check normal subscription logic
+    const isActive = subscription?.status === 'active' || subscription?.status === 'trialing';
+    if (!isActive) return false;
+    
+    if (!requiredTier) return true;
+    
+    const userTierLevel = tierHierarchy[subscription.tier?.toLowerCase()] || 0;
+    const requiredTierLevel = tierHierarchy[requiredTier.toLowerCase()] || 0;
+    
+    return userTierLevel >= requiredTierLevel;
+  }, [subscription, isLoading]);
 
   // Load data on mount and when authentication changes
   useEffect(() => {

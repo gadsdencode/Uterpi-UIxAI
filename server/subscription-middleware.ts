@@ -174,7 +174,7 @@ export function requireActiveSubscription(options: {
 
       // Check tier requirements
       if (requiredTier) {
-        const tierHierarchy = { basic: 1, premium: 2 };
+        const tierHierarchy = { basic: 1, premium: 2, friends_family: 2 }; // Friends & Family gets premium access
         const userTierLevel = tierHierarchy[accessCheck.tier as keyof typeof tierHierarchy] || 0;
         const requiredTierLevel = tierHierarchy[requiredTier];
 

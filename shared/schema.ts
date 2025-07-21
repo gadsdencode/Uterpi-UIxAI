@@ -38,6 +38,10 @@ export const users = pgTable("users", {
   overrideGrantedBy: integer("override_granted_by"), // Admin user ID who granted override
   overrideGrantedAt: timestamp("override_granted_at"),
   overrideExpiresAt: timestamp("override_expires_at"), // Optional expiration for temporary overrides
+  
+  // Password reset fields
+  resetToken: text("reset_token").unique(),
+  resetTokenExpiry: timestamp("reset_token_expiry"),
 });
 
 // Subscription plans table
@@ -205,6 +209,17 @@ export const loginUserSchema = z.object({
   password: z.string().min(1, "Password is required"),
 });
 
+// Schema for forgot password request
+export const forgotPasswordSchema = z.object({
+  email: z.string().email("Invalid email address"),
+});
+
+// Schema for password reset
+export const resetPasswordSchema = z.object({
+  token: z.string().min(1, "Reset token is required"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
+});
+
 // Schema for user profile updates
 export const updateProfileSchema = z.object({
   firstName: z.string().min(1, "First name is required").optional(),
@@ -272,6 +287,8 @@ export const registerWithSubscriptionSchema = z.object({
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type RegisterUser = z.infer<typeof registerUserSchema>;
 export type LoginUser = z.infer<typeof loginUserSchema>;
+export type ForgotPassword = z.infer<typeof forgotPasswordSchema>;
+export type ResetPassword = z.infer<typeof resetPasswordSchema>;
 export type UpdateProfile = z.infer<typeof updateProfileSchema>;
 export type OAuthUser = z.infer<typeof oauthUserSchema>;
 export type User = typeof users.$inferSelect;

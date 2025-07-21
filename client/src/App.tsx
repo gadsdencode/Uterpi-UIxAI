@@ -5,6 +5,7 @@ import { Toaster } from './components/ui/sonner'
 import { AuthProvider, useAuth } from './hooks/useAuth'
 import { LoginForm } from './components/auth/LoginForm'
 import { RegisterForm } from './components/auth/RegisterForm'
+import { ForgotPasswordForm } from './components/auth/ForgotPasswordForm'
 import { UserMenu } from './components/auth/UserMenu'
 import { SubscriptionGuard } from './components/SubscriptionGuard'
 import { Button } from './components/ui/button'
@@ -386,7 +387,7 @@ const RippleButton: React.FC<{
 const AuthenticatedApp: React.FC = () => {
   const { user, loading } = useAuth();
   const [showAuth, setShowAuth] = useState(false);
-  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [authMode, setAuthMode] = useState<'login' | 'register' | 'forgot-password'>('login');
 
   if (loading) {
     return (
@@ -542,21 +543,26 @@ const AuthenticatedApp: React.FC = () => {
 
         {/* Auth Forms - positioned to cover the entire screen */}
         <div className="relative z-10 min-h-screen flex items-center justify-center p-4">
-        {authMode === 'login' ? (
-            <div className="w-full max-w-md mx-auto">
-          <LoginForm
-            onSwitchToRegister={() => setAuthMode('register')}
-            onSuccess={() => setShowAuth(false)}
-          />
-            </div>
-        ) : (
-            <div className="w-full max-w-md mx-auto">
-          <RegisterForm
-            onSwitchToLogin={() => setAuthMode('login')}
-            onSuccess={() => setShowAuth(false)}
-          />
-            </div>
-        )}
+          <div className="w-full max-w-md mx-auto">
+            {authMode === 'login' && (
+              <LoginForm
+                onSwitchToRegister={() => setAuthMode('register')}
+                onForgotPassword={() => setAuthMode('forgot-password')}
+                onSuccess={() => setShowAuth(false)}
+              />
+            )}
+            {authMode === 'register' && (
+              <RegisterForm
+                onSwitchToLogin={() => setAuthMode('login')}
+                onSuccess={() => setShowAuth(false)}
+              />
+            )}
+            {authMode === 'forgot-password' && (
+              <ForgotPasswordForm
+                onBackToLogin={() => setAuthMode('login')}
+              />
+            )}
+          </div>
         
           <div className="absolute top-6 left-6">
             <RippleButton

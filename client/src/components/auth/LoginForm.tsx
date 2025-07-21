@@ -9,6 +9,7 @@ import { useAuth } from '../../hooks/useAuth';
 
 interface LoginFormProps {
   onSwitchToRegister?: () => void;
+  onForgotPassword?: () => void;
   onSuccess?: () => void;
 }
 
@@ -384,7 +385,7 @@ const RippleButton: React.FC<{
   );
 };
 
-export const LoginForm: React.FC<LoginFormProps> = ({ onSwitchToRegister, onSuccess }) => {
+export const LoginForm: React.FC<LoginFormProps> = ({ onSwitchToRegister, onForgotPassword, onSuccess }) => {
   const { login, loginWithGoogle, loading } = useAuth();
   const [formData, setFormData] = useState({
     email: '',
@@ -509,6 +510,18 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSwitchToRegister, onSucc
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
+                {onForgotPassword && (
+                  <div className="text-right">
+                    <button
+                      type="button"
+                      onClick={onForgotPassword}
+                      className="text-sm text-violet-400 hover:text-violet-300 underline underline-offset-4 transition-colors"
+                      disabled={isSubmitting || loading}
+                    >
+                      Forgot password?
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
             

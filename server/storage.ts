@@ -22,6 +22,12 @@ export interface IStorage {
   
   // OAuth linking
   linkGoogleAccount(userId: number, googleId: string): Promise<User | undefined>;
+  
+  // Password reset methods
+  generatePasswordResetToken(email: string): Promise<string | null>;
+  validatePasswordResetToken(token: string): Promise<User | null>;
+  resetPassword(token: string, newPassword: string): Promise<boolean>;
+  clearPasswordResetToken(userId: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -204,6 +210,108 @@ export class DatabaseStorage implements IStorage {
       return undefined;
     }
   }
+
+  async generatePasswordResetToken(email: string): Promise<string | null> {
+    try {
+      const user = await this.getUserByEmail(email);
+      if (!user) {
+        return null; // User doesn't exist
+      }
+
+      // Generate a secure random token
+      const crypto = await import('crypto');
+      const resetToken = crypto.randomBytes(32).toString('hex');
+      
+      // Set expiry to 1 hour from now
+      const resetTokenExpiry = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+      // Update user with reset token
+      await db
+        .update(users)
+        .set({ 
+          resetToken,
+          resetTokenExpiry,
+          updatedAt: new Date()
+        })
+        .where(eq(users.id, user.id));
+
+      return resetToken;
+    } catch (error) {
+      console.error("Error generating password reset token:", error);
+      return null;
+    }
+  }
+
+  async validatePasswordResetToken(token: string): Promise<User | null> {
+    try {
+      const result = await db
+        .select()
+        .from(users)
+        .where(eq(users.resetToken, token));
+      
+      const user = result[0];
+      if (!user || !user.resetTokenExpiry) {
+        return null; // Token doesn't exist
+      }
+
+      // Check if token has expired
+      if (new Date() > user.resetTokenExpiry) {
+        // Clear expired token
+        await this.clearPasswordResetToken(user.id);
+        return null;
+      }
+
+      return user;
+    } catch (error) {
+      console.error("Error validating password reset token:", error);
+      return null;
+    }
+  }
+
+  async resetPassword(token: string, newPassword: string): Promise<boolean> {
+    try {
+      const user = await this.validatePasswordResetToken(token);
+      if (!user) {
+        return false; // Invalid or expired token
+      }
+
+      // Hash the new password
+      const saltRounds = 12;
+      const hashedPassword = await bcrypt.hash(newPassword, saltRounds);
+
+      // Update password and clear reset token
+      await db
+        .update(users)
+        .set({
+          password: hashedPassword,
+          resetToken: null,
+          resetTokenExpiry: null,
+          updatedAt: new Date()
+        })
+        .where(eq(users.id, user.id));
+
+      return true;
+    } catch (error) {
+      console.error("Error resetting password:", error);
+      return false;
+    }
+  }
+
+  async clearPasswordResetToken(userId: number): Promise<void> {
+    try {
+      await db
+        .update(users)
+        .set({
+          resetToken: null,
+          resetTokenExpiry: null,
+          updatedAt: new Date()
+        })
+        .where(eq(users.id, userId));
+    } catch (error) {
+      console.error("Error clearing password reset token:", error);
+      // Don't throw, as this is a cleanup operation
+    }
+  }
 }
 
 // Keep memory storage for development/testing purposes (fallback)
@@ -273,6 +381,8 @@ export class MemStorage implements IStorage {
       overrideReason: null,
       overrideGrantedBy: null,
       overrideGrantedAt: null,
+      resetToken: null,
+      resetTokenExpiry: null,
     };
     
     this.users.set(id, user);
@@ -308,6 +418,8 @@ export class MemStorage implements IStorage {
       overrideReason: null,
       overrideGrantedBy: null,
       overrideGrantedAt: null,
+      resetToken: null,
+      resetTokenExpiry: null,
     };
     
     this.users.set(id, user);
@@ -342,6 +454,71 @@ export class MemStorage implements IStorage {
 
   async linkGoogleAccount(userId: number, googleId: string): Promise<User | undefined> {
     return this.updateUser(userId, { googleId });
+  }
+
+  async generatePasswordResetToken(email: string): Promise<string | null> {
+    const user = await this.getUserByEmail(email);
+    if (!user) return null;
+
+    // Generate a simple token for memory storage
+    const crypto = await import('crypto');
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const resetTokenExpiry = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+    const updatedUser = { 
+      ...user, 
+      resetToken, 
+      resetTokenExpiry, 
+      updatedAt: new Date() 
+    };
+    this.users.set(user.id, updatedUser);
+    return resetToken;
+  }
+
+  async validatePasswordResetToken(token: string): Promise<User | null> {
+    const userArray = Array.from(this.users.values());
+    for (const user of userArray) {
+      if (user.resetToken === token && user.resetTokenExpiry) {
+        if (new Date() > user.resetTokenExpiry) {
+          // Clear expired token
+          await this.clearPasswordResetToken(user.id);
+          return null;
+        }
+        return user;
+      }
+    }
+    return null;
+  }
+
+  async resetPassword(token: string, newPassword: string): Promise<boolean> {
+    const user = await this.validatePasswordResetToken(token);
+    if (!user) return false;
+
+    const saltRounds = 12;
+    const hashedPassword = await bcrypt.hash(newPassword, saltRounds);
+
+    const updatedUser = {
+      ...user,
+      password: hashedPassword,
+      resetToken: null,
+      resetTokenExpiry: null,
+      updatedAt: new Date()
+    };
+    this.users.set(user.id, updatedUser);
+    return true;
+  }
+
+  async clearPasswordResetToken(userId: number): Promise<void> {
+    const user = this.users.get(userId);
+    if (user) {
+      const updatedUser = {
+        ...user,
+        resetToken: null,
+        resetTokenExpiry: null,
+        updatedAt: new Date()
+      };
+      this.users.set(userId, updatedUser);
+    }
   }
 }
 

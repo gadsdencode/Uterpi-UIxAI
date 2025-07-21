@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { requireAuth, requireGuest } from "./auth";
 import passport from "./auth";
-import { registerUserSchema, loginUserSchema, publicUserSchema, updateProfileSchema, subscriptionPlans, subscriptions, users, files } from "@shared/schema";
+import { registerUserSchema, loginUserSchema, forgotPasswordSchema, resetPasswordSchema, publicUserSchema, updateProfileSchema, subscriptionPlans, subscriptions, users, files } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and } from "drizzle-orm";
 import { createStripeCustomer, createSetupIntent, createSubscription, cancelSubscription, reactivateSubscription, createBillingPortalSession, syncSubscriptionFromStripe } from "./stripe";
@@ -480,6 +480,99 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.redirect("/?auth=success");
     }
   );
+
+  // Password reset routes
+  app.post("/api/auth/forgot-password", requireGuest, async (req, res) => {
+    try {
+      const validatedData = forgotPasswordSchema.parse(req.body);
+      const { email } = validatedData;
+
+      // Generate reset token
+      const resetToken = await storage.generatePasswordResetToken(email);
+      
+      if (!resetToken) {
+        // For security reasons, we don't reveal if the email exists or not
+        // Always return success even if email doesn't exist
+        return res.json({ 
+          success: true, 
+          message: "If an account with that email exists, a password reset link has been sent." 
+        });
+      }
+
+      // Get user info for email personalization
+      const user = await storage.getUserByEmail(email);
+      const displayName = user?.firstName || user?.username || '';
+
+      // Send password reset email
+      const { sendPasswordResetEmail } = await import('./email');
+      await sendPasswordResetEmail({
+        to: email,
+        name: displayName,
+        resetToken
+      });
+
+      res.json({ 
+        success: true, 
+        message: "If an account with that email exists, a password reset link has been sent." 
+      });
+    } catch (error: any) {
+      console.error("Forgot password error:", error);
+      if (error.issues) {
+        // Zod validation error
+        res.status(400).json({ 
+          error: "Validation failed", 
+          details: error.issues 
+        });
+      } else {
+        res.status(500).json({ error: "Failed to process password reset request" });
+      }
+    }
+  });
+
+  app.post("/api/auth/reset-password", requireGuest, async (req, res) => {
+    try {
+      const validatedData = resetPasswordSchema.parse(req.body);
+      const { token, password } = validatedData;
+
+      // Validate token and reset password
+      const success = await storage.resetPassword(token, password);
+      
+      if (!success) {
+        return res.status(400).json({ error: "Invalid or expired reset token" });
+      }
+
+      // Get user info to send confirmation email
+      const user = await storage.validatePasswordResetToken(token);
+      if (user) {
+        try {
+          const { sendPasswordResetConfirmationEmail } = await import('./email');
+          await sendPasswordResetConfirmationEmail(
+            user.email, 
+            user.firstName || user.username || ''
+          );
+        } catch (emailError) {
+          console.error("Failed to send confirmation email:", emailError);
+          // Don't fail the password reset if confirmation email fails
+        }
+      }
+
+      res.json({ 
+        success: true, 
+        message: "Password has been reset successfully. You can now log in with your new password." 
+      });
+    } catch (error: any) {
+      console.error("Reset password error:", error);
+      if (error.issues) {
+        // Zod validation error
+        res.status(400).json({ 
+          error: "Validation failed", 
+          details: error.issues 
+        });
+      } else {
+        res.status(500).json({ error: "Failed to reset password" });
+      }
+    }
+  });
 
   // =============================================================================
   // USER PROFILE ROUTES

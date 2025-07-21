@@ -109,11 +109,21 @@ export class IntelligentToastService {
   private metrics: ConversationMetrics;
   private performanceHistory: PerformanceData[] = [];
   private shownRecommendations: Set<string> = new Set();
+  private recommendationTimestamps: Map<string, number> = new Map(); // Track when recommendations were last shown
   private lastAnalysisTime: number = 0;
   private toastFunction: ToastFunction;
   private availableModels: LLMModel[] = [];
   private modelSwitchCallback?: (modelId: string) => void;
   private newChatCallback?: () => void;
+
+  // Cache rules by category
+  private readonly CACHE_RULES = {
+    'alert': { permanent: true, cooldownMinutes: 0 },           // Never show again
+    'optimization': { permanent: true, cooldownMinutes: 0 },   // Never show again
+    'insight': { permanent: false, cooldownMinutes: 1 },       // Show again after 1 minute (was 2)
+    'suggestion': { permanent: false, cooldownMinutes: 1.5 },  // Show again after 1.5 minutes (was 3)
+    'enhancement': { permanent: false, cooldownMinutes: 2 }    // Show again after 2 minutes (was 5)
+  };
 
   constructor(
     aiService: AzureAIService, 
@@ -216,6 +226,8 @@ export class IntelligentToastService {
           hasUserInteractionStyle: !!analysis?.userInteractionStyle,
           hasBehavioralInsights: !!analysis?.behavioralInsights,
           hasConversationDynamics: !!analysis?.conversationDynamics,
+          hasHiddenInsights: !!analysis?.hiddenInsights,
+          hasInteractionQuality: !!analysis?.interactionQuality,
           keys: Object.keys(analysis || {})
         });
       } catch (aiError) {
@@ -228,6 +240,8 @@ export class IntelligentToastService {
           hasUserInteractionStyle: !!analysis?.userInteractionStyle,
           hasBehavioralInsights: !!analysis?.behavioralInsights,
           hasConversationDynamics: !!analysis?.conversationDynamics,
+          hasHiddenInsights: !!analysis?.hiddenInsights,
+          hasInteractionQuality: !!analysis?.interactionQuality,
           keys: Object.keys(analysis || {})
         });
       }
@@ -244,13 +258,15 @@ export class IntelligentToastService {
       const topRecommendation = this.selectTopRecommendation(recommendations);
       console.log('🎯 Selected top recommendation:', topRecommendation);
       
-      if (topRecommendation && !this.shownRecommendations.has(topRecommendation.id)) {
+      if (topRecommendation && this.canShowRecommendation(topRecommendation)) {
         console.log('📢 Showing smart recommendation:', topRecommendation.title);
         this.showSmartToast(topRecommendation);
-        this.shownRecommendations.add(topRecommendation.id);
+        this.markRecommendationShown(topRecommendation);
         console.log('✅ Recommendation shown and added to cache');
       } else if (topRecommendation) {
-        console.log('🔄 Top recommendation already shown:', topRecommendation.title);
+        console.log('🔄 Top recommendation already shown or blocked:', topRecommendation.title);
+        console.log('🔄 Recommendation ID:', topRecommendation.id);
+        console.log('🔄 Previously shown IDs:', Array.from(this.shownRecommendations));
       } else {
         console.log('ℹ️ No new recommendations to show');
       }
@@ -554,7 +570,7 @@ Return ONLY a JSON object with this structure:
       m.content.toLowerCase().includes('how about')
     );
     
-    // Determine interaction patterns
+    // Determine interaction patterns based on message count and content
     const communicationType = avgUserMessageLength > 200 ? 'detailed' : 
                              hasFollowUps ? 'iterative' : 
                              hasQuestions ? 'exploratory' : 'direct';
@@ -565,6 +581,50 @@ Return ONLY a JSON object with this structure:
     const engagementLevel = userMessages.length > 5 ? 'high' : 
                            userMessages.length > 2 ? 'medium' : 'low';
     
+    // Determine learning style based on content
+    const learningStyle = hasCode ? 'practical' : 
+                         avgUserMessageLength > 150 ? 'theoretical' : 'experimental';
+    
+    // Determine problem-solving approach
+    const problemSolvingApproach = hasCode ? 'systematic' : 
+                                  hasFollowUps ? 'iterative' : 'creative';
+    
+    // Determine confidence level based on question patterns
+    const confidenceLevel = hasFollowUps ? 'medium' : 
+                           hasQuestions ? 'low' : 'high';
+    
+    // Determine topic depth
+    const topicDepth = hasCode ? 'deep' : 
+                      avgUserMessageLength > 100 ? 'moderate' : 'surface';
+    
+    // Determine focus pattern
+    const focusPattern = userMessages.length > 8 ? 'multi-topic' : 'single-topic';
+    
+    // Calculate interaction quality scores
+    const clarityScore = Math.min(10, Math.max(1, 8 - (userMessages.length * 0.2)));
+    const efficiencyScore = Math.min(10, Math.max(1, 7 - (userMessages.length * 0.15)));
+    const satisfactionPrediction = Math.min(10, Math.max(1, 9 - (userMessages.length * 0.1)));
+    
+    // Generate thinking pattern based on interaction style
+    const thinkingPattern = hasCode ? "You approach problems systematically with practical solutions" :
+                           hasFollowUps ? "You build understanding iteratively, refining your approach" :
+                           "You seek comprehensive understanding before taking action";
+    
+    // Generate AI assumptions based on interaction style
+    const aiAssumptions = hasCode ? "You expect precise, actionable technical guidance" :
+                         hasFollowUps ? "You expect the AI to build on previous responses" :
+                         "You expect comprehensive, detailed explanations";
+    
+    // Generate uncertainty handling based on question patterns
+    const uncertaintyHandling = hasQuestions ? "You ask clarifying questions when concepts are unclear" :
+                               hasFollowUps ? "You explore alternatives to find the best approach" :
+                               "You prefer to gather comprehensive information before proceeding";
+    
+    // Generate motivation based on interaction patterns
+    const motivation = hasCode ? "You're motivated by practical problem-solving and skill development" :
+                      hasFollowUps ? "You're motivated by thorough understanding and optimal solutions" :
+                      "You're motivated by comprehensive knowledge and clear explanations";
+    
     return {
       userInteractionStyle: {
         communicationType,
@@ -573,29 +633,29 @@ Return ONLY a JSON object with this structure:
         patienceLevel: 'medium'
       },
       conversationDynamics: {
-        topicDepth: hasCode ? 'deep' : 'moderate',
-        focusPattern: userMessages.length > 8 ? 'multi-topic' : 'single-topic',
+        topicDepth,
+        focusPattern,
         complexityProgression: 'stable',
         responsePreference: 'detailed'
       },
       behavioralInsights: {
-        learningStyle: hasCode ? 'practical' : 'theoretical',
-        problemSolvingApproach: hasCode ? 'systematic' : 'creative',
-        confidenceLevel: 'medium',
-        expertiseArea: hasCode ? ['programming'] : ['general'],
-        improvementAreas: ['communication_clarity']
+        learningStyle,
+        problemSolvingApproach,
+        confidenceLevel,
+        expertiseArea: hasCode ? ['programming', 'technical'] : ['general', 'analytical'],
+        improvementAreas: ['communication_clarity', 'focus_optimization']
       },
       interactionQuality: {
-        clarityScore: 7,
-        efficiencyScore: 6,
-        satisfactionPrediction: 8,
-        potentialFrustrationPoints: ['response_length', 'complexity']
+        clarityScore: Math.round(clarityScore),
+        efficiencyScore: Math.round(efficiencyScore),
+        satisfactionPrediction: Math.round(satisfactionPrediction),
+        potentialFrustrationPoints: ['response_length', 'complexity', 'context_switching']
       },
       hiddenInsights: {
-        thinkingPattern: "User shows systematic approach to problem-solving",
-        aiAssumptions: "Expects detailed, comprehensive responses",
-        uncertaintyHandling: "Asks clarifying questions when needed",
-        motivation: "Seeks practical, actionable solutions"
+        thinkingPattern,
+        aiAssumptions,
+        uncertaintyHandling,
+        motivation
       }
     };
   }
@@ -630,6 +690,8 @@ Return ONLY a JSON object with this structure:
   private generateInsightBasedRecommendations(insights: any): SmartToast[] {
     const recommendations: SmartToast[] = [];
     
+    console.log('🧠 Generating insight-based recommendations from:', insights);
+    
     // Communication style insights
     if (insights.userInteractionStyle?.communicationType === 'detailed') {
       recommendations.push({
@@ -653,6 +715,17 @@ Return ONLY a JSON object with this structure:
       });
     }
     
+    if (insights.userInteractionStyle?.communicationType === 'exploratory') {
+      recommendations.push({
+        id: 'communication-style-exploratory',
+        title: "🔍 Exploratory Thinker",
+        description: "You explore topics thoroughly. This helps uncover the best solutions!",
+        category: 'insight',
+        priority: 'low',
+        actionable: false
+      });
+    }
+    
     // Learning style insights
     if (insights.behavioralInsights?.learningStyle === 'practical') {
       recommendations.push({
@@ -665,12 +738,34 @@ Return ONLY a JSON object with this structure:
       });
     }
     
+    if (insights.behavioralInsights?.learningStyle === 'theoretical') {
+      recommendations.push({
+        id: 'learning-style-theoretical',
+        title: "📚 Theoretical Learner",
+        description: "You prefer understanding concepts deeply. The AI is providing comprehensive explanations.",
+        category: 'insight',
+        priority: 'low',
+        actionable: false
+      });
+    }
+    
     // Confidence insights
     if (insights.behavioralInsights?.confidenceLevel === 'low') {
       recommendations.push({
         id: 'confidence-boost',
         title: "💪 Building Confidence",
         description: "Your questions show you're learning. Don't hesitate to ask for clarification - it's a sign of good thinking!",
+        category: 'insight',
+        priority: 'low',
+        actionable: false
+      });
+    }
+    
+    if (insights.behavioralInsights?.confidenceLevel === 'high') {
+      recommendations.push({
+        id: 'confidence-high',
+        title: "🚀 Confident Problem Solver",
+        description: "Your confident approach helps you tackle complex challenges effectively!",
         category: 'insight',
         priority: 'low',
         actionable: false
@@ -689,12 +784,34 @@ Return ONLY a JSON object with this structure:
       });
     }
     
+    if (insights.interactionQuality?.efficiencyScore >= 8) {
+      recommendations.push({
+        id: 'efficiency-high',
+        title: "⚡ Highly Efficient",
+        description: "Your communication style is very efficient! You get great results with clear, focused questions.",
+        category: 'insight',
+        priority: 'low',
+        actionable: false
+      });
+    }
+    
     // Hidden pattern insights
     if (insights.hiddenInsights?.thinkingPattern) {
       recommendations.push({
         id: 'thinking-pattern',
         title: "🧠 Your Thinking Pattern",
         description: insights.hiddenInsights.thinkingPattern,
+        category: 'insight',
+        priority: 'low',
+        actionable: false
+      });
+    }
+    
+    if (insights.hiddenInsights?.motivation) {
+      recommendations.push({
+        id: 'motivation-insight',
+        title: "🎯 Your Motivation",
+        description: insights.hiddenInsights.motivation,
         category: 'insight',
         priority: 'low',
         actionable: false
@@ -713,6 +830,53 @@ Return ONLY a JSON object with this structure:
       });
     }
     
+    if (insights.interactionQuality?.satisfactionPrediction < 6) {
+      recommendations.push({
+        id: 'satisfaction-improvement',
+        title: "🎯 Improving Satisfaction",
+        description: "Try being more specific about what you need. It helps the AI provide better, more relevant responses.",
+        category: 'suggestion',
+        priority: 'medium',
+        actionable: false
+      });
+    }
+    
+    // Topic depth insights
+    if (insights.conversationDynamics?.topicDepth === 'deep') {
+      recommendations.push({
+        id: 'topic-depth-deep',
+        title: "🔬 Deep Dive Expert",
+        description: "You're exploring topics in depth. This approach reveals valuable insights and solutions.",
+        category: 'insight',
+        priority: 'low',
+        actionable: false
+      });
+    }
+    
+    if (insights.conversationDynamics?.topicDepth === 'expert') {
+      recommendations.push({
+        id: 'topic-depth-expert',
+        title: "🎓 Expert Level Analysis",
+        description: "You're working at an expert level. Consider using the Technical system preset for even more detailed responses.",
+        category: 'enhancement',
+        priority: 'medium',
+        actionable: true
+      });
+    }
+    
+    // Focus pattern insights
+    if (insights.conversationDynamics?.focusPattern === 'multi-topic') {
+      recommendations.push({
+        id: 'focus-multi-topic',
+        title: "🎯 Multi-Topic Explorer",
+        description: "You're covering multiple topics. This shows broad thinking, but focusing on one area at a time can lead to deeper insights.",
+        category: 'suggestion',
+        priority: 'low',
+        actionable: false
+      });
+    }
+    
+    console.log(`💡 Generated ${recommendations.length} insight-based recommendations`);
     return recommendations;
   }
 
@@ -722,45 +886,44 @@ Return ONLY a JSON object with this structure:
     console.log('💡 Generating recommendations with analysis:', analysis);
     console.log('📊 Current metrics:', this.metrics);
 
-    // Only add basic engagement recommendation if no analysis is available
-    // This will be replaced by AI insights when analysis is working
-
-    // Conversation milestone - more frequent (every 3 messages instead of 5)
-    if (this.metrics.messageCount >= 3 && this.metrics.messageCount % 3 === 0) {
+    // PRIORITY 1: Long conversation warnings (highest priority - actionable)
+    if (this.metrics.messageCount >= 20) {
       recommendations.push({
-        id: `conversation-milestone-${this.metrics.messageCount}`,
-        title: "🎯 Conversation Milestone",
-        description: `You've had ${this.metrics.messageCount} messages in this conversation. Great job exploring!`,
-        category: 'insight',
-        priority: 'low',
-        actionable: false
+        id: 'long-conversation-warning',
+        title: "📊 Long Conversation Alert",
+        description: `You've had ${this.metrics.messageCount} messages. Consider starting a new chat for better performance and context clarity.`,
+        category: 'alert',
+        priority: 'high',
+        actionable: true,
+        action: {
+          label: "New Chat",
+          callback: () => this.triggerNewChat()
+        }
       });
     }
 
-    // Basic performance recommendation - lower threshold
-    if (this.metrics.averageResponseTime > 1000) { // Reduced from 2000 to 1000
+    // PRIORITY 2: Token usage optimization (lowered threshold for earlier warnings)
+    if (this.metrics.totalTokens > 10000) { // Reduced from 15000
       recommendations.push({
-        id: 'basic-performance',
-        title: "⚡ Performance Note",
-        description: `Response time averaging ${(this.metrics.averageResponseTime/1000).toFixed(1)}s. This is normal for complex queries.`,
-        category: 'insight',
-        priority: 'low',
-        actionable: false
+        id: 'token-optimization',
+        title: "📊 Token Usage Alert",
+        description: `High token usage (${this.metrics.totalTokens.toLocaleString()}). Consider starting a new conversation for optimal context`,
+        category: 'alert',
+        priority: 'high',
+        actionable: true,
+        action: {
+          label: "New Chat",
+          callback: () => this.triggerNewChat()
+        }
       });
     }
 
-    console.log(`📝 Generated ${recommendations.length} basic recommendations before analysis-based ones`);
-
-    if (!analysis) {
-      console.log('ℹ️ No analysis available, returning basic recommendations only');
-      return recommendations;
-    }
-
-    // Add insight-based recommendations
-    if (analysis.userInteractionStyle || analysis.behavioralInsights) {
+    // PRIORITY 3: AI-generated insights (only if analysis is available and has real insights)
+    if (analysis && (analysis.userInteractionStyle || analysis.behavioralInsights || analysis.hiddenInsights)) {
       console.log('🧠 Analysis has insight data, generating insight-based recommendations...');
       console.log('📋 userInteractionStyle:', analysis.userInteractionStyle);
       console.log('📋 behavioralInsights:', analysis.behavioralInsights);
+      console.log('📋 hiddenInsights:', analysis.hiddenInsights);
       
       const insightRecommendations = this.generateInsightBasedRecommendations(analysis);
       recommendations.push(...insightRecommendations);
@@ -768,44 +931,9 @@ Return ONLY a JSON object with this structure:
         insightRecommendations.map((r: SmartToast) => r.title));
     } else {
       console.log('⚠️ Analysis missing insight data. Available keys:', Object.keys(analysis || {}));
-      
-      // Add a fallback engagement recommendation only if no insights available
-      recommendations.push({
-        id: `basic-engagement-${Date.now()}`,
-        title: "💬 Analysis In Progress",
-        description: `Conversation analysis is learning your patterns. More insights will appear as we chat!`,
-        category: 'insight',
-        priority: 'low',
-        actionable: false
-      });
     }
 
-    // Model optimization recommendations - with proper filtering and realistic efficiency
-    if (!analysis.modelOptimal && 
-        analysis.modelRecommendation && 
-        analysis.modelRecommendation !== currentModel.id &&
-        analysis.confidenceScore >= 7) {
-      
-      const recommendedModel = this.availableModels.find(m => m.id === analysis.modelRecommendation);
-      if (recommendedModel) {
-        const efficiencyGain = this.calculateRealEfficiencyGain(currentModel, recommendedModel, analysis.taskType);
-        
-        recommendations.push({
-          id: `model-opt-${analysis.modelRecommendation}`,
-          title: "🚀 Model Optimization",
-          description: `${recommendedModel.name} would be ${efficiencyGain}% more effective for ${analysis.taskType} tasks. ${analysis.improvementReason || 'Better suited for this type of work.'}`,
-          category: 'optimization',
-          priority: 'high',
-          actionable: true,
-          action: {
-            label: "Switch Model",
-            callback: () => this.triggerModelSwitch(analysis.modelRecommendation)
-          }
-        });
-      }
-    }
-
-    // Performance insights
+    // PRIORITY 4: Performance insights
     if (this.metrics.averageResponseTime > 3000) {
       recommendations.push({
         id: 'performance-slow',
@@ -817,8 +945,33 @@ Return ONLY a JSON object with this structure:
       });
     }
 
-    // Context quality recommendations - lower threshold for better user guidance
-    if (analysis.focusScore < 6 && this.metrics.messageCount > 6) {
+    // PRIORITY 5: Model optimization recommendations
+    if (!analysis?.modelOptimal && 
+        analysis?.modelRecommendation && 
+        analysis.modelRecommendation !== currentModel.id &&
+        analysis?.confidenceScore >= 7) {
+      
+      const recommendedModel = this.availableModels.find(m => m.id === analysis.modelRecommendation);
+      if (recommendedModel) {
+        const efficiencyGain = this.calculateRealEfficiencyGain(currentModel, recommendedModel, analysis.taskType);
+        
+        recommendations.push({
+          id: `model-opt-${analysis.modelRecommendation}`,
+          title: "🚀 Model Optimization",
+          description: `${recommendedModel.name} would be ${efficiencyGain}% more effective for ${analysis.taskType} tasks. ${analysis.improvementReason || 'Better suited for this type of work.'}`,
+          category: 'optimization',
+          priority: 'medium',
+          actionable: true,
+          action: {
+            label: "Switch Model",
+            callback: () => this.triggerModelSwitch(analysis.modelRecommendation)
+          }
+        });
+      }
+    }
+
+    // PRIORITY 6: Context quality recommendations
+    if (analysis?.focusScore < 6 && this.metrics.messageCount > 6) {
       recommendations.push({
         id: 'context-focus',
         title: "🎯 Context Enhancement",
@@ -829,24 +982,8 @@ Return ONLY a JSON object with this structure:
       });
     }
 
-    // Token usage optimization - lower threshold for earlier warnings
-    if (this.metrics.totalTokens > 15000) {
-      recommendations.push({
-        id: 'token-optimization',
-        title: "📊 Token Usage Alert",
-        description: `High token usage (${this.metrics.totalTokens.toLocaleString()}). Consider starting a new conversation for optimal context`,
-        category: 'alert',
-        priority: 'medium',
-        actionable: true,
-        action: {
-          label: "New Chat",
-          callback: () => this.triggerNewChat()
-        }
-      });
-    }
-
-    // Feature enhancement suggestions
-    if (analysis.taskType === 'coding' && this.metrics.attachmentUsage === 0 && this.metrics.messageCount > 3) {
+    // PRIORITY 7: Feature enhancement suggestions
+    if (analysis?.taskType === 'coding' && this.metrics.attachmentUsage === 0 && this.metrics.messageCount > 3) {
       recommendations.push({
         id: 'coding-enhancement',
         title: "💻 Coding Enhancement",
@@ -857,8 +994,8 @@ Return ONLY a JSON object with this structure:
       });
     }
 
-    // Advanced usage patterns - lower threshold
-    if (analysis.complexity === 'expert' && this.metrics.systemMessageChanges === 0 && this.metrics.messageCount > 4) {
+    // PRIORITY 8: Advanced usage patterns
+    if (analysis?.complexity === 'expert' && this.metrics.systemMessageChanges === 0 && this.metrics.messageCount > 4) {
       recommendations.push({
         id: 'expert-system-message',
         title: "🧠 Expert Mode",
@@ -869,27 +1006,98 @@ Return ONLY a JSON object with this structure:
       });
     }
 
+    // PRIORITY 9: Basic conversation milestone (ONLY if no other recommendations exist)
+    if (recommendations.length === 0 && this.metrics.messageCount >= 3 && this.metrics.messageCount % 5 === 0) {
+      recommendations.push({
+        id: `conversation-milestone-${this.metrics.messageCount}`,
+        title: "🎯 Conversation Milestone",
+        description: `You've had ${this.metrics.messageCount} messages in this conversation. Great job exploring!`,
+        category: 'insight',
+        priority: 'low',
+        actionable: false
+      });
+    }
+
+    // PRIORITY 10: Basic performance note (ONLY if no other recommendations exist)
+    if (recommendations.length === 0 && this.metrics.averageResponseTime > 1000) {
+      recommendations.push({
+        id: 'basic-performance',
+        title: "⚡ Performance Note",
+        description: `Response time averaging ${(this.metrics.averageResponseTime/1000).toFixed(1)}s. This is normal for complex queries.`,
+        category: 'insight',
+        priority: 'low',
+        actionable: false
+      });
+    }
+
+    console.log(`📝 Generated ${recommendations.length} total recommendations`);
     return recommendations;
   }
 
   private selectTopRecommendation(recommendations: SmartToast[]): SmartToast | null {
     if (recommendations.length === 0) return null;
 
+    console.log('🎯 Selecting top recommendation from:', recommendations.map(r => ({
+      id: r.id,
+      title: r.title,
+      priority: r.priority,
+      category: r.category,
+      actionable: r.actionable
+    })));
+
     // Prioritize by urgency and actionability
     const priorityScore = (rec: SmartToast) => {
       let score = 0;
+      
+      // Priority scoring (highest to lowest)
       if (rec.priority === 'urgent') score += 100;
       else if (rec.priority === 'high') score += 75;
       else if (rec.priority === 'medium') score += 50;
       else score += 25;
 
-      if (rec.actionable) score += 20;
-      if (rec.category === 'optimization') score += 15;
+      // Actionable items get bonus points
+      if (rec.actionable) score += 30;
+      
+      // Category bonuses
+      if (rec.category === 'alert') score += 25; // Alerts are important
+      if (rec.category === 'optimization') score += 20;
+      if (rec.category === 'suggestion') score += 15;
+      if (rec.category === 'insight') score += 10;
+      
+      // Specific recommendation type bonuses
+      if (rec.id.includes('long-conversation-warning')) score += 40; // Long conversation warnings are critical
+      if (rec.id.includes('token-optimization')) score += 35; // Token optimization is important
+      if (rec.id.includes('thinking-pattern')) score += 25; // AI insights are valuable
+      if (rec.id.includes('communication-style')) score += 20; // Communication insights are helpful
+      
+      // Penalize basic milestones when other recommendations exist
+      if (rec.id.includes('conversation-milestone')) score -= 20;
+      if (rec.id.includes('basic-performance')) score -= 15;
       
       return score;
     };
 
-    return recommendations.sort((a, b) => priorityScore(b) - priorityScore(a))[0];
+    const sortedRecommendations = recommendations.sort((a, b) => priorityScore(b) - priorityScore(a));
+    const topRecommendation = sortedRecommendations[0];
+    
+    console.log('🏆 Top recommendation selected:', {
+      id: topRecommendation.id,
+      title: topRecommendation.title,
+      priority: topRecommendation.priority,
+      category: topRecommendation.category,
+      actionable: topRecommendation.actionable,
+      score: priorityScore(topRecommendation)
+    });
+    
+    // Log why this recommendation was selected over others
+    if (sortedRecommendations.length > 1) {
+      console.log('📊 Recommendation ranking:');
+      sortedRecommendations.slice(0, 3).forEach((rec, index) => {
+        console.log(`  ${index + 1}. ${rec.title} (${rec.priority}, ${rec.category}, actionable: ${rec.actionable}, score: ${priorityScore(rec)})`);
+      });
+    }
+
+    return topRecommendation;
   }
 
   private showSmartToast(smartToast: SmartToast): void {
@@ -1116,5 +1324,157 @@ Return ONLY a JSON object with this structure:
     this.metrics = this.initializeMetrics();
     this.performanceHistory = [];
     this.shownRecommendations.clear();
+    this.recommendationTimestamps.clear();
+    this.lastAnalysisTime = 0;
+    console.log('🔄 Session reset - all metrics, recommendation cache, and timestamps cleared');
+  }
+
+  /**
+   * Clear recommendation cache (for testing or manual reset)
+   */
+  clearRecommendationCache(): void {
+    this.shownRecommendations.clear();
+    this.recommendationTimestamps.clear();
+    console.log('🗑️ Recommendation cache and timestamps cleared');
+  }
+
+  /**
+   * Force clear cache for a specific recommendation (for testing)
+   */
+  forceClearRecommendation(recommendationId: string): void {
+    this.shownRecommendations.delete(recommendationId);
+    this.recommendationTimestamps.delete(recommendationId);
+    console.log(`🗑️ Forced clear cache for: ${recommendationId}`);
+  }
+
+  /**
+   * Force clear all insight caches (for testing)
+   */
+  forceClearInsightCaches(): void {
+    // Clear all insight-related recommendations from both caches
+    const insightIds = Array.from(this.recommendationTimestamps.keys()).filter(id => 
+      id.includes('thinking-pattern') || 
+      id.includes('communication-style') || 
+      id.includes('motivation') ||
+      id.includes('confidence') ||
+      id.includes('learning-style') ||
+      id.includes('satisfaction') ||
+      id.includes('topic-depth') ||
+      id.includes('focus-')
+    );
+    
+    insightIds.forEach(id => {
+      this.shownRecommendations.delete(id);
+      this.recommendationTimestamps.delete(id);
+    });
+    
+    console.log(`🗑️ Forced clear ${insightIds.length} insight caches:`, insightIds);
+  }
+
+  /**
+   * Test method to manually trigger a specific recommendation (for debugging)
+   */
+  testShowRecommendation(title: string, description: string, category: 'insight' | 'suggestion' | 'alert' = 'insight'): void {
+    const testRecommendation: SmartToast = {
+      id: `test-${Date.now()}`,
+      title,
+      description,
+      category,
+      priority: 'medium',
+      actionable: false
+    };
+    
+    console.log('🧪 Testing recommendation:', testRecommendation);
+    this.showSmartToast(testRecommendation);
+    this.markRecommendationShown(testRecommendation);
+  }
+
+  /**
+   * Get current recommendation cache status (for debugging)
+   */
+  getRecommendationCacheStatus(): { 
+    permanentCacheSize: number; 
+    permanentCachedIds: string[];
+    timestampCacheSize: number;
+    timestampCachedIds: Array<{id: string, lastShown: number, minutesAgo: number}>;
+  } {
+    const now = Date.now();
+    const timestampEntries = Array.from(this.recommendationTimestamps.entries()).map(([id, timestamp]) => ({
+      id,
+      lastShown: timestamp,
+      minutesAgo: Math.round((now - timestamp) / 1000 / 60)
+    }));
+
+    return {
+      permanentCacheSize: this.shownRecommendations.size,
+      permanentCachedIds: Array.from(this.shownRecommendations),
+      timestampCacheSize: this.recommendationTimestamps.size,
+      timestampCachedIds: timestampEntries
+    };
+  }
+
+  /**
+   * Check if a recommendation can be shown based on category-aware caching rules
+   */
+  private canShowRecommendation(recommendation: SmartToast): boolean {
+    const { id, category } = recommendation;
+    const rules = this.CACHE_RULES[category as keyof typeof this.CACHE_RULES];
+    
+    // If no rules defined for this category, default to permanent cache
+    if (!rules) {
+      console.log(`⚠️ No cache rules for category: ${category}, defaulting to permanent cache`);
+      return !this.shownRecommendations.has(id);
+    }
+    
+    // If permanent cache, only show once
+    if (rules.permanent) {
+      const canShow = !this.shownRecommendations.has(id);
+      console.log(`🔒 Permanent cache check for ${id}: ${canShow ? 'CAN SHOW' : 'BLOCKED'}`);
+      return canShow;
+    }
+    
+    // For non-permanent cache, check cooldown period
+    const lastShown = this.recommendationTimestamps.get(id);
+    if (!lastShown) {
+      console.log(`🆕 First time showing recommendation: ${id}`);
+      return true;
+    }
+    
+    const cooldownMs = rules.cooldownMinutes * 60 * 1000;
+    const toleranceMs = 10 * 1000; // 10 second tolerance buffer for timing precision
+    const timeSinceLastShown = Date.now() - lastShown;
+    const canShow = timeSinceLastShown >= (cooldownMs - toleranceMs);
+    
+    const minutesAgo = Math.round(timeSinceLastShown / 1000 / 60 * 10) / 10; // One decimal place
+    const cooldownMinutes = rules.cooldownMinutes;
+    
+    console.log(`⏰ Cooldown check for ${id}: ${minutesAgo}min ago, cooldown: ${cooldownMinutes}min, tolerance: 10s, ${canShow ? 'CAN SHOW' : 'BLOCKED'}`);
+    
+    if (!canShow) {
+      const remainingMs = (cooldownMs - toleranceMs) - timeSinceLastShown;
+      const remainingSeconds = Math.ceil(remainingMs / 1000);
+      console.log(`⏰ ${id} blocked for ${remainingSeconds} more seconds`);
+    }
+    
+    return canShow;
+  }
+
+  /**
+   * Mark a recommendation as shown
+   */
+  private markRecommendationShown(recommendation: SmartToast): void {
+    const { id, category } = recommendation;
+    const rules = this.CACHE_RULES[category as keyof typeof this.CACHE_RULES];
+    
+    // Always track timestamp
+    this.recommendationTimestamps.set(id, Date.now());
+    
+    // For permanent cache categories, also add to the set
+    if (rules?.permanent) {
+      this.shownRecommendations.add(id);
+      console.log(`🔒 Permanently cached: ${id}`);
+    } else {
+      console.log(`⏰ Time-cached: ${id} (can show again in ${rules?.cooldownMinutes || 0} minutes)`);
+    }
   }
 } 

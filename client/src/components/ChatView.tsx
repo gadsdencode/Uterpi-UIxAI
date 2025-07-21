@@ -719,10 +719,18 @@ const FuturisticAIChat: React.FC = () => {
     analyzeConversation,
     trackAction,
     showOptimizationTip,
-    showPerformanceAlert
+    showPerformanceAlert,
+    clearRecommendationCache,
+    forceClearRecommendation,
+    forceClearInsightCaches,
+    testShowRecommendation,
+    getRecommendationCacheStatus
   } = useIntelligentToast({
     enabled: true,
     aiService: aiServiceRef.current,
+    toastFunction: (title: string, options?: any) => {
+      toast(title, options);
+    },
     onModelSwitch: (modelId: string) => {
       // Find and switch to the recommended model
       const availableModels = AzureAIService.getAvailableModels();
@@ -745,6 +753,38 @@ const FuturisticAIChat: React.FC = () => {
       toast.success("Started new conversation!");
     }
   });
+
+  // Add debugging commands to window object for console testing
+  useEffect(() => {
+    (window as any).intelligentToastDebug = {
+      clearCache: clearRecommendationCache,
+      forceClear: forceClearRecommendation,
+      clearInsights: forceClearInsightCaches,
+      testShow: testShowRecommendation,
+      getStatus: getRecommendationCacheStatus,
+      testInsight: () => testShowRecommendation("🧠 Test Insight", "This is a test insight that should show up!", "insight"),
+      testSuggestion: () => testShowRecommendation("💡 Test Suggestion", "This is a test suggestion!", "suggestion"),
+      help: () => {
+        console.log(`
+🔧 Intelligent Toast Debug Commands:
+- intelligentToastDebug.clearCache() - Clear all caches
+- intelligentToastDebug.clearInsights() - Clear only insight caches (for immediate testing)
+- intelligentToastDebug.forceClear('recommendation-id') - Clear specific recommendation
+- intelligentToastDebug.testInsight() - Show test insight
+- intelligentToastDebug.testSuggestion() - Show test suggestion  
+- intelligentToastDebug.getStatus() - Get cache status
+- intelligentToastDebug.help() - Show this help
+        `);
+      }
+    };
+    
+    // Auto-show help on first load
+    console.log('🔧 Intelligent Toast Debug Commands loaded! Type intelligentToastDebug.help() for available commands.');
+    
+    return () => {
+      delete (window as any).intelligentToastDebug;
+    };
+  }, [clearRecommendationCache, forceClearRecommendation, forceClearInsightCaches, testShowRecommendation, getRecommendationCacheStatus]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });

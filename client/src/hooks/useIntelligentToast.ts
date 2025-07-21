@@ -72,6 +72,36 @@ export const useIntelligentToast = (options: UseIntelligentToastOptions) => {
     serviceRef.current.resetSession();
   }, [enabled]);
 
+  // Clear recommendation cache (for testing)
+  const clearRecommendationCache = useCallback(() => {
+    if (!serviceRef.current || !enabled) return;
+    serviceRef.current.clearRecommendationCache();
+  }, [enabled]);
+
+  // Force clear cache for specific recommendation (for testing)
+  const forceClearRecommendation = useCallback((recommendationId: string) => {
+    if (!serviceRef.current || !enabled) return;
+    serviceRef.current.forceClearRecommendation(recommendationId);
+  }, [enabled]);
+
+  // Force clear all insight caches (for testing)
+  const forceClearInsightCaches = useCallback(() => {
+    if (!serviceRef.current || !enabled) return;
+    serviceRef.current.forceClearInsightCaches();
+  }, [enabled]);
+
+  // Test show recommendation (for debugging)
+  const testShowRecommendation = useCallback((title: string, description: string, category: 'insight' | 'suggestion' | 'alert' = 'insight') => {
+    if (!serviceRef.current || !enabled) return;
+    serviceRef.current.testShowRecommendation(title, description, category);
+  }, [enabled]);
+
+  // Get recommendation cache status (for debugging)
+  const getRecommendationCacheStatus = useCallback(() => {
+    if (!serviceRef.current || !enabled) return null;
+    return serviceRef.current.getRecommendationCacheStatus();
+  }, [enabled]);
+
   // Show immediate optimization tip
   const showOptimizationTip = useCallback((tip: string, action?: () => void) => {
     if (!enabled) return;
@@ -108,6 +138,11 @@ export const useIntelligentToast = (options: UseIntelligentToastOptions) => {
     trackAction,
     getInsights,
     resetSession,
+    clearRecommendationCache,
+    forceClearRecommendation,
+    forceClearInsightCaches,
+    testShowRecommendation,
+    getRecommendationCacheStatus,
     showOptimizationTip,
     showPerformanceAlert,
     isEnabled: enabled && !!serviceRef.current

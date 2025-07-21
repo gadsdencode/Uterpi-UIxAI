@@ -12,8 +12,11 @@ import {
   Download,
   Copy,
   FileText,
-  TrendingUp
+  TrendingUp,
+  FolderOpen
 } from 'lucide-react';
+import { useFileManager, type FileItem } from '../hooks/useFileManager';
+import { toast } from 'sonner';
 
 interface ImproveModalProps {
   isOpen: boolean;
@@ -34,12 +37,116 @@ interface ImproveResult {
   optimizedCode: string;
 }
 
+interface FileManagerModalProps {
+  onFileSelect: (file: FileItem) => void;
+  selectedFile: FileItem | null;
+  allowedTypes: string[];
+}
+
+const FileManagerModal: React.FC<FileManagerModalProps> = ({ onFileSelect, selectedFile, allowedTypes }) => {
+  const fileManager = useFileManager();
+  const [searchQuery, setSearchQuery] = useState('');
+  
+  // Filter for code files only
+  const { data: fileList, isLoading } = fileManager.useFileList({
+    search: searchQuery || undefined,
+    mimeType: 'text/',
+    limit: 20
+  });
+
+  const filteredFiles = fileList?.files.filter(file => 
+    allowedTypes.some(type => file.mimeType.includes(type)) ||
+    file.name.match(/\.(tsx?|jsx?|js|ts)$/i)
+  ) || [];
+
+  const getFileIcon = (fileName: string) => {
+    if (fileName.endsWith('.tsx') || fileName.endsWith('.jsx')) return '⚛️';
+    if (fileName.endsWith('.ts')) return '🔷';
+    if (fileName.endsWith('.js')) return '📄';
+    return '📝';
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="relative">
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Search your files..."
+          className="w-full p-3 bg-slate-800/50 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:border-green-400 focus:outline-none"
+        />
+      </div>
+
+      {selectedFile && (
+        <div className="p-4 bg-slate-800/50 border border-green-400 rounded-lg">
+          <div className="flex items-center space-x-3">
+            <span className="text-2xl">{getFileIcon(selectedFile.name)}</span>
+            <div>
+              <h3 className="font-medium text-green-400">{selectedFile.name}</h3>
+              <p className="text-sm text-slate-400">
+                {(selectedFile.size / 1024).toFixed(1)} KB • {selectedFile.mimeType}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="max-h-64 overflow-y-auto border border-slate-600 rounded-lg">
+        {isLoading ? (
+          <div className="p-8 text-center">
+            <div className="animate-spin w-6 h-6 border-2 border-green-400 border-t-transparent rounded-full mx-auto mb-2"></div>
+            <p className="text-slate-400">Loading files...</p>
+          </div>
+        ) : filteredFiles.length === 0 ? (
+          <div className="p-8 text-center text-slate-400">
+            <FileText className="w-12 h-12 mx-auto mb-4 opacity-50" />
+            <p>No code files found</p>
+            <p className="text-sm">Upload some .ts, .tsx, .js, or .jsx files first</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-700">
+            {filteredFiles.map((file) => (
+              <button
+                key={file.id}
+                onClick={() => onFileSelect(file)}
+                className={`w-full p-4 text-left hover:bg-slate-800/50 transition-colors ${
+                  selectedFile?.id === file.id ? 'bg-green-500/10 border-l-2 border-green-400' : ''
+                }`}
+              >
+                <div className="flex items-center space-x-3">
+                  <span className="text-xl">{getFileIcon(file.name)}</span>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-medium text-white truncate">{file.name}</h3>
+                    <p className="text-sm text-slate-400">
+                      {(file.size / 1024).toFixed(1)} KB • {new Date(file.updatedAt).toLocaleDateString()}
+                    </p>
+                    {file.description && (
+                      <p className="text-xs text-slate-500 truncate mt-1">{file.description}</p>
+                    )}
+                  </div>
+                  {file.analysisStatus === 'completed' && (
+                    <span className="text-green-400 text-xs">🧠 Analyzed</span>
+                  )}
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 const ImproveModal: React.FC<ImproveModalProps> = ({ isOpen, onClose }) => {
   const [step, setStep] = useState<'input' | 'analyzing' | 'results'>('input');
-  const [inputMethod, setInputMethod] = useState<'paste' | 'upload'>('paste');
+  const [inputMethod, setInputMethod] = useState<'paste' | 'upload' | 'select'>('paste');
   const [code, setCode] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedStoredFile, setSelectedStoredFile] = useState<FileItem | null>(null);
   const [result, setResult] = useState<ImproveResult | null>(null);
+  
+  const fileManager = useFileManager();
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -53,8 +160,27 @@ const ImproveModal: React.FC<ImproveModalProps> = ({ isOpen, onClose }) => {
     }
   };
 
+  const handleStoredFileSelect = async (file: FileItem) => {
+    setSelectedStoredFile(file);
+    
+    try {
+      // Download the file content
+      const fileContent = await fileManager.downloadFile(file.id, file.name);
+      // For text files, we'd need to get the content differently
+      // This is a simplified approach - in practice you'd need to handle different file types
+      const response = await fetch(`/api/files/${file.id}/download`);
+      if (response.ok) {
+        const text = await response.text();
+        setCode(text);
+        toast.success(`File "${file.name}" loaded successfully`);
+      }
+    } catch (error) {
+      toast.error('Failed to load file content');
+    }
+  };
+
   const analyzeCode = async () => {
-    if (!code.trim() && !selectedFile) return;
+    if (!code.trim() && !selectedFile && !selectedStoredFile) return;
 
     setStep('analyzing');
 
@@ -63,6 +189,11 @@ const ImproveModal: React.FC<ImproveModalProps> = ({ isOpen, onClose }) => {
       
       if (selectedFile) {
         formData.append('codeFile', selectedFile);
+      } else if (selectedStoredFile) {
+        // Create a blob from the stored file content and send it
+        const blob = new Blob([code], { type: selectedStoredFile.mimeType });
+        const file = new File([blob], selectedStoredFile.name, { type: selectedStoredFile.mimeType });
+        formData.append('codeFile', file);
       } else {
         formData.append('code', code);
       }
@@ -82,6 +213,7 @@ const ImproveModal: React.FC<ImproveModalProps> = ({ isOpen, onClose }) => {
     } catch (error) {
       console.error('Analysis error:', error);
       setStep('input');
+      toast.error('Analysis failed. Please check your subscription status.');
     }
   };
 
@@ -210,9 +342,20 @@ const ImproveModal: React.FC<ImproveModalProps> = ({ isOpen, onClose }) => {
                   >
                     Upload File
                   </button>
+                  <button
+                    onClick={() => setInputMethod('select')}
+                    className={`px-4 py-2 rounded-lg transition-all ${
+                      inputMethod === 'select'
+                        ? 'bg-green-500/20 text-green-400 border border-green-400/50'
+                        : 'text-slate-400 hover:text-white border border-slate-600'
+                    }`}
+                  >
+                    <FolderOpen className="w-4 h-4 mr-2 inline" />
+                    Select from Files
+                  </button>
                 </div>
 
-                {inputMethod === 'paste' ? (
+                {inputMethod === 'paste' && (
                   <div className="space-y-4">
                     <textarea
                       value={code}
@@ -221,9 +364,11 @@ const ImproveModal: React.FC<ImproveModalProps> = ({ isOpen, onClose }) => {
                       className="w-full h-64 p-4 bg-slate-800/50 border border-slate-600 rounded-lg text-white placeholder-slate-400 font-mono text-sm resize-none focus:border-green-400 focus:outline-none"
                     />
                   </div>
-                ) : (
+                )}
+
+                {inputMethod === 'upload' && (
                   <div className="space-y-4">
-                    <div className="border-2 border-dashed border-slate-600 hover:border-slate-500 rounded-xl p-8 text-center transition-all">
+                    <div className="border-2 border-dashed border-slate-600 hover:border-slate-500 rounded-xl p-8 text-center transition-all relative">
                       <input
                         type="file"
                         accept=".tsx,.ts,.jsx,.js"
@@ -257,7 +402,15 @@ const ImproveModal: React.FC<ImproveModalProps> = ({ isOpen, onClose }) => {
                   </div>
                 )}
 
-                {(code.trim() || selectedFile) && (
+                {inputMethod === 'select' && (
+                  <FileManagerModal
+                    onFileSelect={handleStoredFileSelect}
+                    selectedFile={selectedStoredFile}
+                    allowedTypes={['text/javascript', 'text/typescript', 'application/javascript', 'text/plain']}
+                  />
+                )}
+
+                {(code.trim() || selectedFile || selectedStoredFile) && (
                   <div className="flex justify-center">
                     <motion.button
                       onClick={analyzeCode}

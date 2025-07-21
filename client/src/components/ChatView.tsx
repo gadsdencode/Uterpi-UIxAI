@@ -21,7 +21,8 @@ import {
   Download,
   Copy,
   ExternalLink,
-  Settings
+  Settings,
+  Files
 } from "lucide-react";
 import { Message, CommandSuggestion, LLMModel, ModelCapabilities } from "../types";
 import { useAIProvider } from "../hooks/useAIProvider";
@@ -35,6 +36,7 @@ import CreatePageModal from './CreatePageModal';
 import ImproveModal from './ImproveModal';
 import AnalyzeModal from './AnalyzeModal';
 import ProviderSettingsPage from './ProviderSettingsPage';
+import { FileManager } from './FileManager';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import { toast } from "sonner";
 import { useAuth } from '../hooks/useAuth';
@@ -628,6 +630,7 @@ const FuturisticAIChat: React.FC = () => {
   const [showCreatePageModal, setShowCreatePageModal] = useState(false);
   const [showImproveModal, setShowImproveModal] = useState(false);
   const [showAnalyzeModal, setShowAnalyzeModal] = useState(false);
+  const [showFileManager, setShowFileManager] = useState(false);
   const [showProviderSettings, setShowProviderSettings] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -1374,6 +1377,12 @@ const FuturisticAIChat: React.FC = () => {
                   >
                     <Brain className="w-5 h-5" />
                   </RippleButton>
+                  <RippleButton
+                    onClick={() => setShowFileManager(true)}
+                    className="p-2 text-slate-400 hover:text-violet-400 transition-colors"
+                  >
+                    <Files className="w-5 h-5" />
+                  </RippleButton>
 
                 </div>
                 
@@ -1660,6 +1669,46 @@ const FuturisticAIChat: React.FC = () => {
         isOpen={showAnalyzeModal} 
         onClose={() => setShowAnalyzeModal(false)} 
       />
+
+      {/* File Manager Modal */}
+      <AnimatePresence>
+        {showFileManager && (
+          <motion.div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            {/* Backdrop */}
+            <motion.div
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+              onClick={() => setShowFileManager(false)}
+            />
+            
+            {/* Modal */}
+            <motion.div
+              className="relative bg-slate-900/95 backdrop-blur-xl rounded-2xl border border-slate-700/50 shadow-2xl max-w-5xl w-full max-h-[90vh] overflow-hidden"
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+            >
+              <div className="flex items-center justify-between p-6 border-b border-slate-700/50">
+                <h2 className="text-2xl font-bold text-white">File Manager</h2>
+                <button
+                  onClick={() => setShowFileManager(false)}
+                  className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+                  aria-label="Close File Manager"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+              <div className="p-6 max-h-[calc(90vh-120px)] overflow-auto">
+                <FileManager />
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Provider Settings Modal */}
       <AnimatePresence>

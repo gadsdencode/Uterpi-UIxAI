@@ -3,12 +3,13 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { requireAuth, requireGuest } from "./auth";
 import passport from "./auth";
-import { registerUserSchema, loginUserSchema, publicUserSchema, updateProfileSchema, subscriptionPlans, subscriptions, users } from "@shared/schema";
+import { registerUserSchema, loginUserSchema, publicUserSchema, updateProfileSchema, subscriptionPlans, subscriptions, users, files } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and } from "drizzle-orm";
 import { createStripeCustomer, createSetupIntent, createSubscription, cancelSubscription, reactivateSubscription, createBillingPortalSession, syncSubscriptionFromStripe } from "./stripe";
 import { requireActiveSubscription, enhanceWithSubscription } from "./subscription-middleware";
 import { handleStripeWebhook, rawBodyParser } from "./webhooks";
+import { fileStorage } from "./file-storage";
 import multer from 'multer';
 import ModelClient from "@azure-rest/ai-inference";
 import { AzureKeyCredential } from "@azure/core-auth";
@@ -223,7 +224,7 @@ async function checkModelCapabilities(client: any, modelId: string): Promise<{
 }
 
 // Initialize Azure AI client
-function createAzureAIClient(): { client: any; config: AzureAIConfig } {
+export function createAzureAIClient(): { client: any; config: AzureAIConfig } {
   const endpoint = process.env.VITE_AZURE_AI_ENDPOINT;
   const apiKey = process.env.VITE_AZURE_AI_API_KEY;
   const modelName = process.env.VITE_AZURE_AI_MODEL_NAME || "gpt-4o-mini";
@@ -1035,6 +1036,481 @@ Please respond in JSON format with this structure:
     } catch (error) {
       console.error("Design pattern analysis error:", error);
       res.status(500).json({ error: "Failed to analyze design patterns with Azure AI" });
+    }
+  });
+
+  // File Management System Routes
+  
+  // Upload file endpoint
+  app.post("/api/files/upload", requireAuth, upload.single('file'), async (req: MulterRequest, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No file provided" });
+      }
+
+      const { folder, description, tags } = req.body;
+      const user = req.user as any;
+      
+      // Parse tags if provided as string
+      let parsedTags: string[] = [];
+      if (tags) {
+        try {
+          parsedTags = typeof tags === 'string' ? JSON.parse(tags) : tags;
+        } catch {
+          parsedTags = typeof tags === 'string' ? [tags] : tags;
+        }
+      }
+
+      const fileData = {
+        name: req.file.originalname,
+        originalName: req.file.originalname,
+        mimeType: req.file.mimetype,
+        content: req.file.buffer,
+        size: req.file.size,
+        folder: folder || '/',
+        description: description || null,
+        tags: parsedTags,
+      };
+
+      const uploadedFile = await fileStorage.uploadFile(user.id, fileData);
+      
+      res.json({
+        success: true,
+        file: {
+          id: uploadedFile.id,
+          name: uploadedFile.name,
+          originalName: uploadedFile.originalName,
+          mimeType: uploadedFile.mimeType,
+          size: uploadedFile.size,
+          folder: uploadedFile.folder,
+          description: uploadedFile.description,
+          tags: uploadedFile.tags,
+          createdAt: uploadedFile.createdAt,
+          analysisStatus: uploadedFile.analysisStatus
+        }
+      });
+    } catch (error) {
+      console.error("File upload error:", error);
+      res.status(500).json({ error: "Failed to upload file" });
+    }
+  });
+
+  // Helper function to validate fileId
+  const validateFileId = (fileIdParam: string): number => {
+    const fileId = parseInt(fileIdParam);
+    if (isNaN(fileId) || fileId <= 0) {
+      throw new Error('Invalid file ID');
+    }
+    return fileId;
+  };
+
+  // File folders/organization endpoints (MUST be before :fileId route)
+  app.get("/api/files/folders", requireAuth, async (req, res) => {
+    try {
+      const user = req.user as any;
+      
+      // Get unique folders for the user
+      const result = await db
+        .selectDistinct({ folder: files.folder })
+        .from(files)
+        .where(
+          and(
+            eq(files.userId, user.id),
+            eq(files.status, 'active')
+          )
+        )
+        .orderBy(files.folder);
+
+      const folders = result.map(r => r.folder).filter(Boolean);
+      
+      res.json({
+        success: true,
+        folders
+      });
+    } catch (error) {
+      console.error("Get folders error:", error);
+      res.status(500).json({ error: "Failed to get folders" });
+    }
+  });
+
+  // Get file details
+  app.get("/api/files/:fileId", requireAuth, async (req, res) => {
+    try {
+      const fileId = validateFileId(req.params.fileId);
+      const user = req.user as any;
+      
+      const file = await fileStorage.getFile(fileId, user.id);
+      if (!file) {
+        return res.status(404).json({ error: "File not found or access denied" });
+      }
+
+      // Return file metadata without content
+      res.json({
+        success: true,
+        file: {
+          id: file.id,
+          name: file.name,
+          originalName: file.originalName,
+          mimeType: file.mimeType,
+          size: file.size,
+          folder: file.folder,
+          description: file.description,
+          tags: file.tags,
+          isPublic: file.isPublic,
+          analysisStatus: file.analysisStatus,
+          aiAnalysis: file.aiAnalysis,
+          currentVersion: file.currentVersion,
+          createdAt: file.createdAt,
+          updatedAt: file.updatedAt,
+          lastAccessedAt: file.lastAccessedAt,
+          analyzedAt: file.analyzedAt
+        }
+      });
+    } catch (error) {
+      console.error("Get file error:", error);
+      if (error instanceof Error && error.message === 'Invalid file ID') {
+        return res.status(400).json({ error: "Invalid file ID" });
+      }
+      res.status(500).json({ error: "Failed to get file" });
+    }
+  });
+
+  // Download file content
+  app.get("/api/files/:fileId/download", requireAuth, async (req, res) => {
+    try {
+      const fileId = validateFileId(req.params.fileId);
+      const user = req.user as any;
+      
+      const file = await fileStorage.getFile(fileId, user.id);
+      if (!file) {
+        return res.status(404).json({ error: "File not found or access denied" });
+      }
+
+      const fileContent = await fileStorage.getFileContent(fileId, user.id);
+      if (!fileContent) {
+        return res.status(404).json({ error: "File content not found" });
+      }
+
+      // Set appropriate headers
+      res.setHeader('Content-Type', fileContent.mimeType);
+      res.setHeader('Content-Disposition', `attachment; filename="${file.originalName}"`);
+      
+      // Handle different encodings
+      if (file.encoding === 'base64' && !fileContent.mimeType.startsWith('text/')) {
+        const buffer = Buffer.from(fileContent.content, 'base64');
+        res.send(buffer);
+      } else {
+        res.send(fileContent.content);
+      }
+    } catch (error) {
+      console.error("Download file error:", error);
+      if (error instanceof Error && error.message === 'Invalid file ID') {
+        return res.status(400).json({ error: "Invalid file ID" });
+      }
+      res.status(500).json({ error: "Failed to download file" });
+    }
+  });
+
+  // Update file metadata
+  app.put("/api/files/:fileId", requireAuth, async (req, res) => {
+    try {
+      const fileId = validateFileId(req.params.fileId);
+      const user = req.user as any;
+      const { name, description, tags, folder, isPublic } = req.body;
+
+      const updates: any = {};
+      if (name !== undefined) updates.name = name;
+      if (description !== undefined) updates.description = description;
+      if (tags !== undefined) updates.tags = tags;
+      if (folder !== undefined) updates.folder = folder;
+      if (isPublic !== undefined) updates.isPublic = isPublic;
+
+      const updatedFile = await fileStorage.updateFile(fileId, user.id, updates);
+      if (!updatedFile) {
+        return res.status(404).json({ error: "File not found or access denied" });
+      }
+
+      res.json({
+        success: true,
+        file: {
+          id: updatedFile.id,
+          name: updatedFile.name,
+          description: updatedFile.description,
+          tags: updatedFile.tags,
+          folder: updatedFile.folder,
+          isPublic: updatedFile.isPublic,
+          updatedAt: updatedFile.updatedAt
+        }
+      });
+    } catch (error) {
+      console.error("Update file error:", error);
+      if (error instanceof Error && error.message === 'Invalid file ID') {
+        return res.status(400).json({ error: "Invalid file ID" });
+      }
+      res.status(500).json({ error: "Failed to update file" });
+    }
+  });
+
+  // Delete file
+  app.delete("/api/files/:fileId", requireAuth, async (req, res) => {
+    try {
+      const fileId = validateFileId(req.params.fileId);
+      const user = req.user as any;
+
+      const success = await fileStorage.deleteFile(fileId, user.id);
+      if (!success) {
+        return res.status(404).json({ error: "File not found or access denied" });
+      }
+
+      res.json({
+        success: true,
+        message: "File deleted successfully"
+      });
+    } catch (error) {
+      console.error("Delete file error:", error);
+      if (error instanceof Error && error.message === 'Invalid file ID') {
+        return res.status(400).json({ error: "Invalid file ID" });
+      }
+      res.status(500).json({ error: "Failed to delete file" });
+    }
+  });
+
+  // List user files
+  app.get("/api/files", requireAuth, async (req, res) => {
+    try {
+      const user = req.user as any;
+      const { 
+        folder, 
+        search, 
+        tags, 
+        mimeType, 
+        limit = 50, 
+        offset = 0 
+      } = req.query;
+
+      const options: any = {
+        limit: parseInt(limit as string),
+        offset: parseInt(offset as string)
+      };
+
+      if (folder) options.folder = folder as string;
+      if (search) options.search = search as string;
+      if (mimeType) options.mimeType = mimeType as string;
+      if (tags) {
+        try {
+          options.tags = typeof tags === 'string' ? JSON.parse(tags) : tags;
+        } catch {
+          options.tags = [tags];
+        }
+      }
+
+      const result = await fileStorage.listUserFiles(user.id, options);
+      
+      res.json({
+        success: true,
+        files: result.files.map(file => ({
+          id: file.id,
+          name: file.name,
+          originalName: file.originalName,
+          mimeType: file.mimeType,
+          size: file.size,
+          folder: file.folder,
+          description: file.description,
+          tags: file.tags,
+          isPublic: file.isPublic,
+          analysisStatus: file.analysisStatus,
+          currentVersion: file.currentVersion,
+          createdAt: file.createdAt,
+          updatedAt: file.updatedAt,
+          lastAccessedAt: file.lastAccessedAt
+        })),
+        total: result.total,
+        pagination: {
+          limit: options.limit,
+          offset: options.offset,
+          hasMore: result.total > options.offset + options.limit
+        }
+      });
+    } catch (error) {
+      console.error("List files error:", error);
+      res.status(500).json({ error: "Failed to list files" });
+    }
+  });
+
+  // AI Analysis endpoint (requires subscription)
+  app.post("/api/files/:fileId/analyze", requireActiveSubscription({
+    customMessage: "AI-powered file analysis requires a paid subscription"
+  }), async (req, res) => {
+    try {
+      const fileId = validateFileId(req.params.fileId);
+      const user = req.user as any;
+
+      const analysis = await fileStorage.analyzeFileWithAI(fileId, user.id);
+      
+      res.json({
+        success: true,
+        analysis
+      });
+         } catch (error) {
+       console.error("File analysis error:", error);
+       res.status(500).json({ 
+         error: error instanceof Error ? error.message : "Failed to analyze file with Azure AI" 
+       });
+     }
+  });
+
+  // File version endpoints
+  app.get("/api/files/:fileId/versions", requireAuth, async (req, res) => {
+    try {
+      const fileId = validateFileId(req.params.fileId);
+      const user = req.user as any;
+
+      const versions = await fileStorage.getFileVersions(fileId, user.id);
+      
+      res.json({
+        success: true,
+        versions: versions.map(version => ({
+          id: version.id,
+          versionNumber: version.versionNumber,
+          size: version.size,
+          changeDescription: version.changeDescription,
+          changeType: version.changeType,
+          createdAt: version.createdAt,
+          createdBy: version.createdBy
+        }))
+      });
+    } catch (error) {
+      console.error("Get file versions error:", error);
+      res.status(500).json({ error: "Failed to get file versions" });
+    }
+  });
+
+  app.post("/api/files/:fileId/versions/:versionId/restore", requireAuth, async (req, res) => {
+    try {
+      const fileId = validateFileId(req.params.fileId);
+      const versionId = parseInt(req.params.versionId);
+      const user = req.user as any;
+
+      const restoredFile = await fileStorage.restoreFileVersion(fileId, versionId, user.id);
+      if (!restoredFile) {
+        return res.status(404).json({ error: "File or version not found, or access denied" });
+      }
+
+      res.json({
+        success: true,
+        message: "File version restored successfully",
+        currentVersion: restoredFile.currentVersion
+      });
+    } catch (error) {
+      console.error("Restore file version error:", error);
+      res.status(500).json({ error: "Failed to restore file version" });
+    }
+  });
+
+  // File sharing endpoints
+  app.post("/api/files/:fileId/share", requireAuth, async (req, res) => {
+    try {
+      const fileId = validateFileId(req.params.fileId);
+      const user = req.user as any;
+      const { userId, permission, shareExpiry } = req.body;
+
+      if (!permission || !['read', 'write'].includes(permission)) {
+        return res.status(400).json({ error: "Invalid permission. Must be 'read' or 'write'" });
+      }
+
+      const shareData = {
+        userId: userId || null,
+        permission,
+        shareExpiry: shareExpiry || null
+      };
+
+      const sharedPermission = await fileStorage.shareFile(fileId, user.id, shareData);
+      
+      res.json({
+        success: true,
+        shareToken: sharedPermission.shareToken,
+        permission: sharedPermission.permission,
+        shareExpiry: sharedPermission.shareExpiry
+      });
+         } catch (error) {
+       console.error("Share file error:", error);
+       res.status(500).json({ 
+         error: error instanceof Error ? error.message : "Failed to share file" 
+       });
+     }
+  });
+
+  app.get("/api/files/:fileId/permissions", requireAuth, async (req, res) => {
+    try {
+      const fileId = validateFileId(req.params.fileId);
+      const user = req.user as any;
+
+      const permissions = await fileStorage.getFilePermissions(fileId, user.id);
+      
+      res.json({
+        success: true,
+        permissions: permissions.map(perm => ({
+          id: perm.id,
+          userId: perm.userId,
+          permission: perm.permission,
+          shareToken: perm.shareToken,
+          shareExpiry: perm.shareExpiry,
+          createdAt: perm.createdAt
+        }))
+      });
+    } catch (error) {
+      console.error("Get file permissions error:", error);
+      res.status(500).json({ error: "Failed to get file permissions" });
+    }
+  });
+
+  // File analytics endpoint
+  app.get("/api/files/:fileId/analytics", requireAuth, async (req, res) => {
+    try {
+      const fileId = validateFileId(req.params.fileId);
+      const user = req.user as any;
+
+      const analytics = await fileStorage.getFileAnalytics(fileId, user.id);
+      if (!analytics) {
+        return res.status(404).json({ error: "File not found or access denied" });
+      }
+
+      res.json({
+        success: true,
+        analytics
+      });
+    } catch (error) {
+      console.error("Get file analytics error:", error);
+      res.status(500).json({ error: "Failed to get file analytics" });
+    }
+  });
+
+  // Bulk file operations
+  app.post("/api/files/bulk/delete", requireAuth, async (req, res) => {
+    try {
+      const { fileIds } = req.body;
+      const user = req.user as any;
+
+      if (!Array.isArray(fileIds) || fileIds.length === 0) {
+        return res.status(400).json({ error: "Invalid file IDs array" });
+      }
+
+      const results = await Promise.allSettled(
+        fileIds.map(id => fileStorage.deleteFile(parseInt(id), user.id))
+      );
+
+      const successful = results.filter(r => r.status === 'fulfilled' && r.value).length;
+      const failed = results.length - successful;
+
+      res.json({
+        success: true,
+        deleted: successful,
+        failed,
+        message: `Successfully deleted ${successful} files${failed > 0 ? `, ${failed} failed` : ''}`
+      });
+    } catch (error) {
+      console.error("Bulk delete error:", error);
+      res.status(500).json({ error: "Failed to delete files" });
     }
   });
 

@@ -11,8 +11,11 @@ import {
   Eye,
   Sparkles,
   Zap,
-  Code
+  Code,
+  FolderOpen
 } from 'lucide-react';
+import { useFileManager, type FileItem } from '../hooks/useFileManager';
+import { toast } from 'sonner';
 
 interface CloneUIModalProps {
   isOpen: boolean;
@@ -32,12 +35,117 @@ interface GenerationResult {
   generatedCode: string;
 }
 
+interface ImageFileManagerModalProps {
+  onFileSelect: (file: FileItem) => void;
+  selectedFile: FileItem | null;
+  preview: string | null;
+}
+
+const ImageFileManagerModal: React.FC<ImageFileManagerModalProps> = ({ onFileSelect, selectedFile, preview }) => {
+  const fileManager = useFileManager();
+  const [searchQuery, setSearchQuery] = useState('');
+  
+  // Filter for image files only
+  const { data: fileList, isLoading } = fileManager.useFileList({
+    search: searchQuery || undefined,
+    mimeType: 'image/',
+    limit: 20
+  });
+
+  const imageFiles = fileList?.files.filter(file => 
+    file.mimeType.startsWith('image/')
+  ) || [];
+
+  return (
+    <div className="space-y-4">
+      <div className="relative">
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Search your images..."
+          className="w-full p-3 bg-slate-800/50 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:border-violet-400 focus:outline-none"
+        />
+      </div>
+
+      {preview && selectedFile && (
+        <div className="p-4 bg-slate-800/50 border border-violet-400 rounded-lg">
+          <div className="flex items-center space-x-4">
+            <img
+              src={preview}
+              alt="Selected"
+              className="w-16 h-16 object-cover rounded"
+            />
+            <div>
+              <h3 className="font-medium text-violet-400">{selectedFile.name}</h3>
+              <p className="text-sm text-slate-400">
+                {(selectedFile.size / 1024).toFixed(1)} KB • {selectedFile.mimeType}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="max-h-64 overflow-y-auto border border-slate-600 rounded-lg">
+        {isLoading ? (
+          <div className="p-8 text-center">
+            <div className="animate-spin w-6 h-6 border-2 border-violet-400 border-t-transparent rounded-full mx-auto mb-2"></div>
+            <p className="text-slate-400">Loading images...</p>
+          </div>
+        ) : imageFiles.length === 0 ? (
+          <div className="p-8 text-center text-slate-400">
+            <ImageIcon className="w-12 h-12 mx-auto mb-4 opacity-50" />
+            <p>No images found</p>
+            <p className="text-sm">Upload some images first</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 p-4">
+            {imageFiles.map((file) => (
+              <button
+                key={file.id}
+                onClick={() => onFileSelect(file)}
+                className={`relative group rounded-lg overflow-hidden border-2 transition-all ${
+                  selectedFile?.id === file.id 
+                    ? 'border-violet-400 ring-2 ring-violet-400/20' 
+                    : 'border-slate-600 hover:border-slate-500'
+                }`}
+              >
+                <div className="aspect-square bg-slate-800">
+                  {/* We'll need to handle image preview differently for stored files */}
+                  <div className="w-full h-full flex items-center justify-center">
+                    <ImageIcon className="w-8 h-8 text-slate-400" />
+                  </div>
+                </div>
+                <div className="absolute bottom-0 left-0 right-0 bg-black/75 p-2">
+                  <p className="text-xs text-white truncate">{file.name}</p>
+                  <p className="text-xs text-slate-300">
+                    {(file.size / 1024).toFixed(1)} KB
+                  </p>
+                </div>
+                {selectedFile?.id === file.id && (
+                  <div className="absolute top-2 right-2">
+                    <Check className="w-4 h-4 text-violet-400" />
+                  </div>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 const CloneUIModal: React.FC<CloneUIModalProps> = ({ isOpen, onClose }) => {
   const [step, setStep] = useState<'upload' | 'analyzing' | 'results'>('upload');
+  const [inputMethod, setInputMethod] = useState<'upload' | 'select'>('upload');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedStoredFile, setSelectedStoredFile] = useState<FileItem | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<GenerationResult | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
+  
+  const fileManager = useFileManager();
 
   const handleDrag = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -69,6 +177,24 @@ const CloneUIModal: React.FC<CloneUIModalProps> = ({ isOpen, onClose }) => {
       setPreview(e.target?.result as string);
     };
     reader.readAsDataURL(file);
+  };
+
+  const handleStoredImageSelect = async (file: FileItem) => {
+    setSelectedStoredFile(file);
+    setSelectedFile(null); // Clear any uploaded file
+    
+    try {
+      // Get image content as blob URL for preview
+      const response = await fetch(`/api/files/${file.id}/download`);
+      if (response.ok) {
+        const blob = await response.blob();
+        const previewUrl = URL.createObjectURL(blob);
+        setPreview(previewUrl);
+        toast.success(`Image "${file.name}" selected successfully`);
+      }
+    } catch (error) {
+      toast.error('Failed to load image preview');
+    }
   };
 
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -186,58 +312,94 @@ const CloneUIModal: React.FC<CloneUIModalProps> = ({ isOpen, onClose }) => {
           <div className="p-6 overflow-y-auto max-h-[calc(90vh-80px)]">
             {step === 'upload' && (
               <div className="space-y-6">
-                {/* Upload Area */}
-                <div
-                  className={`relative border-2 border-dashed rounded-xl p-8 text-center transition-all ${
-                    dragActive
-                      ? 'border-violet-400 bg-violet-500/10'
-                      : 'border-slate-600 hover:border-slate-500'
-                  }`}
-                  onDragEnter={handleDrag}
-                  onDragLeave={handleDrag}
-                  onDragOver={handleDrag}
-                  onDrop={handleDrop}
-                >
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleFileInput}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                    title="Upload image file"
-                    aria-label="Upload image file for UI cloning"
-                  />
-                  
-                  {preview ? (
-                    <div className="space-y-4">
-                      <img
-                        src={preview}
-                        alt="Preview"
-                        className="max-w-md max-h-64 mx-auto rounded-lg shadow-lg"
-                      />
-                      <div className="flex items-center justify-center gap-2 text-sm text-green-400">
-                        <Check className="w-4 h-4" />
-                        Image selected: {selectedFile?.name}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                      <div className="p-4 bg-slate-800/50 rounded-full w-20 h-20 mx-auto flex items-center justify-center">
-                        <Upload className="w-8 h-8 text-violet-400" />
-                      </div>
-                      <div>
-                        <p className="text-lg font-medium text-white mb-2">
-                          Drop your screenshot here
-                        </p>
-                        <p className="text-sm text-slate-400">
-                          or click to browse • PNG, JPG, WebP up to 10MB
-                        </p>
-                      </div>
-                    </div>
-                  )}
+                {/* Input Method Selection */}
+                <div className="flex justify-center gap-2">
+                  <button
+                    onClick={() => setInputMethod('upload')}
+                    className={`px-4 py-2 rounded-lg transition-all ${
+                      inputMethod === 'upload'
+                        ? 'bg-violet-500/20 text-violet-400 border border-violet-400/50'
+                        : 'text-slate-400 hover:text-white border border-slate-600'
+                    }`}
+                  >
+                    <Upload className="w-4 h-4 mr-2 inline" />
+                    Upload Image
+                  </button>
+                  <button
+                    onClick={() => setInputMethod('select')}
+                    className={`px-4 py-2 rounded-lg transition-all ${
+                      inputMethod === 'select'
+                        ? 'bg-violet-500/20 text-violet-400 border border-violet-400/50'
+                        : 'text-slate-400 hover:text-white border border-slate-600'
+                    }`}
+                  >
+                    <FolderOpen className="w-4 h-4 mr-2 inline" />
+                    Select from Files
+                  </button>
                 </div>
 
+                {inputMethod === 'upload' && (
+                  /* Upload Area */
+                  <div
+                    className={`relative border-2 border-dashed rounded-xl p-8 text-center transition-all ${
+                      dragActive
+                        ? 'border-violet-400 bg-violet-500/10'
+                        : 'border-slate-600 hover:border-slate-500'
+                    }`}
+                    onDragEnter={handleDrag}
+                    onDragLeave={handleDrag}
+                    onDragOver={handleDrag}
+                    onDrop={handleDrop}
+                  >
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleFileInput}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      title="Upload image file"
+                      aria-label="Upload image file for UI cloning"
+                    />
+                    
+                    {preview ? (
+                      <div className="space-y-4">
+                        <img
+                          src={preview}
+                          alt="Preview"
+                          className="max-w-md max-h-64 mx-auto rounded-lg shadow-lg"
+                        />
+                        <div className="flex items-center justify-center gap-2 text-sm text-green-400">
+                          <Check className="w-4 h-4" />
+                          Image selected: {selectedFile?.name}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        <div className="p-4 bg-slate-800/50 rounded-full w-20 h-20 mx-auto flex items-center justify-center">
+                          <Upload className="w-8 h-8 text-violet-400" />
+                        </div>
+                        <div>
+                          <p className="text-lg font-medium text-white mb-2">
+                            Drop your screenshot here
+                          </p>
+                          <p className="text-sm text-slate-400">
+                            or click to browse • PNG, JPG, WebP up to 10MB
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {inputMethod === 'select' && (
+                  <ImageFileManagerModal
+                    onFileSelect={handleStoredImageSelect}
+                    selectedFile={selectedStoredFile}
+                    preview={preview}
+                  />
+                )}
+
                 {/* Action Buttons */}
-                {selectedFile && (
+                {(selectedFile || selectedStoredFile) && (
                   <div className="flex justify-center gap-3">
                     <button
                       onClick={resetModal}

@@ -74,6 +74,101 @@ export const subscriptions = pgTable("subscriptions", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// File system tables for real file integration
+export const files = pgTable("files", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  name: text("name").notNull(),
+  originalName: text("original_name").notNull(),
+  mimeType: text("mime_type").notNull(),
+  size: integer("size").notNull(), // File size in bytes
+  content: text("content"), // Store file content as base64 encoded text
+  encoding: text("encoding"), // File encoding (e.g., utf-8, base64)
+  
+  // File metadata
+  description: text("description"),
+  tags: json("tags").$type<string[]>().default([]), // Array of tags for categorization
+  
+  // File organization
+  folder: text("folder").default("/"), // Virtual folder path
+  isPublic: boolean("is_public").default(false),
+  
+  // AI Analysis results
+  aiAnalysis: json("ai_analysis"), // Store Azure AI analysis results
+  analysisStatus: text("analysis_status").default("pending"), // pending, analyzing, completed, failed
+  
+  // File status
+  status: text("status").default("active"), // active, archived, deleted
+  
+  // Version control
+  currentVersion: integer("current_version").default(1),
+  
+  // Timestamps
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  lastAccessedAt: timestamp("last_accessed_at").defaultNow(),
+  analyzedAt: timestamp("analyzed_at"),
+});
+
+// File versions for version control
+export const fileVersions = pgTable("file_versions", {
+  id: serial("id").primaryKey(),
+  fileId: integer("file_id").references(() => files.id).notNull(),
+  versionNumber: integer("version_number").notNull(),
+  content: text("content").notNull(), // Store as base64 encoded text
+  size: integer("size").notNull(),
+  
+  // Version metadata
+  changeDescription: text("change_description"),
+  changeType: text("change_type").default("update"), // create, update, restore
+  
+  // AI analysis for this version
+  aiAnalysis: json("ai_analysis"),
+  
+  // Timestamps
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  createdBy: integer("created_by").references(() => users.id).notNull(),
+});
+
+// File permissions for sharing and collaboration
+export const filePermissions = pgTable("file_permissions", {
+  id: serial("id").primaryKey(),
+  fileId: integer("file_id").references(() => files.id).notNull(),
+  userId: integer("user_id").references(() => users.id), // null for public permissions
+  
+  // Permission levels
+  permission: text("permission").notNull(), // read, write, admin, owner
+  
+  // Share settings
+  sharedBy: integer("shared_by").references(() => users.id).notNull(),
+  shareToken: text("share_token").unique(), // For public sharing
+  shareExpiry: timestamp("share_expires_at"),
+  
+  // Timestamps
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// File interaction logs for analytics and AI insights
+export const fileInteractions = pgTable("file_interactions", {
+  id: serial("id").primaryKey(),
+  fileId: integer("file_id").references(() => files.id).notNull(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  
+  // Interaction details
+  interactionType: text("interaction_type").notNull(), // view, edit, analyze, download, share
+  details: json("details"), // Additional interaction metadata
+  
+  // AI context
+  aiContext: json("ai_context"), // Context about AI analysis or suggestions
+  
+  // Performance metrics
+  duration: integer("duration"), // Duration in milliseconds
+  
+  // Timestamps
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 // Schema for creating a user with email/password
 export const insertUserSchema = createInsertSchema(users, {
   email: z.string().email("Invalid email address"),
@@ -188,3 +283,62 @@ export type InsertSubscriptionPlan = z.infer<typeof insertSubscriptionPlanSchema
 export type Subscription = typeof subscriptions.$inferSelect;
 export type InsertSubscription = z.infer<typeof insertSubscriptionSchema>;
 export type RegisterWithSubscription = z.infer<typeof registerWithSubscriptionSchema>;
+
+// File system schemas
+export const insertFileSchema = createInsertSchema(files, {
+  name: z.string().min(1, "File name is required").max(255, "File name too long"),
+  originalName: z.string().min(1, "Original file name is required"),
+  mimeType: z.string().min(1, "MIME type is required"),
+  size: z.number().int().min(1, "File size must be positive"),
+  folder: z.string().default("/"),
+  description: z.string().max(1000, "Description too long").optional(),
+  tags: z.array(z.string()).optional(),
+}).pick({
+  name: true,
+  originalName: true,
+  mimeType: true,
+  size: true,
+  folder: true,
+  description: true,
+  tags: true,
+});
+
+export const fileSchema = createSelectSchema(files);
+
+export const updateFileSchema = z.object({
+  name: z.string().min(1, "File name is required").max(255, "File name too long").optional(),
+  description: z.string().max(1000, "Description too long").optional(),
+  tags: z.array(z.string()).optional(),
+  folder: z.string().optional(),
+  isPublic: z.boolean().optional(),
+});
+
+export const filePermissionSchema = createInsertSchema(filePermissions, {
+  permission: z.enum(["read", "write", "admin", "owner"]),
+}).pick({
+  permission: true,
+});
+
+export const shareFileSchema = z.object({
+  userId: z.number().int().positive().optional(),
+  permission: z.enum(["read", "write"]),
+  shareExpiry: z.string().optional(), // ISO date string
+});
+
+// File interaction schema
+export const fileInteractionSchema = createInsertSchema(fileInteractions, {
+  interactionType: z.enum(["view", "edit", "analyze", "download", "share", "delete", "restore"]),
+}).pick({
+  interactionType: true,
+  details: true,
+});
+
+// New file system types
+export type File = typeof files.$inferSelect;
+export type InsertFile = z.infer<typeof insertFileSchema>;
+export type UpdateFile = z.infer<typeof updateFileSchema>;
+export type FileVersion = typeof fileVersions.$inferSelect;
+export type FilePermission = typeof filePermissions.$inferSelect;
+export type ShareFile = z.infer<typeof shareFileSchema>;
+export type FileInteraction = typeof fileInteractions.$inferSelect;
+export type InsertFileInteraction = z.infer<typeof fileInteractionSchema>;

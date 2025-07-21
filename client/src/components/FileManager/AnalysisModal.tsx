@@ -54,6 +54,24 @@ const getQualityColor = (quality: string) => {
   }
 };
 
+// Helper function to get meaningful fallback values
+const getFallbackValue = (value: string | undefined, field: string): string => {
+  if (value && value !== 'unknown') {
+    return value;
+  }
+  
+  switch (field) {
+    case 'complexity':
+      return 'Analysis Needed';
+    case 'quality':
+      return 'Analysis Needed';
+    case 'confidence':
+      return 'Low';
+    default:
+      return 'Unknown';
+  }
+};
+
 export const AnalysisModal: React.FC<AnalysisModalProps> = ({
   isOpen,
   onClose,
@@ -143,52 +161,46 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({
           {/* Analysis Metrics */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {/* Complexity */}
-            {analysis?.complexity && (
-              <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-                <div className="flex items-center space-x-2 mb-2">
-                  <BarChart3 className="w-4 h-4 text-gray-600" />
-                  <span className="font-medium text-sm">Complexity</span>
-                </div>
-                <Badge 
-                  variant="outline" 
-                  className={`w-full justify-center ${getComplexityColor(analysis.complexity)}`}
-                >
-                  {analysis.complexity}
-                </Badge>
+            <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+              <div className="flex items-center space-x-2 mb-2">
+                <BarChart3 className="w-4 h-4 text-gray-600" />
+                <span className="font-medium text-sm">Complexity</span>
               </div>
-            )}
+              <Badge 
+                variant="outline" 
+                className={`w-full justify-center ${getComplexityColor(analysis.complexity)}`}
+              >
+                {getFallbackValue(analysis.complexity, 'complexity')}
+              </Badge>
+            </div>
 
             {/* Quality */}
-            {analysis?.quality && (
-              <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-                <div className="flex items-center space-x-2 mb-2">
-                  <CheckCircle className="w-4 h-4 text-gray-600" />
-                  <span className="font-medium text-sm">Quality</span>
-                </div>
-                <Badge 
-                  variant="outline" 
-                  className={`w-full justify-center ${getQualityColor(analysis.quality)}`}
-                >
-                  {analysis.quality}
-                </Badge>
+            <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+              <div className="flex items-center space-x-2 mb-2">
+                <CheckCircle className="w-4 h-4 text-gray-600" />
+                <span className="font-medium text-sm">Quality</span>
               </div>
-            )}
+              <Badge 
+                variant="outline" 
+                className={`w-full justify-center ${getQualityColor(analysis.quality)}`}
+              >
+                {getFallbackValue(analysis.quality, 'quality')}
+              </Badge>
+            </div>
 
             {/* Confidence */}
-            {analysis?.confidence && (
-              <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-                <div className="flex items-center space-x-2 mb-2">
-                  <TrendingUp className="w-4 h-4 text-gray-600" />
-                  <span className="font-medium text-sm">Confidence</span>
-                </div>
-                <Badge 
-                  variant="outline" 
-                  className={`w-full justify-center ${getConfidenceColor(analysis.confidence)}`}
-                >
-                  {analysis.confidence}
-                </Badge>
+            <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+              <div className="flex items-center space-x-2 mb-2">
+                <TrendingUp className="w-4 h-4 text-gray-600" />
+                <span className="font-medium text-sm">Confidence</span>
               </div>
-            )}
+              <Badge 
+                variant="outline" 
+                className={`w-full justify-center ${getConfidenceColor(analysis.confidence)}`}
+              >
+                {getFallbackValue(analysis.confidence, 'confidence')}
+              </Badge>
+            </div>
           </div>
 
           {/* Improvements */}

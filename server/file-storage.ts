@@ -650,7 +650,18 @@ Description: ${file.description || 'No description'}
 Tags: ${file.tags?.join(', ') || 'No tags'}
 
 Provide insights about the file type, potential use cases, and any security considerations.
-Respond in JSON format with: { "fileType": "...", "useCase": "...", "insights": [...], "security": "..." }`;
+
+IMPORTANT: You must respond with ONLY valid JSON in this exact format:
+{
+  "summary": "Brief description of the file and its purpose",
+  "quality": "excellent|good|fair|poor",
+  "complexity": "low|medium|high",
+  "improvements": ["suggestion1", "suggestion2"],
+  "security": "Security assessment and recommendations",
+  "confidence": "high|medium|low"
+}
+
+Do not include any text before or after the JSON. Ensure all string values are properly quoted.`;
         fileContent = ''; // Don't send binary content to AI
       } else {
         // For text files, analyze content
@@ -662,12 +673,33 @@ ${fileContent}
 
 Provide a comprehensive analysis including:
 - Content summary
-- Code quality (if applicable)
+- Code quality assessment (if applicable)
 - Potential improvements
 - Security considerations
 - Complexity assessment
 
-Respond in JSON format with: { "summary": "...", "quality": "...", "improvements": [...], "security": "...", "complexity": "low|medium|high" }`;
+IMPORTANT: You must respond with ONLY valid JSON in this exact format:
+{
+  "summary": "Comprehensive summary of the file content and purpose",
+  "quality": "excellent|good|fair|poor",
+  "complexity": "low|medium|high",
+  "improvements": ["specific improvement suggestion 1", "specific improvement suggestion 2"],
+  "security": "Detailed security assessment and recommendations",
+  "confidence": "high|medium|low"
+}
+
+For quality assessment:
+- "excellent": Well-structured, follows best practices, clean code
+- "good": Generally well-written with minor issues
+- "fair": Has some issues but functional
+- "poor": Significant problems, needs major improvements
+
+For complexity assessment:
+- "low": Simple, straightforward code/content
+- "medium": Moderate complexity, some advanced features
+- "high": Complex logic, advanced patterns, difficult to understand
+
+Do not include any text before or after the JSON. Ensure all string values are properly quoted.`;
       }
       
       console.log(`Analyzing file ${fileId} with Azure AI...`);
@@ -677,7 +709,7 @@ Respond in JSON format with: { "summary": "...", "quality": "...", "improvements
           messages: [
             {
               role: "system",
-              content: "You are an expert file analyzer and code reviewer. Provide thorough, actionable insights about files. Always respond with valid JSON."
+              content: "You are an expert file analyzer and code reviewer. Provide thorough, actionable insights about files. You MUST respond with ONLY valid JSON in the exact format specified by the user. Do not include any explanatory text, markdown formatting, or content outside the JSON object. Ensure all JSON is properly formatted with correct quotes, commas, and brackets."
             },
             {
               role: "user",
@@ -685,9 +717,10 @@ Respond in JSON format with: { "summary": "...", "quality": "...", "improvements
             }
           ],
           max_tokens: 2048,
-          temperature: 0.3,
+          temperature: 0.1, // Lower temperature for more consistent JSON output
           model: config.modelName,
           stream: false,
+          response_format: { type: "json_object" } // Enforce JSON response format
         },
       });
       
@@ -718,16 +751,25 @@ Respond in JSON format with: { "summary": "...", "quality": "...", "improvements
       
       if (!analysis) {
         console.warn('Failed to parse Azure AI response as JSON. Response preview:', aiResponse.substring(0, 300));
+        console.warn('Full AI response for debugging:', aiResponse);
         
-        // Fallback to basic analysis if JSON parsing fails
+        // Enhanced fallback analysis with meaningful values
         analysis = {
           summary: aiResponse.substring(0, 500) + (aiResponse.length > 500 ? '...' : ''),
           analysisType: 'basic',
           confidence: 'low',
           error: 'Failed to parse AI response as JSON',
-          rawResponse: aiResponse.substring(0, 1000) // Store first 1000 chars for debugging
+          rawResponse: aiResponse.substring(0, 1000), // Store first 1000 chars for debugging
+          // Provide intelligent fallback values based on response content
+          quality: this.inferQualityFromResponse(aiResponse),
+          complexity: this.inferComplexityFromResponse(aiResponse),
+          improvements: this.extractImprovementsFromResponse(aiResponse),
+          security: this.extractSecurityFromResponse(aiResponse)
         };
       }
+      
+      // Validate and normalize the parsed analysis
+      analysis = this.validateAndNormalizeAnalysis(analysis, aiResponse);
       
       // Ensure analysis has required fields
       analysis = {
@@ -813,6 +855,130 @@ Respond in JSON format with: { "summary": "...", "quality": "...", "improvements
       console.error("Error updating file analysis:", error);
       return null;
     }
+  }
+
+  private inferQualityFromResponse(response: string): string {
+    const lowerResponse = response.toLowerCase();
+    if (lowerResponse.includes('excellent') || lowerResponse.includes('well-structured') || lowerResponse.includes('clean code')) {
+      return 'excellent';
+    }
+    if (lowerResponse.includes('good') || lowerResponse.includes('generally well-written') || lowerResponse.includes('minor issues')) {
+      return 'good';
+    }
+    if (lowerResponse.includes('fair') || lowerResponse.includes('some issues') || lowerResponse.includes('functional')) {
+      return 'fair';
+    }
+    if (lowerResponse.includes('poor') || lowerResponse.includes('significant problems') || lowerResponse.includes('needs major improvements')) {
+      return 'poor';
+    }
+    return 'unknown';
+  }
+
+  private inferComplexityFromResponse(response: string): string {
+    const lowerResponse = response.toLowerCase();
+    if (lowerResponse.includes('low') || lowerResponse.includes('simple') || lowerResponse.includes('straightforward')) {
+      return 'low';
+    }
+    if (lowerResponse.includes('medium') || lowerResponse.includes('moderate complexity') || lowerResponse.includes('some advanced features')) {
+      return 'medium';
+    }
+    if (lowerResponse.includes('high') || lowerResponse.includes('complex logic') || lowerResponse.includes('advanced patterns') || lowerResponse.includes('difficult to understand')) {
+      return 'high';
+    }
+    return 'unknown';
+  }
+
+  private extractImprovementsFromResponse(response: string): string[] {
+    const improvements: string[] = [];
+    const lowerResponse = response.toLowerCase();
+
+    // Look for "improvements" or "suggestions"
+    const improvementsMatch = lowerResponse.match(/improvements?:?\s*\[(.*?)\]/);
+    if (improvementsMatch && improvementsMatch[1]) {
+      const suggestions = improvementsMatch[1].split(',').map(s => s.trim());
+      improvements.push(...suggestions);
+    }
+
+    // Look for "specific improvement suggestion"
+    const specificImprovementsMatch = lowerResponse.match(/specific improvement suggestion\s*(\d+):\s*(.*?)(?=,|$)/g);
+    if (specificImprovementsMatch) {
+      specificImprovementsMatch.forEach(match => {
+        const parts = match.split(':');
+        if (parts.length > 1) {
+          improvements.push(parts[1].trim());
+        }
+      });
+    }
+
+    // Look for "suggestion"
+    const suggestionsMatch = lowerResponse.match(/suggestion\s*(\d+):\s*(.*?)(?=,|$)/g);
+    if (suggestionsMatch) {
+      suggestionsMatch.forEach(match => {
+        const parts = match.split(':');
+        if (parts.length > 1) {
+          improvements.push(parts[1].trim());
+        }
+      });
+    }
+
+    // Look for "improvement"
+    const improvementMatch = lowerResponse.match(/improvement\s*(\d+):\s*(.*?)(?=,|$)/g);
+    if (improvementMatch) {
+      improvementMatch.forEach(match => {
+        const parts = match.split(':');
+        if (parts.length > 1) {
+          improvements.push(parts[1].trim());
+        }
+      });
+    }
+
+    // Remove duplicates and trim
+    return Array.from(new Set(improvements.map((s: string) => s.trim()).filter((s: string) => s)));
+  }
+
+  private extractSecurityFromResponse(response: string): string {
+    const lowerResponse = response.toLowerCase();
+    if (lowerResponse.includes('security assessment') || lowerResponse.includes('recommendations') || lowerResponse.includes('considerations')) {
+      return 'Detailed security assessment and recommendations';
+    }
+    if (lowerResponse.includes('no security issues')) {
+      return 'No security issues identified';
+    }
+    return 'Unknown';
+  }
+
+  private validateAndNormalizeAnalysis(analysis: any, rawResponse: string): any {
+    // Ensure summary is a string
+    analysis.summary = String(analysis.summary || 'Analysis completed');
+
+    // Ensure quality is one of the expected values
+    analysis.quality = ['excellent', 'good', 'fair', 'poor', 'unknown'].includes(analysis.quality) ? analysis.quality : 'unknown';
+
+    // Ensure complexity is one of the expected values
+    analysis.complexity = ['low', 'medium', 'high', 'unknown'].includes(analysis.complexity) ? analysis.complexity : 'unknown';
+
+    // Ensure confidence is one of the expected values
+    analysis.confidence = ['high', 'medium', 'low', 'unknown'].includes(analysis.confidence) ? analysis.confidence : 'medium';
+
+    // Ensure improvements is an array of strings
+    analysis.improvements = Array.isArray(analysis.improvements) ? analysis.improvements.map((s: any) => String(s).trim()) : [];
+
+    // Ensure security is a string
+    analysis.security = String(analysis.security || 'No security issues identified');
+
+    // Ensure analysisType is a string
+    analysis.analysisType = String(analysis.analysisType || 'ai_analysis');
+
+    // Ensure analyzedAt is a string
+    analysis.analyzedAt = String(analysis.analyzedAt || new Date().toISOString());
+
+    // Ensure fileMetadata is an object
+    analysis.fileMetadata = analysis.fileMetadata || {};
+
+    // Ensure rawResponse is a string
+    analysis.rawResponse = String(analysis.rawResponse || rawResponse.substring(0, 1000)); // Fallback to first 1000 chars
+
+    return analysis;
   }
 }
 

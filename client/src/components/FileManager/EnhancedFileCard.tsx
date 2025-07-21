@@ -195,7 +195,7 @@ export const EnhancedFileCard: React.FC<EnhancedFileCardProps> = ({
                 initial={{ opacity: 0, x: 10 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: 10 }}
-                className="flex items-center space-x-1"
+                className="flex items-center space-x-1 flex-shrink-0"
                 onClick={(e) => e.stopPropagation()}
               >
                 <Button
@@ -361,10 +361,10 @@ export const EnhancedFileCard: React.FC<EnhancedFileCardProps> = ({
                     size="sm"
                     variant="outline"
                     onClick={(e) => handleActionClick(e, () => onDownload(file))}
-                    className="h-8 px-2"
+                    className="h-8 w-8 p-0"
+                    title="Download file"
                   >
-                    <Download className="w-3 h-3 mr-1" />
-                    Download
+                    <Download className="w-4 h-4" />
                   </Button>
                   {enableAIAnalysis && (
                     <>
@@ -383,10 +383,10 @@ export const EnhancedFileCard: React.FC<EnhancedFileCardProps> = ({
                             console.log('View Analysis button clicked (grid) for file:', file.id);
                             handleActionClick(e, () => onViewAnalysis!(file));
                           }}
-                          className="h-8 px-2"
+                          className="h-8 w-8 p-0"
+                          title="View AI Analysis"
                         >
-                          <Eye className="w-3 h-3 mr-1" />
-                          View Analysis
+                          <Eye className="w-4 h-4" />
                         </Button>
                       ) : (
                         <Button
@@ -394,10 +394,10 @@ export const EnhancedFileCard: React.FC<EnhancedFileCardProps> = ({
                           variant="outline"
                           onClick={(e) => handleActionClick(e, () => onAnalyze(file.id))}
                           disabled={file.analysisStatus === 'analyzing'}
-                          className="h-8 px-2"
+                          className="h-8 w-8 p-0"
+                          title="Analyze with AI"
                         >
-                          <Brain className="w-3 h-3 mr-1" />
-                          Analyze
+                          <Brain className="w-4 h-4" />
                         </Button>
                       )}
                     </>

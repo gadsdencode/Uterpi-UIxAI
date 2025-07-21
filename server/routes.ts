@@ -54,14 +54,18 @@ export function extractAzureAIError(error: any): string {
 // Robust JSON parser for Azure AI responses
 export function parseAzureAIJSON(response: string): any {
   try {
+    console.log('🔍 Attempting to parse Azure AI response...');
+    console.log('📝 Response preview:', response.substring(0, 200) + '...');
+    
     // First, try direct parsing without any sanitization
     try {
       const directParse = JSON.parse(response);
       if (directParse && typeof directParse === 'object') {
+        console.log('✅ Direct JSON parsing successful');
         return directParse;
       }
     } catch (directError) {
-      console.log('Direct JSON parsing failed, attempting sanitization...');
+      console.log('⚠️ Direct JSON parsing failed, attempting sanitization...');
     }
 
     // Try to find JSON in the response using multiple patterns
@@ -69,42 +73,58 @@ export function parseAzureAIJSON(response: string): any {
       /```json\s*(\{[\s\S]*?\})\s*```/,   // Markdown JSON blocks (most specific)
       /```\s*(\{[\s\S]*?\})\s*```/,        // Generic code blocks
       /\{[\s\S]*\}/,                       // Any content between braces (fallback)
+      /```json\s*(\[[\s\S]*?\])\s*```/,    // JSON arrays in markdown
+      /```\s*(\[[\s\S]*?\])\s*```/,        // Arrays in code blocks
+      /\[[\s\S]*\]/,                       // Any content between brackets
     ];
 
-    for (const pattern of jsonPatterns) {
+    for (let i = 0; i < jsonPatterns.length; i++) {
+      const pattern = jsonPatterns[i];
       const match = response.match(pattern);
       if (match) {
         try {
           let jsonStr = match[1] || match[0];
+          console.log(`🎯 Trying JSON pattern ${i + 1}:`, jsonStr.substring(0, 100) + '...');
           
           // Try parsing without sanitization first
           try {
             const parsed = JSON.parse(jsonStr);
             if (parsed && typeof parsed === 'object') {
+              console.log(`✅ JSON pattern ${i + 1} parsing successful`);
               return parsed;
             }
           } catch (unsanitizedError) {
             // Only apply sanitization if direct parsing fails
-            console.log('Attempting to sanitize JSON before parsing...');
+            console.log(`🧽 Attempting to sanitize JSON pattern ${i + 1} before parsing...`);
             jsonStr = sanitizeJSONString(jsonStr);
+            console.log(`🧽 After sanitization:`, jsonStr.substring(0, 100) + '...');
             
             const parsed = JSON.parse(jsonStr);
             if (parsed && typeof parsed === 'object') {
+              console.log(`✅ Sanitized JSON pattern ${i + 1} parsing successful`);
               return parsed;
             }
           }
         } catch (parseError) {
-          console.warn('Failed to parse JSON pattern match:', parseError);
+          console.warn(`❌ Failed to parse JSON pattern ${i + 1}:`, parseError);
           continue;
         }
       }
     }
 
+    // Try to extract JSON from malformed responses
+    console.log('🔧 Attempting to extract JSON from malformed response...');
+    const extracted = extractJSONFromMalformedResponse(response);
+    if (extracted) {
+      console.log('✅ Successfully extracted JSON from malformed response');
+      return extracted;
+    }
+
     // Log the actual response for debugging
-    console.warn('No valid JSON found in Azure AI response. Response preview:', response.substring(0, 200));
+    console.warn('❌ No valid JSON found in Azure AI response. Response preview:', response.substring(0, 500));
     return null;
   } catch (error) {
-    console.error('JSON parsing completely failed:', error);
+    console.error('❌ JSON parsing completely failed:', error);
     return null;
   }
 }
@@ -131,6 +151,59 @@ function sanitizeJSONString(jsonStr: string): string {
     .replace(/:\s*"(\d+(?:\.\d+)?)"/g, ': $1')
     // Remove any double quotes that might have been created incorrectly
     .replace(/""/g, '"');
+}
+
+// Extract JSON from malformed responses
+function extractJSONFromMalformedResponse(response: string): any {
+  try {
+    // Look for JSON-like structures that might be embedded in text
+    const patterns = [
+      // Look for key-value pairs that might form a JSON object
+      /(\w+)\s*:\s*["']([^"']*)["']/g,
+      // Look for arrays
+      /\[([^\]]*)\]/g,
+      // Look for objects with unquoted keys
+      /(\w+)\s*:\s*(\{[^}]*\})/g
+    ];
+
+    // Try to reconstruct JSON from found patterns
+    const foundPairs: Record<string, any> = {};
+    
+    // Extract key-value pairs
+    const keyValueRegex = /(\w+)\s*:\s*["']([^"']*)["']/g;
+    let keyValueMatch;
+    while ((keyValueMatch = keyValueRegex.exec(response)) !== null) {
+      const key = keyValueMatch[1];
+      const value = keyValueMatch[2];
+      
+      // Map common keys to expected analysis fields
+      if (key.toLowerCase().includes('summary')) {
+        foundPairs.summary = value;
+      } else if (key.toLowerCase().includes('quality')) {
+        foundPairs.quality = value;
+      } else if (key.toLowerCase().includes('complexity')) {
+        foundPairs.complexity = value;
+      } else if (key.toLowerCase().includes('security')) {
+        foundPairs.security = value;
+      } else if (key.toLowerCase().includes('confidence')) {
+        foundPairs.confidence = value;
+      } else if (key.toLowerCase().includes('improvement')) {
+        if (!foundPairs.improvements) foundPairs.improvements = [];
+        foundPairs.improvements.push(value);
+      }
+    }
+
+    // If we found some meaningful data, return it
+    if (Object.keys(foundPairs).length > 0) {
+      console.log('🔧 Reconstructed JSON from malformed response:', foundPairs);
+      return foundPairs;
+    }
+
+    return null;
+  } catch (error) {
+    console.warn('❌ Failed to extract JSON from malformed response:', error);
+    return null;
+  }
 }
 
 // Function to check actual model capabilities by testing API calls

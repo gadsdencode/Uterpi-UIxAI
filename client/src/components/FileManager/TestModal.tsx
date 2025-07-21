@@ -12,13 +12,13 @@ export const TestModal: React.FC<TestModalProps> = ({ isOpen, onClose }) => {
   
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md bg-slate-950 border-slate-600/30">
         <DialogHeader>
-          <DialogTitle>Test Modal</DialogTitle>
+          <DialogTitle className="text-white">Test Modal</DialogTitle>
         </DialogHeader>
         <div className="p-4">
-          <p>This is a test modal to verify Dialog component is working.</p>
-          <Button onClick={onClose} className="mt-4">
+          <p className="text-slate-300">This is a test modal to verify Dialog component is working.</p>
+          <Button onClick={onClose} className="mt-4 bg-violet-500/20 text-violet-300 border-violet-400/30 hover:bg-violet-500/30">
             Close
           </Button>
         </div>

@@ -43,6 +43,40 @@ interface EnhancedFileManagerProps {
   showUploadArea?: boolean;
 }
 
+// Holographic Bubble Component to match app aesthetic
+const HolographicBubble: React.FC<{
+  children: React.ReactNode;
+  className?: string;
+}> = ({ children, className }) => (
+  <motion.div
+    initial={{ opacity: 0, scale: 0.8, y: 20 }}
+    animate={{ opacity: 1, scale: 1, y: 0 }}
+    transition={{ type: "spring", damping: 20, stiffness: 300 }}
+    className={`
+      relative p-6 rounded-2xl backdrop-blur-xl border overflow-hidden
+      bg-gradient-to-br from-slate-800/40 to-slate-900/40 border-slate-600/30
+      ${className}
+    `}
+  >
+    <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-white/5 to-transparent" />
+    <div className="relative z-10">{children}</div>
+    
+    {/* Holographic shimmer effect */}
+    <motion.div
+      className="absolute inset-0 rounded-2xl bg-gradient-to-r from-transparent via-white/10 to-transparent"
+      animate={{
+        x: ["-100%", "100%"],
+      }}
+      transition={{
+        duration: 3,
+        repeat: Infinity,
+        repeatType: "loop",
+        ease: "linear",
+      }}
+    />
+  </motion.div>
+);
+
 export const EnhancedFileManager: React.FC<EnhancedFileManagerProps> = ({
   className = '',
   initialFolder = '/',
@@ -268,110 +302,119 @@ export const EnhancedFileManager: React.FC<EnhancedFileManagerProps> = ({
 
   return (
     <TooltipProvider>
-      <div className={`flex flex-col h-full bg-white dark:bg-gray-900 ${className}`}>
+      <div className={`flex flex-col h-full bg-slate-950 text-white ${className}`}>
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
-          <div className="flex items-center space-x-4">
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-white">File Manager</h2>
-            
-            {selectedFiles.size > 0 && (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="flex items-center space-x-2"
-              >
-                <Badge variant="secondary" className="bg-blue-100 text-blue-800">
-                  {selectedFiles.size} selected
-                </Badge>
-                <Button
-                  size="sm"
-                  variant="destructive"
-                  onClick={handleBulkDelete}
-                  disabled={fileManager.isBulkDeleting}
-                >
-                  <Trash2 className="w-4 h-4 mr-1" />
-                  Delete
-                </Button>
-              </motion.div>
-            )}
-          </div>
-          
-          <div className="flex items-center space-x-2">
-            {/* View Mode Toggle */}
-            <div className="flex items-center border border-gray-200 dark:border-gray-700 rounded-lg">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    size="sm"
-                    variant={viewMode === 'grid' ? 'default' : 'ghost'}
-                    onClick={() => setViewMode('grid')}
-                    className="rounded-r-none"
-                  >
-                    <Grid className="w-4 h-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Grid view (Ctrl+G)</TooltipContent>
-              </Tooltip>
+        <HolographicBubble className="m-4 mb-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-4">
+              <h2 className="text-xl font-semibold text-white">File Manager</h2>
               
+              {selectedFiles.size > 0 && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="flex items-center space-x-2"
+                >
+                  <Badge variant="secondary" className="bg-violet-500/20 text-violet-300 border-violet-400/30">
+                    {selectedFiles.size} selected
+                  </Badge>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={handleBulkDelete}
+                    disabled={fileManager.isBulkDeleting}
+                    className="bg-red-500/20 hover:bg-red-500/30 border-red-400/30 text-red-300"
+                  >
+                    <Trash2 className="w-4 h-4 mr-1" />
+                    Delete
+                  </Button>
+                </motion.div>
+              )}
+            </div>
+            
+            <div className="flex items-center space-x-2">
+              {/* View Mode Toggle */}
+              <div className="flex items-center border border-slate-600/50 rounded-lg bg-slate-800/30">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant={viewMode === 'grid' ? 'default' : 'ghost'}
+                      onClick={() => setViewMode('grid')}
+                      className={`rounded-r-none ${viewMode === 'grid' ? 'bg-violet-500/20 text-violet-300 border-violet-400/30' : 'text-slate-300 hover:text-white hover:bg-slate-700/50'}`}
+                    >
+                      <Grid className="w-4 h-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Grid view (Ctrl+G)</TooltipContent>
+                </Tooltip>
+                
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant={viewMode === 'list' ? 'default' : 'ghost'}
+                      onClick={() => setViewMode('list')}
+                      className={`rounded-l-none ${viewMode === 'list' ? 'bg-violet-500/20 text-violet-300 border-violet-400/30' : 'text-slate-300 hover:text-white hover:bg-slate-700/50'}`}
+                    >
+                      <List className="w-4 h-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>List view (Ctrl+G)</TooltipContent>
+                </Tooltip>
+              </div>
+
+              {/* Upload Toggle */}
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
                     size="sm"
-                    variant={viewMode === 'list' ? 'default' : 'ghost'}
-                    onClick={() => setViewMode('list')}
-                    className="rounded-l-none"
+                    variant={showUploadZone ? 'default' : 'outline'}
+                    onClick={() => setShowUploadZone(!showUploadZone)}
+                    className={showUploadZone 
+                      ? 'bg-violet-500/20 text-violet-300 border-violet-400/30' 
+                      : 'border-slate-600/50 text-white bg-slate-800/50 hover:text-violet-300 hover:bg-violet-500/10 hover:border-violet-400/30'
+                    }
                   >
-                    <List className="w-4 h-4" />
+                    <Plus className="w-4 h-4 mr-1" />
+                    Upload
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>List view (Ctrl+G)</TooltipContent>
+                <TooltipContent>Toggle upload area (Ctrl+U)</TooltipContent>
+              </Tooltip>
+
+              {/* Test Modal Button */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setIsTestModalOpen(true)}
+                    className="text-slate-300 hover:text-white hover:bg-slate-700/50"
+                  >
+                    Test
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Test Modal</TooltipContent>
+              </Tooltip>
+
+              {/* Keyboard Shortcuts */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setShowKeyboardShortcuts(!showKeyboardShortcuts)}
+                    className="text-slate-300 hover:text-white hover:bg-slate-700/50"
+                  >
+                    <Keyboard className="w-4 h-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Keyboard shortcuts</TooltipContent>
               </Tooltip>
             </div>
-
-            {/* Upload Toggle */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  size="sm"
-                  variant={showUploadZone ? 'default' : 'outline'}
-                  onClick={() => setShowUploadZone(!showUploadZone)}
-                >
-                  <Plus className="w-4 h-4 mr-1" />
-                  Upload
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Toggle upload area (Ctrl+U)</TooltipContent>
-            </Tooltip>
-
-            {/* Test Modal Button */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setIsTestModalOpen(true)}
-                >
-                  Test
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Test Modal</TooltipContent>
-            </Tooltip>
-
-            {/* Keyboard Shortcuts */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setShowKeyboardShortcuts(!showKeyboardShortcuts)}
-                >
-                  <Keyboard className="w-4 h-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Keyboard shortcuts</TooltipContent>
-            </Tooltip>
           </div>
-        </div>
+        </HolographicBubble>
 
         {/* Keyboard Shortcuts Modal */}
         <AnimatePresence>
@@ -380,14 +423,16 @@ export const EnhancedFileManager: React.FC<EnhancedFileManagerProps> = ({
               initial={{ opacity: 0, y: -20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
-              className="p-4 bg-blue-50 dark:bg-blue-900/20 border-b border-blue-200 dark:border-blue-800"
+              className="mx-4 mb-2"
             >
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                <div><kbd className="px-2 py-1 bg-gray-200 dark:bg-gray-700 rounded">Ctrl+A</kbd> Select all</div>
-                <div><kbd className="px-2 py-1 bg-gray-200 dark:bg-gray-700 rounded">Ctrl+G</kbd> Toggle view</div>
-                <div><kbd className="px-2 py-1 bg-gray-200 dark:bg-gray-700 rounded">Ctrl+U</kbd> Toggle upload</div>
-                <div><kbd className="px-2 py-1 bg-gray-200 dark:bg-gray-700 rounded">Delete</kbd> Delete selected</div>
-              </div>
+              <HolographicBubble>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                  <div><kbd className="px-2 py-1 bg-slate-700/50 text-slate-300 rounded border border-slate-600/50">Ctrl+A</kbd> Select all</div>
+                  <div><kbd className="px-2 py-1 bg-slate-700/50 text-slate-300 rounded border border-slate-600/50">Ctrl+G</kbd> Toggle view</div>
+                  <div><kbd className="px-2 py-1 bg-slate-700/50 text-slate-300 rounded border border-slate-600/50">Ctrl+U</kbd> Toggle upload</div>
+                  <div><kbd className="px-2 py-1 bg-slate-700/50 text-slate-300 rounded border border-slate-600/50">Delete</kbd> Delete selected</div>
+                </div>
+              </HolographicBubble>
             </motion.div>
           )}
         </AnimatePresence>
@@ -399,91 +444,95 @@ export const EnhancedFileManager: React.FC<EnhancedFileManagerProps> = ({
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
-              className="p-4 border-b border-gray-200 dark:border-gray-700"
+              className="mx-4 mb-2"
             >
-              <InlineUploadArea
-                onFilesSelected={handleFileUpload}
-                maxFileSize={maxFileSize}
-                allowedFileTypes={allowedFileTypes}
-                isUploading={fileManager.isUploading}
-                uploadProgress={fileManager.uploadProgress}
-              />
+              <HolographicBubble>
+                <InlineUploadArea
+                  onFilesSelected={handleFileUpload}
+                  maxFileSize={maxFileSize}
+                  allowedFileTypes={allowedFileTypes}
+                  isUploading={fileManager.isUploading}
+                  uploadProgress={fileManager.uploadProgress}
+                />
+              </HolographicBubble>
             </motion.div>
           )}
         </AnimatePresence>
 
         {/* Filters and Search */}
-        <div className="flex items-center space-x-4 p-4 bg-gray-50 dark:bg-gray-800">
-          <div className="flex-1">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-              <Input
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search files..."
-                className="pl-10"
-              />
+        <HolographicBubble className="mx-4 mb-2">
+          <div className="flex items-center space-x-4">
+            <div className="flex-1">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-4 h-4" />
+                <Input
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search files..."
+                  className="pl-10 bg-slate-800/30 border-slate-600/50 text-white placeholder:text-slate-400 focus:border-violet-400/50"
+                />
+              </div>
             </div>
+
+            <Select value={selectedFolder} onValueChange={setSelectedFolder}>
+              <SelectTrigger className="w-48 bg-slate-800/30 border-slate-600/50 text-white">
+                <SelectValue placeholder="All folders" />
+              </SelectTrigger>
+              <SelectContent className="bg-slate-800 border-slate-600">
+                <SelectItem value="/">All folders</SelectItem>
+                {folders?.map(folder => (
+                  <SelectItem key={folder} value={folder}>
+                    <FolderOpen className="w-4 h-4 mr-2 inline" />
+                    {folder}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select value={mimeTypeFilter} onValueChange={setMimeTypeFilter}>
+              <SelectTrigger className="w-40 bg-slate-800/30 border-slate-600/50 text-white">
+                <SelectValue placeholder="File type" />
+              </SelectTrigger>
+              <SelectContent className="bg-slate-800 border-slate-600">
+                <SelectItem value="all">All types</SelectItem>
+                <SelectItem value="image/">Images</SelectItem>
+                <SelectItem value="text/">Text files</SelectItem>
+                <SelectItem value="application/pdf">PDF</SelectItem>
+                <SelectItem value="video/">Videos</SelectItem>
+                <SelectItem value="audio/">Audio</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="border-slate-600/50 text-slate-300 hover:text-white hover:bg-slate-700/50">
+                  <SortAsc className="w-4 h-4 mr-1" />
+                  Sort
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="bg-slate-800 border-slate-600">
+                <DropdownMenuItem onClick={() => { setSortBy('name'); setSortOrder('asc'); }}>
+                  Name A-Z
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => { setSortBy('name'); setSortOrder('desc'); }}>
+                  Name Z-A
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => { setSortBy('date'); setSortOrder('desc'); }}>
+                  Newest first
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => { setSortBy('date'); setSortOrder('asc'); }}>
+                  Oldest first
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => { setSortBy('size'); setSortOrder('desc'); }}>
+                  Largest first
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => { setSortBy('size'); setSortOrder('asc'); }}>
+                  Smallest first
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
-
-          <Select value={selectedFolder} onValueChange={setSelectedFolder}>
-            <SelectTrigger className="w-48">
-              <SelectValue placeholder="All folders" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="/">All folders</SelectItem>
-              {folders?.map(folder => (
-                <SelectItem key={folder} value={folder}>
-                  <FolderOpen className="w-4 h-4 mr-2 inline" />
-                  {folder}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <Select value={mimeTypeFilter} onValueChange={setMimeTypeFilter}>
-            <SelectTrigger className="w-40">
-              <SelectValue placeholder="File type" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All types</SelectItem>
-              <SelectItem value="image/">Images</SelectItem>
-              <SelectItem value="text/">Text files</SelectItem>
-              <SelectItem value="application/pdf">PDF</SelectItem>
-              <SelectItem value="video/">Videos</SelectItem>
-              <SelectItem value="audio/">Audio</SelectItem>
-            </SelectContent>
-          </Select>
-
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm">
-                <SortAsc className="w-4 h-4 mr-1" />
-                Sort
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent>
-              <DropdownMenuItem onClick={() => { setSortBy('name'); setSortOrder('asc'); }}>
-                Name A-Z
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => { setSortBy('name'); setSortOrder('desc'); }}>
-                Name Z-A
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => { setSortBy('date'); setSortOrder('desc'); }}>
-                Newest first
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => { setSortBy('date'); setSortOrder('asc'); }}>
-                Oldest first
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => { setSortBy('size'); setSortOrder('desc'); }}>
-                Largest first
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => { setSortBy('size'); setSortOrder('asc'); }}>
-                Smallest first
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+        </HolographicBubble>
 
         {/* File List */}
         <div className="flex-1 overflow-auto p-4">
@@ -491,10 +540,12 @@ export const EnhancedFileManager: React.FC<EnhancedFileManagerProps> = ({
             <SkeletonLoader viewMode={viewMode} count={8} />
           ) : error ? (
             <div className="flex items-center justify-center h-64">
-              <div className="text-center text-red-500">
-                <p>Failed to load files</p>
-                <p className="text-sm">{error.message}</p>
-              </div>
+              <HolographicBubble>
+                <div className="text-center text-red-400">
+                  <p>Failed to load files</p>
+                  <p className="text-sm text-slate-400">{error.message}</p>
+                </div>
+              </HolographicBubble>
             </div>
           ) : !sortedFiles.length ? (
             <EmptyStateSkeleton />
@@ -525,13 +576,15 @@ export const EnhancedFileManager: React.FC<EnhancedFileManagerProps> = ({
 
         {/* Pagination */}
         {fileList && fileList.total > fileList.files.length && (
-          <div className="p-4 border-t border-gray-200 dark:border-gray-700">
-            <div className="flex justify-between items-center">
-              <p className="text-sm text-gray-500">
-                Showing {fileList.files.length} of {fileList.total} files
-              </p>
-              <Button variant="outline">Load More</Button>
-            </div>
+          <div className="p-4">
+            <HolographicBubble>
+              <div className="flex justify-between items-center">
+                <p className="text-sm text-slate-400">
+                  Showing {fileList.files.length} of {fileList.total} files
+                </p>
+                <Button variant="outline" className="border-slate-600/50 text-slate-300 hover:text-white hover:bg-slate-700/50">Load More</Button>
+              </div>
+            </HolographicBubble>
           </div>
         )}
 

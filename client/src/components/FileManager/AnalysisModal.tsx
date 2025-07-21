@@ -26,31 +26,31 @@ interface AnalysisModalProps {
 
 const getComplexityColor = (complexity: string) => {
   switch (complexity?.toLowerCase()) {
-    case 'low': return 'bg-green-100 text-green-800 border-green-200';
-    case 'medium': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-    case 'high': return 'bg-red-100 text-red-800 border-red-200';
-    default: return 'bg-gray-100 text-gray-800 border-gray-200';
+    case 'low': return 'bg-green-500/20 text-green-300 border-green-400/30';
+    case 'medium': return 'bg-yellow-500/20 text-yellow-300 border-yellow-400/30';
+    case 'high': return 'bg-red-500/20 text-red-300 border-red-400/30';
+    default: return 'bg-slate-500/20 text-slate-300 border-slate-400/30';
   }
 };
 
 const getConfidenceColor = (confidence: string) => {
   switch (confidence?.toLowerCase()) {
-    case 'high': return 'bg-green-100 text-green-800 border-green-200';
-    case 'medium': return 'bg-blue-100 text-blue-800 border-blue-200';
-    case 'low': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-    default: return 'bg-gray-100 text-gray-800 border-gray-200';
+    case 'high': return 'bg-green-500/20 text-green-300 border-green-400/30';
+    case 'medium': return 'bg-violet-500/20 text-violet-300 border-violet-400/30';
+    case 'low': return 'bg-yellow-500/20 text-yellow-300 border-yellow-400/30';
+    default: return 'bg-slate-500/20 text-slate-300 border-slate-400/30';
   }
 };
 
 const getQualityColor = (quality: string) => {
   switch (quality?.toLowerCase()) {
     case 'excellent':
-    case 'good': return 'bg-green-100 text-green-800 border-green-200';
+    case 'good': return 'bg-green-500/20 text-green-300 border-green-400/30';
     case 'fair':
-    case 'average': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+    case 'average': return 'bg-yellow-500/20 text-yellow-300 border-yellow-400/30';
     case 'poor':
-    case 'bad': return 'bg-red-100 text-red-800 border-red-200';
-    default: return 'bg-gray-100 text-gray-800 border-gray-200';
+    case 'bad': return 'bg-red-500/20 text-red-300 border-red-400/30';
+    default: return 'bg-slate-500/20 text-slate-300 border-slate-400/30';
   }
 };
 
@@ -71,6 +71,40 @@ const getFallbackValue = (value: string | undefined, field: string): string => {
       return 'Unknown';
   }
 };
+
+// Holographic Bubble Component to match app aesthetic
+const HolographicBubble: React.FC<{
+  children: React.ReactNode;
+  className?: string;
+}> = ({ children, className }) => (
+  <motion.div
+    initial={{ opacity: 0, scale: 0.8, y: 20 }}
+    animate={{ opacity: 1, scale: 1, y: 0 }}
+    transition={{ type: "spring", damping: 20, stiffness: 300 }}
+    className={`
+      relative p-4 rounded-xl backdrop-blur-xl border overflow-hidden
+      bg-gradient-to-br from-slate-800/40 to-slate-900/40 border-slate-600/30
+      ${className}
+    `}
+  >
+    <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-white/5 to-transparent" />
+    <div className="relative z-10">{children}</div>
+    
+    {/* Holographic shimmer effect */}
+    <motion.div
+      className="absolute inset-0 rounded-xl bg-gradient-to-r from-transparent via-white/10 to-transparent"
+      animate={{
+        x: ["-100%", "100%"],
+      }}
+      transition={{
+        duration: 3,
+        repeat: Infinity,
+        repeatType: "loop",
+        ease: "linear",
+      }}
+    />
+  </motion.div>
+);
 
 export const AnalysisModal: React.FC<AnalysisModalProps> = ({
   isOpen,
@@ -98,73 +132,73 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({
   
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto bg-slate-950 border-slate-600/30">
         <DialogHeader>
-          <DialogTitle className="flex items-center space-x-2">
-            <Brain className="w-5 h-5 text-blue-600" />
+          <DialogTitle className="flex items-center space-x-2 text-white">
+            <Brain className="w-5 h-5 text-violet-400" />
             <span>AI Analysis Results</span>
           </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-6">
           {/* Debug Info */}
-          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-            <h3 className="font-medium text-blue-800 dark:text-blue-200 mb-2">Debug Info</h3>
-            <p className="text-sm text-blue-700 dark:text-blue-300">
+          <HolographicBubble>
+            <h3 className="font-medium text-violet-300 mb-2">Debug Info</h3>
+            <p className="text-sm text-slate-300">
               Modal is rendering! File: {file.name}, Analysis Status: {file.analysisStatus}
             </p>
-          </div>
+          </HolographicBubble>
 
           {/* File Information */}
-          <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+          <HolographicBubble>
             <div className="flex items-center space-x-3">
-              <FileText className="w-5 h-5 text-gray-600" />
+              <FileText className="w-5 h-5 text-slate-400" />
               <div>
-                <h3 className="font-medium text-gray-900 dark:text-white">{file.name}</h3>
-                <p className="text-sm text-gray-500">
+                <h3 className="font-medium text-white">{file.name}</h3>
+                <p className="text-sm text-slate-400">
                   {file.mimeType} • {(file.size / 1024).toFixed(1)} KB
                 </p>
               </div>
             </div>
-          </div>
+          </HolographicBubble>
 
           {/* Analysis Status */}
           {!analysis && (
-            <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
+            <HolographicBubble>
               <div className="flex items-center space-x-2">
-                <AlertTriangle className="w-5 h-5 text-yellow-600" />
-                <span className="font-medium text-yellow-800 dark:text-yellow-200">
+                <AlertTriangle className="w-5 h-5 text-yellow-400" />
+                <span className="font-medium text-yellow-300">
                   No Analysis Data Available
                 </span>
               </div>
-              <p className="text-yellow-700 dark:text-yellow-300 text-sm mt-2">
+              <p className="text-slate-300 text-sm mt-2">
                 This file hasn't been analyzed yet or the analysis data is not available.
               </p>
-            </div>
+            </HolographicBubble>
           )}
 
           {/* Analysis Summary */}
           {analysis?.summary && (
             <div>
-              <h3 className="text-lg font-semibold mb-3 flex items-center space-x-2">
-                <Info className="w-5 h-5 text-blue-600" />
+              <h3 className="text-lg font-semibold mb-3 flex items-center space-x-2 text-white">
+                <Info className="w-5 h-5 text-violet-400" />
                 <span>Summary</span>
               </h3>
-              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-                <p className="text-gray-700 dark:text-gray-300 leading-relaxed">
+              <HolographicBubble>
+                <p className="text-slate-300 leading-relaxed">
                   {analysis.summary}
                 </p>
-              </div>
+              </HolographicBubble>
             </div>
           )}
 
           {/* Analysis Metrics */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {/* Complexity */}
-            <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+            <HolographicBubble>
               <div className="flex items-center space-x-2 mb-2">
-                <BarChart3 className="w-4 h-4 text-gray-600" />
-                <span className="font-medium text-sm">Complexity</span>
+                <BarChart3 className="w-4 h-4 text-slate-400" />
+                <span className="font-medium text-sm text-white">Complexity</span>
               </div>
               <Badge 
                 variant="outline" 
@@ -172,13 +206,13 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({
               >
                 {getFallbackValue(analysis.complexity, 'complexity')}
               </Badge>
-            </div>
+            </HolographicBubble>
 
             {/* Quality */}
-            <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+            <HolographicBubble>
               <div className="flex items-center space-x-2 mb-2">
-                <CheckCircle className="w-4 h-4 text-gray-600" />
-                <span className="font-medium text-sm">Quality</span>
+                <CheckCircle className="w-4 h-4 text-slate-400" />
+                <span className="font-medium text-sm text-white">Quality</span>
               </div>
               <Badge 
                 variant="outline" 
@@ -186,13 +220,13 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({
               >
                 {getFallbackValue(analysis.quality, 'quality')}
               </Badge>
-            </div>
+            </HolographicBubble>
 
             {/* Confidence */}
-            <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+            <HolographicBubble>
               <div className="flex items-center space-x-2 mb-2">
-                <TrendingUp className="w-4 h-4 text-gray-600" />
-                <span className="font-medium text-sm">Confidence</span>
+                <TrendingUp className="w-4 h-4 text-slate-400" />
+                <span className="font-medium text-sm text-white">Confidence</span>
               </div>
               <Badge 
                 variant="outline" 
@@ -200,27 +234,26 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({
               >
                 {getFallbackValue(analysis.confidence, 'confidence')}
               </Badge>
-            </div>
+            </HolographicBubble>
           </div>
 
           {/* Improvements */}
           {analysis?.improvements && analysis.improvements.length > 0 && (
             <div>
-              <h3 className="text-lg font-semibold mb-3 flex items-center space-x-2">
-                <TrendingUp className="w-5 h-5 text-green-600" />
+              <h3 className="text-lg font-semibold mb-3 flex items-center space-x-2 text-white">
+                <TrendingUp className="w-5 h-5 text-green-400" />
                 <span>Suggested Improvements</span>
               </h3>
               <div className="space-y-2">
                 {analysis.improvements.map((improvement: string, index: number) => (
-                  <div 
-                    key={index}
-                    className="flex items-start space-x-3 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg"
-                  >
-                    <div className="w-2 h-2 bg-green-500 rounded-full mt-2 flex-shrink-0" />
-                    <p className="text-gray-700 dark:text-gray-300 text-sm">
-                      {improvement}
-                    </p>
-                  </div>
+                  <HolographicBubble key={index}>
+                    <div className="flex items-start space-x-3">
+                      <div className="w-2 h-2 bg-green-400 rounded-full mt-2 flex-shrink-0" />
+                      <p className="text-slate-300 text-sm">
+                        {improvement}
+                      </p>
+                    </div>
+                  </HolographicBubble>
                 ))}
               </div>
             </div>
@@ -229,87 +262,89 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({
           {/* Security */}
           {analysis?.security && (
             <div>
-              <h3 className="text-lg font-semibold mb-3 flex items-center space-x-2">
-                <Shield className="w-5 h-5 text-orange-600" />
+              <h3 className="text-lg font-semibold mb-3 flex items-center space-x-2 text-white">
+                <Shield className="w-5 h-5 text-orange-400" />
                 <span>Security Assessment</span>
               </h3>
-              <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg p-4">
-                <p className="text-gray-700 dark:text-gray-300 leading-relaxed">
+              <HolographicBubble>
+                <p className="text-slate-300 leading-relaxed">
                   {analysis.security}
                 </p>
-              </div>
+              </HolographicBubble>
             </div>
           )}
 
           {/* Analysis Metadata */}
-          <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-            <h3 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-3">
+          <HolographicBubble>
+            <h3 className="text-sm font-medium text-slate-400 mb-3">
               Analysis Details
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
               {analysis?.analyzedAt && (
                 <div className="flex items-center space-x-2">
-                  <Clock className="w-4 h-4 text-gray-500" />
-                  <span className="text-gray-600 dark:text-gray-300">
+                  <Clock className="w-4 h-4 text-slate-500" />
+                  <span className="text-slate-300">
                     Analyzed: {new Date(analysis.analyzedAt).toLocaleString()}
                   </span>
                 </div>
               )}
               {analysis?.analysisType && (
                 <div className="flex items-center space-x-2">
-                  <Brain className="w-4 h-4 text-gray-500" />
-                  <span className="text-gray-600 dark:text-gray-300">
+                  <Brain className="w-4 h-4 text-slate-500" />
+                  <span className="text-slate-300">
                     Type: {analysis.analysisType}
                   </span>
                 </div>
               )}
               {analysis?.fileMetadata?.encoding && (
                 <div className="flex items-center space-x-2">
-                  <FileText className="w-4 h-4 text-gray-500" />
-                  <span className="text-gray-600 dark:text-gray-300">
+                  <FileText className="w-4 h-4 text-slate-500" />
+                  <span className="text-slate-300">
                     Encoding: {analysis.fileMetadata.encoding}
                   </span>
                 </div>
               )}
               {analysis?.model && (
                 <div className="flex items-center space-x-2">
-                  <Brain className="w-4 h-4 text-gray-500" />
-                  <span className="text-gray-600 dark:text-gray-300">
+                  <Brain className="w-4 h-4 text-slate-500" />
+                  <span className="text-slate-300">
                     Model: {analysis.model}
                   </span>
                 </div>
               )}
             </div>
-          </div>
+          </HolographicBubble>
 
           {/* Error Information (if analysis failed) */}
           {analysis?.error && (
-            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+            <HolographicBubble>
               <div className="flex items-center space-x-2 mb-2">
-                <AlertTriangle className="w-5 h-5 text-red-600" />
-                <span className="font-medium text-red-800 dark:text-red-200">Analysis Error</span>
+                <AlertTriangle className="w-5 h-5 text-red-400" />
+                <span className="font-medium text-red-300">Analysis Error</span>
               </div>
-              <p className="text-red-700 dark:text-red-300 text-sm">
+              <p className="text-red-300 text-sm">
                 {analysis.error}
               </p>
-            </div>
+            </HolographicBubble>
           )}
 
           {/* Raw Response (for debugging) */}
           {analysis?.rawResponse && (
-            <details className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-              <summary className="cursor-pointer font-medium text-gray-600 dark:text-gray-400">
-                Raw Analysis Response (Debug)
-              </summary>
-              <pre className="mt-2 text-xs text-gray-500 dark:text-gray-400 overflow-x-auto whitespace-pre-wrap">
-                {analysis.rawResponse}
-              </pre>
-            </details>
+            <HolographicBubble>
+              <details className="cursor-pointer">
+                <summary className="font-medium text-slate-400">
+                  Raw Analysis Response (Debug)
+                </summary>
+                <pre className="mt-2 text-xs text-slate-500 overflow-x-auto whitespace-pre-wrap">
+                  {analysis.rawResponse}
+                </pre>
+              </details>
+            </HolographicBubble>
           )}
         </div>
 
-        <div className="flex justify-end space-x-2 pt-4 border-t">
-          <Button variant="outline" onClick={onClose}>
+        <div className="flex justify-end space-x-2 pt-4 border-t border-slate-600/30">
+          <Button variant="outline" onClick={onClose} className="border-slate-600/50 text-slate-300 hover:text-white hover:bg-slate-700/50">
             Close
           </Button>
         </div>

@@ -40,6 +40,50 @@ const formatFileSize = (bytes: number) => {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 };
 
+// Holographic Bubble Component to match app aesthetic
+const HolographicBubble: React.FC<{
+  children: React.ReactNode;
+  className?: string;
+  onClick?: () => void;
+  onDragEnter?: (e: React.DragEvent) => void;
+  onDragLeave?: (e: React.DragEvent) => void;
+  onDragOver?: (e: React.DragEvent) => void;
+  onDrop?: (e: React.DragEvent) => void;
+}> = ({ children, className, onClick, onDragEnter, onDragLeave, onDragOver, onDrop }) => (
+  <motion.div
+    initial={{ opacity: 0, scale: 0.8, y: 20 }}
+    animate={{ opacity: 1, scale: 1, y: 0 }}
+    transition={{ type: "spring", damping: 20, stiffness: 300 }}
+    className={`
+      relative p-4 rounded-xl backdrop-blur-xl border overflow-hidden
+      bg-gradient-to-br from-slate-800/40 to-slate-900/40 border-slate-600/30
+      ${className}
+    `}
+    onClick={onClick}
+    onDragEnter={onDragEnter}
+    onDragLeave={onDragLeave}
+    onDragOver={onDragOver}
+    onDrop={onDrop}
+  >
+    <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-white/5 to-transparent" />
+    <div className="relative z-10">{children}</div>
+    
+    {/* Holographic shimmer effect */}
+    <motion.div
+      className="absolute inset-0 rounded-xl bg-gradient-to-r from-transparent via-white/10 to-transparent"
+      animate={{
+        x: ["-100%", "100%"],
+      }}
+      transition={{
+        duration: 3,
+        repeat: Infinity,
+        repeatType: "loop",
+        ease: "linear",
+      }}
+    />
+  </motion.div>
+);
+
 export const InlineUploadArea: React.FC<InlineUploadAreaProps> = ({
   onFilesSelected,
   maxFileSize = 10 * 1024 * 1024, // 10MB default
@@ -103,10 +147,10 @@ export const InlineUploadArea: React.FC<InlineUploadAreaProps> = ({
 
       setSelectedFiles(prev => {
         const combined = [...prev, ...newUploadFiles];
-        return combined.slice(0, maxFiles); // Limit to maxFiles
+        return combined.slice(0, maxFiles);
       });
 
-      // Call the parent handler
+      // Trigger upload
       onFilesSelected(validFiles);
     }
   }, [maxFileSize, allowedFileTypes, maxFiles, onFilesSelected]);
@@ -126,26 +170,20 @@ export const InlineUploadArea: React.FC<InlineUploadAreaProps> = ({
     e.preventDefault();
     e.stopPropagation();
     setIsDragActive(false);
-    
-    const files = e.dataTransfer.files;
-    if (files.length > 0) {
-      handleFiles(files);
+
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleFiles(e.dataTransfer.files);
     }
   }, [handleFiles]);
 
   const handleFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (files && files.length > 0) {
-      handleFiles(files);
-    }
-    // Reset input value to allow selecting the same file again
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
+    if (e.target.files && e.target.files.length > 0) {
+      handleFiles(e.target.files);
     }
   }, [handleFiles]);
 
   const removeFile = (fileId: string) => {
-    setSelectedFiles(prev => prev.filter(f => f.id !== fileId));
+    setSelectedFiles(prev => prev.filter(file => file.id !== fileId));
   };
 
   const clearAllFiles = () => {
@@ -155,12 +193,12 @@ export const InlineUploadArea: React.FC<InlineUploadAreaProps> = ({
   return (
     <div className={`space-y-4 ${className}`}>
       {/* Upload Zone */}
-      <div
+      <HolographicBubble
         className={`
           relative border-2 border-dashed rounded-xl p-8 text-center transition-all duration-200
           ${isDragActive 
-            ? 'border-blue-400 bg-blue-50/50 scale-105' 
-            : 'border-gray-300 hover:border-gray-400 hover:bg-gray-50/50'
+            ? 'border-violet-400 bg-violet-500/20 scale-105' 
+            : 'border-slate-600/50 hover:border-slate-500/50 hover:bg-slate-700/30'
           }
           ${isUploading ? 'pointer-events-none opacity-75' : 'cursor-pointer'}
         `}
@@ -184,23 +222,23 @@ export const InlineUploadArea: React.FC<InlineUploadAreaProps> = ({
           <div className="flex justify-center">
             <div className={`
               p-4 rounded-full transition-colors
-              ${isDragActive ? 'bg-blue-100' : 'bg-gray-100'}
+              ${isDragActive ? 'bg-violet-500/20' : 'bg-slate-700/50'}
             `}>
-              <Upload className={`w-8 h-8 ${isDragActive ? 'text-blue-600' : 'text-gray-400'}`} />
+              <Upload className={`w-8 h-8 ${isDragActive ? 'text-violet-300' : 'text-slate-400'}`} />
             </div>
           </div>
           
           <div>
-            <p className="text-lg font-medium text-gray-900 mb-2">
+            <p className="text-lg font-medium text-white mb-2">
               {isDragActive ? 'Drop files here' : 'Drop files here or click to browse'}
             </p>
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-slate-300">
               Maximum file size: {Math.round(maxFileSize / 1024 / 1024)}MB
               {allowedFileTypes && (
                 <span> • Supported: {allowedFileTypes.join(', ')}</span>
               )}
             </p>
-            <p className="text-xs text-gray-400 mt-1">
+            <p className="text-xs text-slate-400 mt-1">
               Up to {maxFiles} files
             </p>
           </div>
@@ -213,13 +251,13 @@ export const InlineUploadArea: React.FC<InlineUploadAreaProps> = ({
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-white/90 backdrop-blur-sm rounded-xl flex items-center justify-center"
+              className="absolute inset-0 bg-slate-800/90 backdrop-blur-sm rounded-xl flex items-center justify-center"
             >
               <div className="text-center space-y-4">
-                <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full mx-auto" />
+                <div className="animate-spin w-8 h-8 border-4 border-violet-400 border-t-transparent rounded-full mx-auto" />
                 <div>
-                  <p className="text-lg font-medium text-gray-900">Uploading files...</p>
-                  <p className="text-sm text-gray-500">{uploadProgress}% complete</p>
+                  <p className="text-lg font-medium text-white">Uploading files...</p>
+                  <p className="text-sm text-slate-300">{uploadProgress}% complete</p>
                 </div>
                 <div className="w-48">
                   <Progress value={uploadProgress} className="h-2" />
@@ -228,7 +266,7 @@ export const InlineUploadArea: React.FC<InlineUploadAreaProps> = ({
             </motion.div>
           )}
         </AnimatePresence>
-      </div>
+      </HolographicBubble>
 
       {/* Selected Files List */}
       <AnimatePresence>
@@ -240,14 +278,14 @@ export const InlineUploadArea: React.FC<InlineUploadAreaProps> = ({
             className="space-y-3"
           >
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-medium text-gray-900">
+              <h3 className="text-sm font-medium text-white">
                 Selected Files ({selectedFiles.length})
               </h3>
               <Button
                 size="sm"
                 variant="ghost"
                 onClick={clearAllFiles}
-                className="text-gray-500 hover:text-gray-700"
+                className="text-slate-400 hover:text-slate-200"
               >
                 Clear All
               </Button>
@@ -262,7 +300,7 @@ export const InlineUploadArea: React.FC<InlineUploadAreaProps> = ({
                   exit={{ opacity: 0, x: 20 }}
                   className={`
                     flex items-center space-x-3 p-3 rounded-lg border transition-colors
-                    ${uploadFile.status === 'error' ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'}
+                    ${uploadFile.status === 'error' ? 'bg-red-500/20 border-red-400/30' : 'bg-slate-700/50 border-slate-600/50'}
                   `}
                 >
                   <div className="flex-shrink-0">
@@ -270,33 +308,33 @@ export const InlineUploadArea: React.FC<InlineUploadAreaProps> = ({
                   </div>
                   
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-900 truncate">
+                    <p className="text-sm font-medium text-white truncate">
                       {uploadFile.file.name}
                     </p>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-slate-400">
                       {formatFileSize(uploadFile.file.size)}
                     </p>
                   </div>
 
                   <div className="flex items-center space-x-2">
                     {uploadFile.status === 'pending' && (
-                      <Badge variant="secondary" className="text-xs">
+                      <Badge variant="secondary" className="text-xs bg-slate-600/50 text-slate-300 border-slate-500/50">
                         Ready
                       </Badge>
                     )}
                     {uploadFile.status === 'uploading' && (
-                      <Badge variant="secondary" className="text-xs">
+                      <Badge variant="secondary" className="text-xs bg-violet-500/20 text-violet-300 border-violet-400/30">
                         Uploading...
                       </Badge>
                     )}
                     {uploadFile.status === 'completed' && (
-                      <div className="flex items-center space-x-1 text-green-600">
+                      <div className="flex items-center space-x-1 text-green-400">
                         <CheckCircle className="w-4 h-4" />
                         <span className="text-xs">Complete</span>
                       </div>
                     )}
                     {uploadFile.status === 'error' && (
-                      <div className="flex items-center space-x-1 text-red-600">
+                      <div className="flex items-center space-x-1 text-red-400">
                         <AlertCircle className="w-4 h-4" />
                         <span className="text-xs">Error</span>
                       </div>
@@ -306,7 +344,7 @@ export const InlineUploadArea: React.FC<InlineUploadAreaProps> = ({
                       size="sm"
                       variant="ghost"
                       onClick={() => removeFile(uploadFile.id)}
-                      className="h-6 w-6 p-0 text-gray-400 hover:text-gray-600"
+                      className="h-6 w-6 p-0 text-slate-400 hover:text-slate-200"
                     >
                       <X className="w-3 h-3" />
                     </Button>

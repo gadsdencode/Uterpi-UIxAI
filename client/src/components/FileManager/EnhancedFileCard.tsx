@@ -84,13 +84,53 @@ const getAnalysisDescription = (status: string) => {
 
 const getAnalysisColor = (status: string) => {
   switch (status) {
-    case 'completed': return 'bg-green-500/10 text-green-600 border-green-200';
-    case 'analyzing': return 'bg-blue-500/10 text-blue-600 border-blue-200';
-    case 'failed': return 'bg-red-500/10 text-red-600 border-red-200';
-    case 'pending': return 'bg-gray-500/10 text-gray-600 border-gray-200';
-    default: return 'bg-gray-500/10 text-gray-600 border-gray-200';
+    case 'completed': return 'bg-green-500/20 text-green-300 border-green-400/30';
+    case 'analyzing': return 'bg-violet-500/20 text-violet-300 border-violet-400/30';
+    case 'failed': return 'bg-red-500/20 text-red-300 border-red-400/30';
+    case 'pending': return 'bg-slate-500/20 text-slate-300 border-slate-400/30';
+    default: return 'bg-slate-500/20 text-slate-300 border-slate-400/30';
   }
 };
+
+// Holographic Bubble Component to match app aesthetic
+const HolographicBubble: React.FC<{
+  children: React.ReactNode;
+  className?: string;
+  onClick?: () => void;
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
+}> = ({ children, className, onClick, onMouseEnter, onMouseLeave }) => (
+  <motion.div
+    initial={{ opacity: 0, scale: 0.8, y: 20 }}
+    animate={{ opacity: 1, scale: 1, y: 0 }}
+    transition={{ type: "spring", damping: 20, stiffness: 300 }}
+    className={`
+      relative p-4 rounded-xl backdrop-blur-xl border overflow-hidden
+      bg-gradient-to-br from-slate-800/40 to-slate-900/40 border-slate-600/30
+      ${className}
+    `}
+    onClick={onClick}
+    onMouseEnter={onMouseEnter}
+    onMouseLeave={onMouseLeave}
+  >
+    <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-white/5 to-transparent" />
+    <div className="relative z-10">{children}</div>
+    
+    {/* Holographic shimmer effect */}
+    <motion.div
+      className="absolute inset-0 rounded-xl bg-gradient-to-r from-transparent via-white/10 to-transparent"
+      animate={{
+        x: ["-100%", "100%"],
+      }}
+      transition={{
+        duration: 3,
+        repeat: Infinity,
+        repeatType: "loop",
+        ease: "linear",
+      }}
+    />
+  </motion.div>
+);
 
 export const EnhancedFileCard: React.FC<EnhancedFileCardProps> = ({
   file,
@@ -108,8 +148,6 @@ export const EnhancedFileCard: React.FC<EnhancedFileCardProps> = ({
   const [isHovered, setIsHovered] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
 
-
-
   const handleCardClick = () => {
     onSelect(file.id);
   };
@@ -121,30 +159,30 @@ export const EnhancedFileCard: React.FC<EnhancedFileCardProps> = ({
 
   if (viewMode === 'list') {
     return (
-      <Card
+      <HolographicBubble
         className={`
           relative group cursor-pointer transition-all duration-200
-          ${isSelected ? 'ring-2 ring-blue-500 bg-blue-50/50' : 'hover:bg-gray-50/50'}
+          ${isSelected ? 'ring-2 ring-violet-400 bg-violet-500/20' : 'hover:bg-slate-700/30'}
           ${isHovered ? 'shadow-lg' : 'shadow-sm'}
         `}
         onClick={handleCardClick}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
       >
-        <div className="flex items-center space-x-4 p-4">
+        <div className="flex items-center space-x-4">
           {/* File Icon */}
           <div className="flex-shrink-0">
-            <div className="p-2 bg-gray-100 rounded-lg group-hover:bg-blue-100 transition-colors">
+            <div className="p-2 bg-slate-700/50 rounded-lg group-hover:bg-violet-500/20 transition-colors">
               {getFileIcon(file.mimeType, 'md')}
             </div>
           </div>
 
           {/* File Info */}
           <div className="flex-1 min-w-0">
-            <h3 className="font-medium text-gray-900 truncate group-hover:text-blue-600 transition-colors">
+            <h3 className="font-medium text-white truncate group-hover:text-violet-300 transition-colors">
               {file.name}
             </h3>
-            <div className="flex items-center space-x-4 text-sm text-gray-500 mt-1">
+            <div className="flex items-center space-x-4 text-sm text-slate-400 mt-1">
               <span>{formatFileSize(file.size)}</span>
               <span>•</span>
               <span>{formatDate(file.updatedAt)}</span>
@@ -160,12 +198,12 @@ export const EnhancedFileCard: React.FC<EnhancedFileCardProps> = ({
             {file.tags.length > 0 && (
               <div className="flex flex-wrap gap-1 mt-2">
                 {file.tags.slice(0, 3).map(tag => (
-                  <Badge key={tag} variant="secondary" className="text-xs">
+                  <Badge key={tag} variant="secondary" className="text-xs bg-slate-700/50 text-slate-300 border-slate-600/50">
                     {tag}
                   </Badge>
                 ))}
                 {file.tags.length > 3 && (
-                  <Badge variant="secondary" className="text-xs">
+                  <Badge variant="secondary" className="text-xs bg-slate-700/50 text-slate-300 border-slate-600/50">
                     +{file.tags.length - 3}
                   </Badge>
                 )}
@@ -202,7 +240,7 @@ export const EnhancedFileCard: React.FC<EnhancedFileCardProps> = ({
                   size="sm"
                   variant="ghost"
                   onClick={(e) => handleActionClick(e, () => onDownload(file))}
-                  className="h-8 w-8 p-0"
+                  className="h-8 w-8 p-0 text-slate-300 hover:text-white hover:bg-slate-700/50"
                 >
                   <Download className="w-4 h-4" />
                 </Button>
@@ -223,7 +261,7 @@ export const EnhancedFileCard: React.FC<EnhancedFileCardProps> = ({
                           console.log('View Analysis button clicked for file:', file.id);
                           handleActionClick(e, () => onViewAnalysis!(file));
                         }}
-                        className="h-8 w-8 p-0"
+                        className="h-8 w-8 p-0 text-slate-300 hover:text-white hover:bg-slate-700/50"
                         title="View Analysis"
                       >
                         <Eye className="w-4 h-4" />
@@ -234,7 +272,7 @@ export const EnhancedFileCard: React.FC<EnhancedFileCardProps> = ({
                         variant="ghost"
                         onClick={(e) => handleActionClick(e, () => onAnalyze(file.id))}
                         disabled={file.analysisStatus === 'analyzing'}
-                        className="h-8 w-8 p-0"
+                        className="h-8 w-8 p-0 text-slate-300 hover:text-white hover:bg-slate-700/50"
                         title="Analyze File"
                       >
                         <Brain className="w-4 h-4" />
@@ -246,17 +284,17 @@ export const EnhancedFileCard: React.FC<EnhancedFileCardProps> = ({
                   size="sm"
                   variant="ghost"
                   onClick={(e) => handleActionClick(e, () => onShare(file))}
-                  className="h-8 w-8 p-0"
+                  className="h-8 w-8 p-0 text-slate-300 hover:text-white hover:bg-slate-700/50"
                 >
                   <Share className="w-4 h-4" />
                 </Button>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button size="sm" variant="ghost" className="h-8 w-8 p-0">
+                    <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-slate-300 hover:text-white hover:bg-slate-700/50">
                       <MoreVertical className="w-4 h-4" />
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
+                  <DropdownMenuContent align="end" className="bg-slate-800 border-slate-600">
                     <DropdownMenuItem onClick={(e) => handleActionClick(e, () => onEdit(file))}>
                       <Edit className="w-4 h-4 mr-2" />
                       Edit Details
@@ -271,16 +309,16 @@ export const EnhancedFileCard: React.FC<EnhancedFileCardProps> = ({
             )}
           </AnimatePresence>
         </div>
-      </Card>
+      </HolographicBubble>
     );
   }
 
   // Grid View
   return (
-    <Card
+    <HolographicBubble
       className={`
         relative group cursor-pointer transition-all duration-200
-        ${isSelected ? 'ring-2 ring-blue-500 bg-blue-50/50' : 'hover:bg-gray-50/50'}
+        ${isSelected ? 'ring-2 ring-violet-400 bg-violet-500/20' : 'hover:bg-slate-700/30'}
         ${isHovered ? 'shadow-lg' : 'shadow-sm'}
       `}
       onClick={handleCardClick}
@@ -291,20 +329,20 @@ export const EnhancedFileCard: React.FC<EnhancedFileCardProps> = ({
         {/* Primary Info Layer */}
         <div className="text-center">
           <div className="flex justify-center mb-3">
-            <div className="p-3 bg-gray-100 rounded-xl group-hover:bg-blue-100 transition-colors">
+            <div className="p-3 bg-slate-700/50 rounded-xl group-hover:bg-violet-500/20 transition-colors">
               {getFileIcon(file.mimeType, 'lg')}
             </div>
           </div>
           
-          <h3 className="font-medium text-sm truncate group-hover:text-blue-600 transition-colors" title={file.name}>
+          <h3 className="font-medium text-sm truncate group-hover:text-violet-300 transition-colors text-white" title={file.name}>
             {file.name}
           </h3>
           
-          <p className="text-xs text-gray-500 mt-1">
+          <p className="text-xs text-slate-400 mt-1">
             {formatFileSize(file.size)}
           </p>
           
-          <p className="text-xs text-gray-400 mt-1">
+          <p className="text-xs text-slate-500 mt-1">
             {formatDate(file.updatedAt)}
           </p>
         </div>
@@ -316,13 +354,13 @@ export const EnhancedFileCard: React.FC<EnhancedFileCardProps> = ({
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 10 }}
-              className="absolute inset-0 bg-white/95 backdrop-blur-sm rounded-lg p-4 flex flex-col justify-center"
+              className="absolute inset-0 bg-slate-800/95 backdrop-blur-sm rounded-xl p-4 flex flex-col justify-center"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="space-y-3">
                 {/* Description */}
                 {file.description && (
-                  <p className="text-sm text-gray-600 line-clamp-2">
+                  <p className="text-sm text-slate-300 line-clamp-2">
                     {file.description}
                   </p>
                 )}
@@ -331,12 +369,12 @@ export const EnhancedFileCard: React.FC<EnhancedFileCardProps> = ({
                 {file.tags.length > 0 && (
                   <div className="flex flex-wrap gap-1 justify-center">
                     {file.tags.slice(0, 3).map(tag => (
-                      <Badge key={tag} variant="secondary" className="text-xs">
+                      <Badge key={tag} variant="secondary" className="text-xs bg-slate-700/50 text-slate-300 border-slate-600/50">
                         {tag}
                       </Badge>
                     ))}
                     {file.tags.length > 3 && (
-                      <Badge variant="secondary" className="text-xs">
+                      <Badge variant="secondary" className="text-xs bg-slate-700/50 text-slate-300 border-slate-600/50">
                         +{file.tags.length - 3}
                       </Badge>
                     )}
@@ -361,7 +399,7 @@ export const EnhancedFileCard: React.FC<EnhancedFileCardProps> = ({
                     size="sm"
                     variant="outline"
                     onClick={(e) => handleActionClick(e, () => onDownload(file))}
-                    className="h-8 w-8 p-0"
+                    className="h-8 w-8 p-0 border-slate-600/50 text-slate-300 hover:text-white hover:bg-slate-700/50"
                     title="Download file"
                   >
                     <Download className="w-4 h-4" />
@@ -383,7 +421,7 @@ export const EnhancedFileCard: React.FC<EnhancedFileCardProps> = ({
                             console.log('View Analysis button clicked (grid) for file:', file.id);
                             handleActionClick(e, () => onViewAnalysis!(file));
                           }}
-                          className="h-8 w-8 p-0"
+                          className="h-8 w-8 p-0 border-slate-600/50 text-slate-300 hover:text-white hover:bg-slate-700/50"
                           title="View AI Analysis"
                         >
                           <Eye className="w-4 h-4" />
@@ -394,7 +432,7 @@ export const EnhancedFileCard: React.FC<EnhancedFileCardProps> = ({
                           variant="outline"
                           onClick={(e) => handleActionClick(e, () => onAnalyze(file.id))}
                           disabled={file.analysisStatus === 'analyzing'}
-                          className="h-8 w-8 p-0"
+                          className="h-8 w-8 p-0 border-slate-600/50 text-slate-300 hover:text-white hover:bg-slate-700/50"
                           title="Analyze with AI"
                         >
                           <Brain className="w-4 h-4" />
@@ -411,12 +449,12 @@ export const EnhancedFileCard: React.FC<EnhancedFileCardProps> = ({
         {/* Selection Indicator */}
         {isSelected && (
           <div className="absolute top-2 right-2">
-            <div className="w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center">
+            <div className="w-4 h-4 bg-violet-400 rounded-full flex items-center justify-center">
               <div className="w-2 h-2 bg-white rounded-full" />
             </div>
           </div>
         )}
       </div>
-    </Card>
+    </HolographicBubble>
   );
 }; 

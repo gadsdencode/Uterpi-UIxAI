@@ -625,16 +625,23 @@ export class DatabaseFileStorage implements FileStorageService {
         .where(eq(files.id, fileId));
       
       // Import Azure AI service dynamically to avoid circular dependencies
-      const { createAzureAIClient } = await import('./routes');
+      const { createAzureAIClient, extractAzureAIError, parseAzureAIJSON } = await import('./routes');
       const { client, config } = createAzureAIClient();
       
-      // Determine analysis type based on file type
+      // Determine analysis type based on file type and content size
       let analysisPrompt = '';
       let fileContent = file.content;
+      
+      // Limit content size to prevent token limit issues (roughly 4000 characters)
+      const maxContentLength = 4000;
+      if (fileContent.length > maxContentLength) {
+        fileContent = fileContent.substring(0, maxContentLength) + '\n\n[Content truncated due to length]';
+      }
       
       if (file.encoding === 'base64' && !file.mimeType.startsWith('text/')) {
         // For binary files, analyze metadata only
         analysisPrompt = `Analyze this file based on its metadata:
+
 File Name: ${file.name}
 Original Name: ${file.originalName}
 MIME Type: ${file.mimeType}
@@ -663,12 +670,14 @@ Provide a comprehensive analysis including:
 Respond in JSON format with: { "summary": "...", "quality": "...", "improvements": [...], "security": "...", "complexity": "low|medium|high" }`;
       }
       
+      console.log(`Analyzing file ${fileId} with Azure AI...`);
+      
       const response = await client.path("/chat/completions").post({
         body: {
           messages: [
             {
               role: "system",
-              content: "You are an expert file analyzer and code reviewer. Provide thorough, actionable insights about files."
+              content: "You are an expert file analyzer and code reviewer. Provide thorough, actionable insights about files. Always respond with valid JSON."
             },
             {
               role: "user",
@@ -682,22 +691,55 @@ Respond in JSON format with: { "summary": "...", "quality": "...", "improvements
         },
       });
       
-      if (response.status !== "200") {
-        throw new Error(`Azure AI API error: ${response.body?.error || 'Unknown error'}`);
+      console.log(`Azure AI response status: ${response.status}`);
+      
+      // Check for successful response (2xx status codes)
+      if (response.status < 200 || response.status >= 300) {
+        const errorDetails = response.body?.error || response.body || 'Unknown error';
+        console.error('Azure AI API error response:', errorDetails);
+        throw new Error(`Azure AI API error: ${extractAzureAIError(errorDetails)}`);
       }
       
-      const aiResponse = response.body.choices[0]?.message?.content || "";
-      let analysis;
+      // Extract response content
+      const responseBody = response.body;
+      if (!responseBody || !responseBody.choices || !responseBody.choices[0]) {
+        throw new Error('Invalid response structure from Azure AI API');
+      }
       
-      try {
-        analysis = JSON.parse(aiResponse);
-      } catch {
+      const aiResponse = responseBody.choices[0].message?.content || "";
+      console.log(`Azure AI response content length: ${aiResponse.length}`);
+      
+      if (!aiResponse.trim()) {
+        throw new Error('Empty response from Azure AI API');
+      }
+      
+      // Parse the AI response
+      let analysis = parseAzureAIJSON(aiResponse);
+      
+      if (!analysis) {
+        console.warn('Failed to parse Azure AI response as JSON. Response preview:', aiResponse.substring(0, 300));
+        
+        // Fallback to basic analysis if JSON parsing fails
         analysis = {
-          summary: aiResponse,
+          summary: aiResponse.substring(0, 500) + (aiResponse.length > 500 ? '...' : ''),
           analysisType: 'basic',
-          confidence: 'medium'
+          confidence: 'low',
+          error: 'Failed to parse AI response as JSON',
+          rawResponse: aiResponse.substring(0, 1000) // Store first 1000 chars for debugging
         };
       }
+      
+      // Ensure analysis has required fields
+      analysis = {
+        summary: analysis.summary || 'Analysis completed',
+        quality: analysis.quality || 'unknown',
+        improvements: analysis.improvements || [],
+        security: analysis.security || 'No security issues identified',
+        complexity: analysis.complexity || 'unknown',
+        analysisType: analysis.analysisType || 'ai_analysis',
+        confidence: analysis.confidence || 'medium',
+        ...analysis
+      };
       
       // Add metadata to analysis
       analysis.analyzedAt = new Date().toISOString();
@@ -708,13 +750,24 @@ Respond in JSON format with: { "summary": "...", "quality": "...", "improvements
         encoding: file.encoding
       };
       
+      console.log(`Analysis completed for file ${fileId}:`, {
+        summary: analysis.summary?.substring(0, 100) + '...',
+        complexity: analysis.complexity,
+        confidence: analysis.confidence
+      });
+      
       // Update file with analysis results
       await this.updateFileAnalysis(fileId, analysis);
       
       // Log analysis interaction
       await this.logFileInteraction(fileId, userId, {
         interactionType: 'analyze',
-        details: { analysisType: 'ai_analysis', success: true, analysisId: `analysis_${fileId}_${Date.now()}` }
+        details: { 
+          analysisType: 'ai_analysis', 
+          success: true, 
+          analysisId: `analysis_${fileId}_${Date.now()}`,
+          model: config.modelName
+        }
       });
       
       return analysis;
@@ -730,7 +783,12 @@ Respond in JSON format with: { "summary": "...", "quality": "...", "improvements
       // Log failed analysis
       await this.logFileInteraction(fileId, userId, {
         interactionType: 'analyze',
-        details: { analysisType: 'ai_analysis', success: false, error: error instanceof Error ? error.message : String(error) }
+        details: { 
+          analysisType: 'ai_analysis', 
+          success: false, 
+          error: error instanceof Error ? error.message : String(error),
+          timestamp: new Date().toISOString()
+        }
       });
       
       throw error;

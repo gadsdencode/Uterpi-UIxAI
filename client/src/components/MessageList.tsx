@@ -7,7 +7,7 @@ const mockMessages: MessageType[] = [
     id: '1',
     role: 'user',
     content: 'Design a sleek, modern, and minimalist AI chat UI that\'s both persuasive and impressive. It needs real-time streaming, multimodal input (text, voice, image), and dynamic response formatting (code blocks, rich text). Focus on a clean, contemporary design with subtle, sophisticated animations and intuitive controls for editing/sharing. The aesthetic should project advanced technology, ensuring a seamless, engaging, and highly impressive conversational experience that elevates the AI\'s perceived capabilities.',
-    createdAt: new Date(Date.now() - 1000 * 60 * 5),
+    timestamp: new Date(Date.now() - 1000 * 60 * 5),
   },
   {
     id: '2',
@@ -43,7 +43,7 @@ export default ChatBubble;
 \`\`\`
 
 This component provides a solid foundation. Next, we can integrate state management and API calls to make it dynamic.`,
-    createdAt: new Date(Date.now() - 1000 * 60 * 4),
+    timestamp: new Date(Date.now() - 1000 * 60 * 4),
   },
 ];
 

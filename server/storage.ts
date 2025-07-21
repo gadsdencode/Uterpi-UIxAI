@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { db } from "./db";
 import dotenv from "dotenv";
+import { Profile } from "passport";
 dotenv.config();
 
 export interface IStorage {
@@ -165,7 +166,7 @@ export class DatabaseStorage implements IStorage {
     try {
       const result = await db
         .update(users)
-        .set({ ...profileData, updatedAt: new Date() })
+        .set({ ...profileData, updatedAt: new Date() } as any)
         .where(eq(users.id, id))
         .returning();
       return result[0];
@@ -263,6 +264,15 @@ export class MemStorage implements IStorage {
       bio: null,
       createdAt: new Date(),
       updatedAt: new Date(),
+      stripeCustomerId: null,
+      subscriptionStatus: null,
+      subscriptionTier: null,
+      subscriptionEndsAt: null,
+      overrideExpiresAt: null,
+      accessOverride: null,
+      overrideReason: null,
+      overrideGrantedBy: null,
+      overrideGrantedAt: null,
     };
     
     this.users.set(id, user);
@@ -289,6 +299,15 @@ export class MemStorage implements IStorage {
       bio: null,
       createdAt: new Date(),
       updatedAt: new Date(),
+      stripeCustomerId: null,
+      subscriptionStatus: null,
+      subscriptionTier: null,
+      subscriptionEndsAt: null,
+      overrideExpiresAt: null,
+      accessOverride: null,
+      overrideReason: null,
+      overrideGrantedBy: null,
+      overrideGrantedAt: null,
     };
     
     this.users.set(id, user);
@@ -308,7 +327,7 @@ export class MemStorage implements IStorage {
     const user = this.users.get(id);
     if (!user) return undefined;
 
-    const updatedUser = { ...user, ...profileData, updatedAt: new Date() };
+    const updatedUser = { ...user, ...profileData, updatedAt: new Date() } as any;
     this.users.set(id, updatedUser);
     return updatedUser;
   }

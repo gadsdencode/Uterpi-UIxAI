@@ -29,7 +29,7 @@ interface AzureAIConfig {
 }
 
 // Helper function to extract error details from Azure AI response
-function extractAzureAIError(error: any): string {
+export function extractAzureAIError(error: any): string {
   if (typeof error === 'string') {
     return error;
   }
@@ -52,21 +52,23 @@ function extractAzureAIError(error: any): string {
 }
 
 // Robust JSON parser for Azure AI responses
-function parseAzureAIJSON(response: string): any {
+export function parseAzureAIJSON(response: string): any {
   try {
-    // First, try direct parsing
+    // First, try direct parsing without any sanitization
     try {
-      return JSON.parse(response);
+      const directParse = JSON.parse(response);
+      if (directParse && typeof directParse === 'object') {
+        return directParse;
+      }
     } catch (directError) {
-      // If direct parsing fails, try to extract and clean JSON
+      console.log('Direct JSON parsing failed, attempting sanitization...');
     }
 
     // Try to find JSON in the response using multiple patterns
     const jsonPatterns = [
-      /\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/,  // Simple nested objects
-      /\{[\s\S]*\}/,                      // Any content between braces
-      /```json\s*(\{[\s\S]*?\})\s*```/,   // Markdown JSON blocks
-      /```\s*(\{[\s\S]*?\})\s*```/        // Generic code blocks
+      /```json\s*(\{[\s\S]*?\})\s*```/,   // Markdown JSON blocks (most specific)
+      /```\s*(\{[\s\S]*?\})\s*```/,        // Generic code blocks
+      /\{[\s\S]*\}/,                       // Any content between braces (fallback)
     ];
 
     for (const pattern of jsonPatterns) {
@@ -75,12 +77,21 @@ function parseAzureAIJSON(response: string): any {
         try {
           let jsonStr = match[1] || match[0];
           
-          // Sanitize the JSON string
-          jsonStr = sanitizeJSONString(jsonStr);
-          
-          const parsed = JSON.parse(jsonStr);
-          if (parsed && typeof parsed === 'object') {
-            return parsed;
+          // Try parsing without sanitization first
+          try {
+            const parsed = JSON.parse(jsonStr);
+            if (parsed && typeof parsed === 'object') {
+              return parsed;
+            }
+          } catch (unsanitizedError) {
+            // Only apply sanitization if direct parsing fails
+            console.log('Attempting to sanitize JSON before parsing...');
+            jsonStr = sanitizeJSONString(jsonStr);
+            
+            const parsed = JSON.parse(jsonStr);
+            if (parsed && typeof parsed === 'object') {
+              return parsed;
+            }
           }
         } catch (parseError) {
           console.warn('Failed to parse JSON pattern match:', parseError);
@@ -89,7 +100,8 @@ function parseAzureAIJSON(response: string): any {
       }
     }
 
-    console.warn('No valid JSON found in Azure AI response');
+    // Log the actual response for debugging
+    console.warn('No valid JSON found in Azure AI response. Response preview:', response.substring(0, 200));
     return null;
   } catch (error) {
     console.error('JSON parsing completely failed:', error);
@@ -101,22 +113,24 @@ function parseAzureAIJSON(response: string): any {
 function sanitizeJSONString(jsonStr: string): string {
   return jsonStr
     .trim()
-    // Fix unquoted property names
-    .replace(/(\w+):/g, '"$1":')
-    // Fix single quotes
-    .replace(/'/g, '"')
-    // Fix trailing commas
+    // Fix single quotes to double quotes (but be careful not to break already valid JSON)
+    .replace(/(?<!\\)'/g, '"')
+    // Fix trailing commas before closing brackets/braces
     .replace(/,(\s*[}\]])/g, '$1')
-    // Fix missing quotes around string values (but not numbers/booleans)
-    .replace(/:\s*([a-zA-Z][a-zA-Z0-9_\-]*)\s*([,}\]])/g, (match, value, suffix) => {
-      // Don't quote boolean values
-      if (value === 'true' || value === 'false' || value === 'null') {
+    // Fix unquoted property names (only if they're not already quoted)
+    .replace(/(?<!")(\w+):/g, '"$1":')
+    // Fix missing quotes around string values (but not numbers/booleans/null)
+    .replace(/:\s*(?<!["\d])([a-zA-Z][a-zA-Z0-9_\-]*)\s*([,}\]])/g, (match, value, suffix) => {
+      // Don't quote boolean values, null, or numbers
+      if (value === 'true' || value === 'false' || value === 'null' || !isNaN(Number(value))) {
         return `: ${value}${suffix}`;
       }
       return `: "${value}"${suffix}`;
     })
     // Fix number values that were incorrectly quoted
-    .replace(/:\s*"(\d+(?:\.\d+)?)"/g, ': $1');
+    .replace(/:\s*"(\d+(?:\.\d+)?)"/g, ': $1')
+    // Remove any double quotes that might have been created incorrectly
+    .replace(/""/g, '"');
 }
 
 // Function to check actual model capabilities by testing API calls
@@ -1086,7 +1100,9 @@ Please respond in JSON format with this structure:
           description: uploadedFile.description,
           tags: uploadedFile.tags,
           createdAt: uploadedFile.createdAt,
-          analysisStatus: uploadedFile.analysisStatus
+          analysisStatus: uploadedFile.analysisStatus,
+          aiAnalysis: uploadedFile.aiAnalysis,
+          analyzedAt: uploadedFile.analyzedAt
         }
       });
     } catch (error) {
@@ -1239,6 +1255,9 @@ Please respond in JSON format with this structure:
           tags: updatedFile.tags,
           folder: updatedFile.folder,
           isPublic: updatedFile.isPublic,
+          analysisStatus: updatedFile.analysisStatus,
+          aiAnalysis: updatedFile.aiAnalysis,
+          analyzedAt: updatedFile.analyzedAt,
           updatedAt: updatedFile.updatedAt
         }
       });
@@ -1319,6 +1338,8 @@ Please respond in JSON format with this structure:
           tags: file.tags,
           isPublic: file.isPublic,
           analysisStatus: file.analysisStatus,
+          aiAnalysis: file.aiAnalysis,
+          analyzedAt: file.analyzedAt,
           currentVersion: file.currentVersion,
           createdAt: file.createdAt,
           updatedAt: file.updatedAt,

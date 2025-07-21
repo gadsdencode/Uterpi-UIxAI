@@ -32,6 +32,8 @@ import { SkeletonLoader, EmptyStateSkeleton } from './SkeletonLoader';
 import { AnalysisStatusCard } from './AnalysisStatusCard';
 import { AnalysisModal } from './AnalysisModal';
 import { TestModal } from './TestModal';
+import { ShareFileModal } from './ShareFileModal';
+import { EditFileModal } from './EditFileModal';
 
 interface EnhancedFileManagerProps {
   className?: string;
@@ -114,6 +116,14 @@ export const EnhancedFileManager: React.FC<EnhancedFileManagerProps> = ({
   
   // Test modal state
   const [isTestModalOpen, setIsTestModalOpen] = useState(false);
+
+  // Share modal state
+  const [shareModalFile, setShareModalFile] = useState<FileItem | null>(null);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+
+  // Edit modal state
+  const [editModalFile, setEditModalFile] = useState<FileItem | null>(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
   // Query options
   const listOptions: ListFilesOptions = {
@@ -255,13 +265,23 @@ export const EnhancedFileManager: React.FC<EnhancedFileManagerProps> = ({
   };
 
   const handleFileShare = async (file: FileItem) => {
-    // Implement share functionality
-    toast.info('Share functionality coming soon');
+    setShareModalFile(file);
+    setIsShareModalOpen(true);
   };
 
   const handleFileEdit = (file: FileItem) => {
-    // Implement edit functionality
-    toast.info('Edit functionality coming soon');
+    setEditModalFile(file);
+    setIsEditModalOpen(true);
+  };
+
+  const handleCloseShareModal = () => {
+    setIsShareModalOpen(false);
+    setShareModalFile(null);
+  };
+
+  const handleCloseEditModal = () => {
+    setIsEditModalOpen(false);
+    setEditModalFile(null);
   };
 
   const handleFileSelect = (fileId: number) => {
@@ -599,6 +619,20 @@ export const EnhancedFileManager: React.FC<EnhancedFileManagerProps> = ({
         <TestModal
           isOpen={isTestModalOpen}
           onClose={() => setIsTestModalOpen(false)}
+        />
+
+        {/* Share Modal */}
+        <ShareFileModal
+          isOpen={isShareModalOpen}
+          onClose={handleCloseShareModal}
+          file={shareModalFile}
+        />
+
+        {/* Edit Modal */}
+        <EditFileModal
+          isOpen={isEditModalOpen}
+          onClose={handleCloseEditModal}
+          file={editModalFile}
         />
       </div>
     </TooltipProvider>

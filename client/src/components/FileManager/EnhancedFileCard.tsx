@@ -404,6 +404,27 @@ export const EnhancedFileCard: React.FC<EnhancedFileCardProps> = ({
                   >
                     <Download className="w-4 h-4" />
                   </Button>
+                  
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={(e) => handleActionClick(e, () => onShare(file))}
+                    className="h-8 w-8 p-0 border-slate-600/50 text-slate-300 hover:text-white hover:bg-slate-700/50"
+                    title="Share file"
+                  >
+                    <Share className="w-4 h-4" />
+                  </Button>
+                  
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={(e) => handleActionClick(e, () => onEdit(file))}
+                    className="h-8 w-8 p-0 border-slate-600/50 text-slate-300 hover:text-white hover:bg-slate-700/50"
+                    title="Edit file details"
+                  >
+                    <Edit className="w-4 h-4" />
+                  </Button>
+                  
                   {enableAIAnalysis && (
                     <>
                       {(() => {

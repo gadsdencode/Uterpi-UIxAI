@@ -63,12 +63,12 @@ const HolographicBubble: React.FC<{
     
     {/* Holographic shimmer effect */}
     <motion.div
-      className="absolute inset-0 rounded-2xl bg-gradient-to-r from-transparent via-white/10 to-transparent"
+      className="absolute inset-0 rounded-2xl bg-gradient-to-r from-transparent via-white/5 to-transparent"
       animate={{
         x: ["-100%", "100%"],
       }}
       transition={{
-        duration: 3,
+        duration: 8,
         repeat: Infinity,
         repeatType: "loop",
         ease: "linear",

@@ -7,7 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Alert, AlertDescription } from './ui/alert';
 import { Badge } from './ui/badge';
 import { Eye, EyeOff, CheckCircle, XCircle, Key, Settings } from 'lucide-react';
-import { OpenAIService } from '../lib/openai';
+import { OpenAIService } from '../lib/openAI';
 import { GeminiService } from '../lib/gemini';
 
 interface APIKeyStatus {

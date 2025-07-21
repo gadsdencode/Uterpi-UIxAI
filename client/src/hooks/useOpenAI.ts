@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { OpenAIService } from "../lib/openai";
+import { OpenAIService } from "../lib/openAI";
 import { Message, AzureAIMessage, ChatCompletionOptions, LLMModel, ModelCapabilities } from "../types";
 import { getModelConfiguration } from "../lib/modelConfigurations";
 import { User } from "./useAuth";

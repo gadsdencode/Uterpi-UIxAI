@@ -5,7 +5,7 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Alert, AlertDescription } from './ui/alert';
 import { Eye, EyeOff, CheckCircle, XCircle, ExternalLink } from 'lucide-react';
-import { OpenAIService } from '../lib/openai';
+import { OpenAIService } from '../lib/openAI';
 
 interface OpenAISettingsModalProps {
   open: boolean;

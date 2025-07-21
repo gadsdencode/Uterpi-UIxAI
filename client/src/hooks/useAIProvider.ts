@@ -5,7 +5,7 @@ import { useOpenAI } from './useOpenAI';
 import { useGemini } from './useGemini';
 import { User } from './useAuth';
 import { AzureAIService } from '../lib/azureAI';
-import { OpenAIService } from '../lib/openai';
+import { OpenAIService } from '../lib/openAI';
 import { GeminiService } from '../lib/gemini';
 
 export type AIProvider = 'azure' | 'openai' | 'gemini';

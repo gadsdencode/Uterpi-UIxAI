@@ -24,7 +24,8 @@ import {
   Settings
 } from "lucide-react";
 import { Message, CommandSuggestion, LLMModel, ModelCapabilities } from "../types";
-import { useAzureAI, SYSTEM_MESSAGE_PRESETS } from "../hooks/useAzureAI";
+import { useAIProvider } from "../hooks/useAIProvider";
+import { SYSTEM_MESSAGE_PRESETS } from "../hooks/useAzureAI";
 import { useIntelligentToast } from "../hooks/useIntelligentToast";
 import { AzureAIService } from "../lib/azureAI";
 import LLMModalSelector from './LLMModelSelector';
@@ -33,6 +34,7 @@ import CloneUIModal from './CloneUIModal';
 import CreatePageModal from './CreatePageModal';
 import ImproveModal from './ImproveModal';
 import AnalyzeModal from './AnalyzeModal';
+import ProviderSettingsPage from './ProviderSettingsPage';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import { toast } from "sonner";
 import { useAuth } from '../hooks/useAuth';
@@ -626,8 +628,26 @@ const FuturisticAIChat: React.FC = () => {
   const [showCreatePageModal, setShowCreatePageModal] = useState(false);
   const [showImproveModal, setShowImproveModal] = useState(false);
   const [showAnalyzeModal, setShowAnalyzeModal] = useState(false);
+  const [showProviderSettings, setShowProviderSettings] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Handle escape key to close provider settings
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && showProviderSettings) {
+        setShowProviderSettings(false);
+      }
+    };
+
+    if (showProviderSettings) {
+      document.addEventListener('keydown', handleEscape);
+    }
+
+    return () => {
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [showProviderSettings]);
 
   // Get the current system message based on selection
   const getCurrentSystemMessage = () => {
@@ -648,7 +668,7 @@ const FuturisticAIChat: React.FC = () => {
     trackAction('system_message_change');
   };
 
-  // Azure AI hook
+  // AI Provider hook (supports Azure AI, OpenAI, Gemini)
   const { 
     sendMessage, 
     sendStreamingMessage, 
@@ -660,8 +680,9 @@ const FuturisticAIChat: React.FC = () => {
     selectedLLMModel,
     modelCapabilities,
     isLoadingCapabilities,
-    refreshCapabilities
-  } = useAzureAI({
+    refreshCapabilities,
+    getAvailableModels
+  } = useAIProvider({
     enableStreaming,
     systemMessage: getCurrentSystemMessage(),
     chatOptions: {
@@ -1505,12 +1526,20 @@ const FuturisticAIChat: React.FC = () => {
                   </p>
                 )}
               </div>
-              <RippleButton
-                onClick={() => setShowLLMSelector(true)}
-                className="w-full px-4 py-2 bg-violet-600 hover:bg-violet-700 rounded-lg text-white text-sm transition-colors"
-              >
-                Choose Model
-              </RippleButton>
+              <div className="flex gap-2">
+                <RippleButton
+                  onClick={() => setShowLLMSelector(true)}
+                  className="flex-1 px-4 py-2 bg-violet-600 hover:bg-violet-700 rounded-lg text-white text-sm transition-colors"
+                >
+                  Choose Model
+                </RippleButton>
+                <RippleButton
+                  onClick={() => setShowProviderSettings(true)}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-white text-sm transition-colors"
+                >
+                  <Settings className="w-4 h-4" />
+                </RippleButton>
+              </div>
             </div>
             <div className="mt-2">
               <p className="text-xs text-slate-400">
@@ -1608,6 +1637,7 @@ const FuturisticAIChat: React.FC = () => {
         onClose={() => setShowLLMSelector(false)}
         onSelect={handleModelSelection}
         selectedModel={selectedLLMModel}
+        getAvailableModels={getAvailableModels}
       />
 
       {/* Enhanced Feature Modals */}
@@ -1630,6 +1660,60 @@ const FuturisticAIChat: React.FC = () => {
         isOpen={showAnalyzeModal} 
         onClose={() => setShowAnalyzeModal(false)} 
       />
+
+      {/* Provider Settings Modal */}
+      <AnimatePresence>
+        {showProviderSettings && (
+          <motion.div
+            className="fixed inset-0 z-50 flex items-center justify-center"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            {/* Backdrop */}
+            <motion.div
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+              onClick={() => setShowProviderSettings(false)}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+            />
+
+            {/* Modal */}
+            <motion.div
+              className="relative w-full max-w-6xl max-h-[90vh] mx-4 bg-slate-900/95 backdrop-blur-xl rounded-2xl border border-slate-700/50 overflow-hidden"
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: "spring", duration: 0.5 }}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between p-6 border-b border-slate-700/50">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-blue-500/20 rounded-lg">
+                    <Settings className="w-6 h-6 text-blue-400" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-semibold text-white">AI Provider Settings</h2>
+                    <p className="text-sm text-slate-400">Configure your AI providers and select models</p>
+                  </div>
+                </div>
+                <RippleButton
+                  onClick={() => setShowProviderSettings(false)}
+                  className="p-2 hover:bg-slate-700/50 rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5 text-slate-400" />
+                </RippleButton>
+              </div>
+
+              {/* Content */}
+              <div className="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
+                <ProviderSettingsPage onBack={() => setShowProviderSettings(false)} />
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

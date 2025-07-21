@@ -567,6 +567,154 @@ export function getModelConfiguration(modelId: string): ModelConfiguration {
       "Using fallback configuration - model parameters may not be optimal"
     ]
   };
+
+  // Check for OpenAI models (support all OpenAI models with consistent config)
+  if (modelId.startsWith('gpt-') || modelId.includes('openai')) {
+    return {
+      id: modelId,
+      name: modelId.replace('openai-', '').toUpperCase().replace('-', ' '),
+      provider: "OpenAI",
+      contextLength: modelId.includes('gpt-3.5') ? 16000 : 128000,
+      limits: {
+        maxTokens: {
+          input: modelId.includes('gpt-3.5') ? 16000 : 128000,
+          output: 16384
+        },
+        temperature: {
+          min: 0,
+          max: 2,
+          default: 0.7
+        },
+        topP: {
+          min: 0.01,
+          max: 1,
+          default: 0.95
+        },
+        frequencyPenalty: {
+          min: -2,
+          max: 2,
+          default: 0
+        },
+        presencePenalty: {
+          min: -2,
+          max: 2,
+          default: 0
+        }
+      },
+      capabilities: {
+        supportsVision: modelId.includes('gpt-4o') || modelId.includes('gpt-4-turbo'),
+        supportsCodeGeneration: true,
+        supportsAnalysis: true,
+        supportsImageGeneration: false,
+        supportsSystemMessages: true,
+        supportsJSONMode: true,
+        supportsFunctionCalling: true,
+        supportsStreaming: true,
+        supportsStop: true,
+        supportsLogitBias: true,
+        supportsFrequencyPenalty: true,
+        supportsPresencePenalty: true
+      },
+      recommendedParams: {
+        maxTokens: 4096,
+        temperature: 0.7,
+        topP: 0.95,
+        frequencyPenalty: 0,
+        presencePenalty: 0
+      }
+    };
+  }
+
+  // Check for Gemini models (support all Gemini models with consistent config)
+  if (modelId.startsWith('gemini-') || modelId.includes('gemini')) {
+    return {
+      id: modelId,
+      name: modelId.replace('gemini-', 'Gemini ').replace('-', ' ').split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
+      provider: "Google",
+      contextLength: modelId.includes('pro') ? 2000000 : 1000000,
+      limits: {
+        maxTokens: {
+          input: modelId.includes('pro') ? 2000000 : 1000000,
+          output: 8192
+        },
+        temperature: {
+          min: 0,
+          max: 2,
+          default: 0.7
+        },
+        topP: {
+          min: 0.01,
+          max: 1,
+          default: 0.95
+        }
+      },
+      capabilities: {
+        supportsVision: true,
+        supportsCodeGeneration: true,
+        supportsAnalysis: true,
+        supportsImageGeneration: false,
+        supportsSystemMessages: true,
+        supportsJSONMode: true,
+        supportsFunctionCalling: true,
+        supportsStreaming: true,
+        supportsStop: true,
+        supportsLogitBias: false,
+        supportsFrequencyPenalty: false,
+        supportsPresencePenalty: false
+      },
+      recommendedParams: {
+        maxTokens: 2048,
+        temperature: 0.7,
+        topP: 0.95
+      }
+    };
+  }
+
+  // Fallback for unknown models
+  return {
+    id: modelId,
+    name: modelId,
+    provider: "Unknown",
+    contextLength: 4096,
+    limits: {
+      maxTokens: {
+        input: 4096,
+        output: 1024
+      },
+      temperature: {
+        min: 0,
+        max: 1,
+        default: 0.7
+      },
+      topP: {
+        min: 0.1,
+        max: 1,
+        default: 0.9
+      }
+    },
+    capabilities: {
+      supportsVision: false,
+      supportsCodeGeneration: true,
+      supportsAnalysis: true,
+      supportsImageGeneration: false,
+      supportsSystemMessages: true,
+      supportsJSONMode: false,
+      supportsFunctionCalling: false,
+      supportsStreaming: true,
+      supportsStop: true,
+      supportsLogitBias: false,
+      supportsFrequencyPenalty: false,
+      supportsPresencePenalty: false
+    },
+    recommendedParams: {
+      maxTokens: 2048,
+      temperature: 0.7,
+      topP: 0.9
+    },
+    specialInstructions: [
+      "Using fallback configuration - model parameters may not be optimal"
+    ]
+  };
 }
 
 /**

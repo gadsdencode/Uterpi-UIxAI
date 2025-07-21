@@ -30,8 +30,12 @@ import {
 import { LLMModel } from "@/types";
 import { AzureAIService } from "@/lib/azureAI";
 
-// Get Azure AI models from the service
-const getAzureModels = (): LLMModel[] => {
+// Get models from current provider
+const getModelsForProvider = (getAvailableModels?: () => LLMModel[]): LLMModel[] => {
+  if (getAvailableModels) {
+    return getAvailableModels();
+  }
+  // Fallback to Azure AI models
   return AzureAIService.getAvailableModels();
 };
 
@@ -290,15 +294,17 @@ interface LLMModalSelectorProps {
   onClose: () => void;
   onSelect: (model: LLMModel) => void;
   selectedModel?: LLMModel | null;
+  getAvailableModels?: () => LLMModel[];
 }
 
 const LLMModalSelector: React.FC<LLMModalSelectorProps> = ({
   isOpen,
   onClose,
   onSelect,
-  selectedModel: externalSelectedModel
+  selectedModel: externalSelectedModel,
+  getAvailableModels
 }) => {
-  const [models, setModels] = React.useState<LLMModel[]>(getAzureModels());
+  const [models, setModels] = React.useState<LLMModel[]>(getModelsForProvider(getAvailableModels));
   const [selectedModel, setSelectedModel] = React.useState<LLMModel | null>(externalSelectedModel || null);
   const [searchTerm, setSearchTerm] = React.useState("");
   const [selectedCategory, setSelectedCategory] = React.useState("all");

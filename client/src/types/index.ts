@@ -117,3 +117,36 @@ export interface LLMModel {
     supportsImageGeneration?: boolean;
   };
 }
+
+// OpenAI specific types
+export interface OpenAIMessage {
+  role: "system" | "user" | "assistant";
+  content: string;
+}
+
+export interface OpenAIConfig {
+  apiKey: string;
+  modelName: string;
+  baseUrl?: string;
+}
+
+// Gemini specific types  
+export interface GeminiMessage {
+  role: "user" | "model";
+  parts: Array<{ text: string }>;
+}
+
+export interface GeminiConfig {
+  apiKey: string;
+  modelName: string;
+  baseUrl?: string;
+}
+
+export interface GeminiContent {
+  role: "user" | "model";
+  parts: Array<{ text: string }>;
+}
+
+export interface GeminiSystemInstruction {
+  parts: Array<{ text: string }>;
+}

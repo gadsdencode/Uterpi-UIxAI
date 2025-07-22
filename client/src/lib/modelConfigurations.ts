@@ -214,6 +214,63 @@ export const MODEL_CONFIGURATIONS: Record<string, ModelConfiguration> = {
     }
   },
 
+  // Fine-tuned Models
+  "breaking-better-v6-1-ft": {
+    id: "breaking-better-v6-1-ft",
+    name: "Breaking Better v6.1 (Fine-tuned)",
+    provider: "Azure OpenAI (Fine-tuned)",
+    contextLength: 128000,
+    limits: {
+      maxTokens: {
+        input: 128000,
+        output: 16384
+      },
+      temperature: {
+        min: 0,
+        max: 2,
+        default: 0.7
+      },
+      topP: {
+        min: 0.01,
+        max: 1,
+        default: 0.95
+      },
+      frequencyPenalty: {
+        min: -2,
+        max: 2,
+        default: 0
+      },
+      presencePenalty: {
+        min: -2,
+        max: 2,
+        default: 0
+      }
+    },
+    capabilities: {
+      supportsVision: false,
+      supportsCodeGeneration: true,
+      supportsAnalysis: true,
+      supportsImageGeneration: false,
+      supportsSystemMessages: true,
+      supportsJSONMode: true,
+      supportsFunctionCalling: true,
+      supportsStreaming: true,
+      supportsStop: true,
+      supportsLogitBias: true,
+      supportsFrequencyPenalty: true,
+      supportsPresencePenalty: true
+    },
+    recommendedParams: {
+      maxTokens: 4096,
+      temperature: 0.7,
+      topP: 0.95
+    },
+    specialInstructions: [
+      "Custom fine-tuned model optimized for specific use cases",
+      "May have specialized knowledge or behavior based on fine-tuning data"
+    ]
+  },
+
   // Microsoft Models
   "phi-4": {
     id: "phi-4",

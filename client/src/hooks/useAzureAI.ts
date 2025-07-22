@@ -253,13 +253,10 @@ export const useAzureAI = (options: AzureAIOptions = {}): UseAzureAIReturn => {
   const getAIService = useCallback(() => {
     if (!aiServiceRef.current) {
       try {
-        const config = AzureAIService.createFromEnv();
+        // Use the model-aware configuration method to handle custom endpoints
+        const modelId = selectedLLMModel?.id || "gpt-4o-mini";
+        const config = AzureAIService.createWithModel(modelId);
         aiServiceRef.current = new AzureAIService(config);
-        
-        // Set initial model if we have a selected LLM model
-        if (selectedLLMModel) {
-          aiServiceRef.current.updateModel(selectedLLMModel.id);
-        }
         
         setCurrentModel(aiServiceRef.current.getCurrentModel());
       } catch (err) {
@@ -280,9 +277,14 @@ export const useAzureAI = (options: AzureAIOptions = {}): UseAzureAIReturn => {
       // Persist to localStorage
       localStorage.setItem(SELECTED_MODEL_KEY, JSON.stringify(model));
       
-      // Update AI service if it exists
+      // For model switching, we need to reconfigure the service entirely
+      // because different models may need different endpoints (e.g., fine-tuned models)
       if (aiServiceRef.current) {
-        aiServiceRef.current.updateModel(model.id);
+        const newConfig = AzureAIService.createWithModel(model.id);
+        aiServiceRef.current.updateConfiguration(newConfig);
+      } else {
+        // If service doesn't exist yet, it will be created with the correct config when needed
+        console.log(`Model updated to ${model.id}, service will be configured on next use`);
       }
       
       setError(null);

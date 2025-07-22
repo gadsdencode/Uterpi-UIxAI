@@ -17,6 +17,18 @@ export class AzureAIService {
   }
 
   /**
+   * Update the configuration and client for a new model
+   * This handles switching between default Azure AI and fine-tuned models
+   */
+  updateConfiguration(config: AzureAIConfig): void {
+    this.config = config;
+    this.client = ModelClient(
+      config.endpoint,
+      new AzureKeyCredential(config.apiKey)
+    );
+  }
+
+  /**
    * Update the model name for this service instance
    */
   updateModel(modelName: string): void {
@@ -28,6 +40,19 @@ export class AzureAIService {
    */
   getCurrentModel(): string {
     return this.config.modelName;
+  }
+
+  /**
+   * Get the correct API path based on the current model
+   * Fine-tuned models need special deployment paths
+   */
+  private getApiPath(): string {
+    if (this.config.modelName === "breaking-better-v6-1-ft") {
+      return "/openai/deployments/5-04-14-ft-af30ee616d674bf7b5ca3e085fe544c4-breaking-better-v6-1/chat/completions?api-version=2025-01-01-preview";
+    }
+    
+    // Default path for regular Azure AI models
+    return "/chat/completions";
   }
 
   /**
@@ -147,6 +172,26 @@ export class AzureAIService {
         description: "Fast and efficient language model for general tasks",
         category: "text",
         tier: "free",
+        isFavorite: false,
+        capabilities: {
+          supportsVision: false,
+          supportsCodeGeneration: true,
+          supportsAnalysis: true,
+          supportsImageGeneration: false
+        }
+      },
+      // Fine-tuned Models
+      {
+        id: "breaking-better-v6-1-ft",
+        name: "Breaking Better v6.1 (Fine-tuned)",
+        provider: "Azure OpenAI (Fine-tuned)",
+        performance: 95,
+        cost: 0.01,
+        latency: 800,
+        contextLength: 128000,
+        description: "Custom fine-tuned model optimized for specific tasks",
+        category: "text",
+        tier: "pro",
         isFavorite: false,
         capabilities: {
           supportsVision: false,
@@ -357,7 +402,8 @@ export class AzureAIService {
         console.log(`  [${index}] ${msg.role}: ${msg.content.substring(0, 100)}${msg.content.length > 100 ? '...' : ''}`);
       });
 
-      const response = await this.client.path("/chat/completions").post({
+      const apiPath = this.getApiPath();
+      const response = await this.client.path(apiPath).post({
         body: requestBody,
       });
 
@@ -480,7 +526,8 @@ export class AzureAIService {
         ...(requestBody.presence_penalty !== undefined && { presence_penalty: requestBody.presence_penalty })
       });
 
-      const response = await this.client.path("/chat/completions").post({
+      const apiPath = this.getApiPath();
+      const response = await this.client.path(apiPath).post({
         body: requestBody,
       }).asBrowserStream();
 
@@ -589,8 +636,27 @@ export class AzureAIService {
 
   /**
    * Create Azure AI config with custom model
+   * Handles both default models and fine-tuned models with custom endpoints
    */
   static createWithModel(modelName: string): AzureAIConfig {
+    // Check if this is our fine-tuned model that needs a custom endpoint
+    if (modelName === "breaking-better-v6-1-ft") {
+      const ftApiKey = import.meta.env.VITE_AZURE_AI_FT_API_KEY;
+      
+      if (!ftApiKey) {
+        console.warn("Fine-tuned model API key not configured, falling back to default Azure AI");
+        const config = this.createFromEnv();
+        return { ...config, modelName };
+      }
+      
+      return { 
+        endpoint: "https://ai-foundryv1.cognitiveservices.azure.com", // Base endpoint only
+        apiKey: ftApiKey, 
+        modelName: "breaking-better-v6-1-ft" // Keep our identifier
+      };
+    }
+    
+    // For all other models, use default configuration
     const config = this.createFromEnv();
     return { ...config, modelName };
   }

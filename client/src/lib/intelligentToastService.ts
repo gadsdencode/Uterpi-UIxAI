@@ -405,44 +405,96 @@ Return ONLY a JSON object with this structure:
    */
   private parseAzureAIResponse(response: string): any {
     try {
-      // First, try to find JSON in the response
-      const jsonMatches = [
-        // Try to find complete JSON objects
-        response.match(/\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/),
-        // Try to find JSON with nested objects
-        response.match(/\{[\s\S]*\}/),
-        // Try to find JSON starting with a quote
-        response.match(/"\w+":\s*\{[\s\S]*\}/),
+      console.log('📡 Raw Azure AI response length:', response.length);
+      console.log('📡 Raw Azure AI response preview:', response.substring(0, 300) + '...');
+      
+      // Strategy 1: Try parsing as-is first
+      try {
+        const parsed = JSON.parse(response);
+        console.log('✅ JSON parsed successfully without sanitization');
+        
+        if (this.validateAnalysisResponse(parsed)) {
+          return parsed;
+        } else {
+          console.warn('⚠️ Parsed JSON but validation failed:', parsed);
+        }
+      } catch (directParseError) {
+        console.log('❌ Direct JSON parse failed:', directParseError);
+      }
+
+      // Strategy 2: Extract JSON from text
+      const jsonExtractionPatterns = [
+        // Look for complete JSON objects
+        /\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g,
+        // Look for JSON that might be wrapped in markdown code blocks
+        /```(?:json)?\s*(\{[\s\S]*?\})\s*```/gi,
+        // Look for JSON starting after a colon or other delimiter
+        /[:\n]\s*(\{[\s\S]*\})/g
       ];
 
-      for (let i = 0; i < jsonMatches.length; i++) {
-        const match = jsonMatches[i];
-        if (match) {
-          try {
-            let jsonStr = match[0];
-            console.log(`🎯 Trying JSON pattern ${i + 1}:`, jsonStr);
+      for (let patternIndex = 0; patternIndex < jsonExtractionPatterns.length; patternIndex++) {
+        const pattern = jsonExtractionPatterns[patternIndex];
+        const matches = response.match(pattern);
+        
+        if (matches) {
+          console.log(`🎯 Found ${matches.length} potential JSON matches with pattern ${patternIndex + 1}`);
+          
+          for (let matchIndex = 0; matchIndex < matches.length; matchIndex++) {
+            let jsonStr = matches[matchIndex];
             
-            // Clean up common JSON issues
-            jsonStr = this.sanitizeJSON(jsonStr);
-            console.log(`🧽 After sanitization:`, jsonStr);
-            
-            const parsed = JSON.parse(jsonStr);
-            
-            // Validate the parsed object has expected fields
-            if (this.validateAnalysisResponse(parsed)) {
-              console.log('✅ Successfully parsed and validated JSON:', parsed);
-              return parsed;
-            } else {
-              console.warn('⚠️ Parsed JSON but validation failed:', parsed);
+            // Clean up the match
+            if (pattern.source.includes('```')) {
+              // Extract from markdown code block
+              const codeBlockMatch = jsonStr.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/i);
+              if (codeBlockMatch) {
+                jsonStr = codeBlockMatch[1];
+              }
+            } else if (pattern.source.includes('[:\\n]')) {
+              // Remove leading delimiter
+              jsonStr = jsonStr.replace(/^[:\n]\s*/, '');
             }
-          } catch (parseError) {
-            console.warn(`⚠️ Failed to parse JSON pattern ${i + 1}:`, parseError);
-            continue;
+            
+            console.log(`🧪 Trying to parse match ${matchIndex + 1}:`, jsonStr.substring(0, 200) + '...');
+            
+            // Strategy 3: Try with conservative sanitization
+            try {
+              const sanitized = this.conservativeSanitizeJSON(jsonStr);
+              console.log('🧽 Sanitized JSON:', sanitized.substring(0, 200) + '...');
+              
+              const parsed = JSON.parse(sanitized);
+              
+              if (this.validateAnalysisResponse(parsed)) {
+                console.log('✅ Successfully parsed and validated JSON with conservative sanitization');
+                return parsed;
+              } else {
+                console.warn('⚠️ Parsed JSON but validation failed');
+              }
+            } catch (conservativeError) {
+              console.warn(`⚠️ Conservative sanitization failed for match ${matchIndex + 1}:`, conservativeError);
+              
+              // Strategy 4: Try with aggressive sanitization as last resort
+              try {
+                const aggressiveSanitized = this.aggressiveSanitizeJSON(jsonStr);
+                console.log('🔧 Aggressively sanitized JSON:', aggressiveSanitized.substring(0, 200) + '...');
+                
+                const parsed = JSON.parse(aggressiveSanitized);
+                
+                if (this.validateAnalysisResponse(parsed)) {
+                  console.log('✅ Successfully parsed and validated JSON with aggressive sanitization');
+                  return parsed;
+                }
+              } catch (aggressiveError) {
+                console.warn(`⚠️ Aggressive sanitization failed for match ${matchIndex + 1}:`, aggressiveError);
+                
+                // Log detailed error information for debugging
+                this.logDetailedParsingError(jsonStr, aggressiveError);
+              }
+            }
           }
         }
       }
 
-      console.warn('⚠️ No valid JSON found in Azure AI response');
+      console.warn('⚠️ No valid JSON found in Azure AI response after all attempts');
       return null;
     } catch (error) {
       console.error('❌ JSON parsing completely failed:', error);
@@ -451,94 +503,92 @@ Return ONLY a JSON object with this structure:
   }
 
   /**
-   * Sanitize JSON string to fix common Azure AI response issues
+   * Conservative JSON sanitization - only fixes the most common, safe issues
    */
-  private sanitizeJSON(jsonStr: string): string {
-    // Remove leading/trailing whitespace and newlines
-    jsonStr = jsonStr.trim();
-    
-    // Fix common issues with Azure AI responses
-    jsonStr = jsonStr
-      // Fix unquoted property names
-      .replace(/(\w+):/g, '"$1":')
-      // Fix single quotes
-      .replace(/'/g, '"')
-      // Fix trailing commas in objects and arrays
+  private conservativeSanitizeJSON(jsonStr: string): string {
+    return jsonStr
+      .trim()
+      // Remove any leading/trailing non-JSON content
+      .replace(/^[^{]*/, '')
+      .replace(/[^}]*$/, '')
+      // Fix trailing commas (most common issue)
       .replace(/,(\s*[}\]])/g, '$1')
-      // Fix missing quotes around string values
-      .replace(/:\s*([a-zA-Z][a-zA-Z0-9_\-\|\s]*)\s*([,}\]])/g, (match: string, value: string, suffix: string) => {
-        // Don't quote boolean values, numbers, or already quoted strings
-        if (value === 'true' || value === 'false' || value === 'null' || 
-            /^\d+(\.\d+)?$/.test(value) || value.startsWith('"')) {
-          return `: ${value}${suffix}`;
-        }
-        return `: "${value}"${suffix}`;
-      })
-      // Fix boolean values that were quoted
-      .replace(/:\s*"(true|false)"/g, ': $1')
-      // Fix number values that were quoted
+      // Fix obvious unquoted property names
+      .replace(/(\w+)(\s*:)/g, '"$1"$2')
+      // Fix single quotes to double quotes
+      .replace(/'/g, '"');
+  }
+
+  /**
+   * Aggressive JSON sanitization - for when conservative approach fails
+   */
+  private aggressiveSanitizeJSON(jsonStr: string): string {
+    // Start with conservative fixes
+    jsonStr = this.conservativeSanitizeJSON(jsonStr);
+    
+    // More aggressive fixes
+    jsonStr = jsonStr
+      // Fix boolean values that might be quoted
+      .replace(/:\s*"(true|false|null)"/g, ': $1')
+      // Fix number values that might be quoted
       .replace(/:\s*"(\d+(?:\.\d+)?)"/g, ': $1')
-      // Fix array syntax issues - handle malformed arrays
-      .replace(/\[\s*([^[\]]*?)\s*\]/g, (match: string, content: string) => {
+      // Fix array syntax issues
+      .replace(/\[\s*([^\[\]]*?)\s*\]/g, (match, content) => {
         if (!content.trim()) return '[]';
         
-        // Split by comma but handle quoted strings
-        const items = [];
-        let current = '';
-        let inQuotes = false;
-        let quoteChar = null;
-        
-        for (let i = 0; i < content.length; i++) {
-          const char = content[i];
-          
-          if ((char === '"' || char === "'") && (i === 0 || content[i-1] !== '\\')) {
-            if (!inQuotes) {
-              inQuotes = true;
-              quoteChar = char;
-            } else if (char === quoteChar) {
-              inQuotes = false;
-              quoteChar = null;
-            }
-          }
-          
-          if (char === ',' && !inQuotes) {
-            items.push(current.trim());
-            current = '';
-          } else {
-            current += char;
-          }
-        }
-        
-        if (current.trim()) {
-          items.push(current.trim());
-        }
-        
-        // Clean up and quote each item properly
-        const cleanItems = items.map(item => {
+        // Simple array item cleanup
+        const items = content.split(',').map((item: string) => {
           item = item.trim();
           if (!item) return '""';
           
-          // If it's already quoted, return as is
+          // If already quoted properly, keep as is
           if ((item.startsWith('"') && item.endsWith('"')) || 
-              (item.startsWith("'") && item.endsWith("'"))) {
-            return item.replace(/'/g, '"');
-          }
-          
-          // If it's a boolean or number, don't quote
-          if (item === 'true' || item === 'false' || item === 'null' || 
+              item === 'true' || item === 'false' || item === 'null' || 
               /^\d+(\.\d+)?$/.test(item)) {
             return item;
           }
           
           // Quote everything else
-          return `"${item}"`;
-        });
+          return `"${item.replace(/"/g, '\\"')}"`;
+        }).filter((item: string) => item !== '""');
         
-        return `[${cleanItems.join(', ')}]`;
-      });
+        return `[${items.join(', ')}]`;
+      })
+      // Try to fix unquoted string values (very carefully)
+      .replace(/:\s*([a-zA-Z][a-zA-Z0-9_\-]*)\s*([,}\]])/g, ': "$1"$2');
     
-    console.log('🧹 Sanitized JSON:', jsonStr);
     return jsonStr;
+  }
+
+  /**
+   * Log detailed information about parsing errors for debugging
+   */
+  private logDetailedParsingError(jsonStr: string, error: any): void {
+    console.error('🔍 Detailed parsing error analysis:');
+    console.error('Error:', error.message);
+    
+    if (error.message.includes('position')) {
+      const positionMatch = error.message.match(/position (\d+)/);
+      if (positionMatch) {
+        const position = parseInt(positionMatch[1]);
+        const start = Math.max(0, position - 50);
+        const end = Math.min(jsonStr.length, position + 50);
+        const context = jsonStr.substring(start, end);
+        const pointer = ' '.repeat(Math.min(50, position - start)) + '^';
+        
+        console.error('Context around error position:');
+        console.error(context);
+        console.error(pointer);
+        console.error(`Character at error position: "${jsonStr[position]}" (code: ${jsonStr.charCodeAt(position)})`);
+      }
+    }
+    
+    // Show first few lines of the JSON for structure analysis
+    const lines = jsonStr.split('\n').slice(0, 10);
+    console.error('First 10 lines of JSON:');
+    lines.forEach((line, index) => {
+      console.error(`${index + 1}: ${line}`);
+    });
   }
 
   /**

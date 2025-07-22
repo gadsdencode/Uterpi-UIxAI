@@ -359,3 +359,195 @@ export type FilePermission = typeof filePermissions.$inferSelect;
 export type ShareFile = z.infer<typeof shareFileSchema>;
 export type FileInteraction = typeof fileInteractions.$inferSelect;
 export type InsertFileInteraction = z.infer<typeof fileInteractionSchema>;
+
+// Engagement system schemas
+export const updateEmailPreferencesSchema = z.object({
+  welcomeEmails: z.boolean().optional(),
+  reengagementEmails: z.boolean().optional(),
+  featureUpdates: z.boolean().optional(),
+  productTips: z.boolean().optional(),
+  usageInsights: z.boolean().optional(),
+  communityHighlights: z.boolean().optional(),
+  emailFrequency: z.enum(["daily", "weekly", "monthly"]).optional(),
+  timezone: z.string().optional(),
+  preferredContactTime: z.enum(["morning", "afternoon", "evening"]).optional(),
+});
+
+export const createCampaignSchema = z.object({
+  name: z.string().min(1, "Campaign name is required"),
+  description: z.string().optional(),
+  campaignType: z.enum(["welcome", "reengagement", "feature_update", "product_tips", "usage_insights", "community"]),
+  emailTemplate: z.string().min(1, "Email template is required"),
+  targetSegment: z.enum(["all", "new", "active", "at_risk", "dormant"]).default("all"),
+  sendAfterDays: z.number().int().min(0).optional(),
+  triggerEvent: z.string().optional(),
+});
+
+export const unsubscribeSchema = z.object({
+  token: z.string().min(1, "Unsubscribe token is required"),
+  reason: z.string().optional(),
+});
+
+// Engagement system types
+export type UserEngagement = typeof userEngagement.$inferSelect;
+export type EmailPreferences = typeof emailPreferences.$inferSelect;
+export type UpdateEmailPreferences = z.infer<typeof updateEmailPreferencesSchema>;
+export type EmailCampaign = typeof emailCampaigns.$inferSelect;
+export type CreateCampaign = z.infer<typeof createCampaignSchema>;
+export type EmailSendLog = typeof emailSendLog.$inferSelect;
+export type UserActivity = typeof userActivity.$inferSelect;
+export type UnsubscribeRequest = z.infer<typeof unsubscribeSchema>;
+
+// =============================================================================
+// USER ENGAGEMENT SYSTEM
+// =============================================================================
+
+// User engagement tracking table
+export const userEngagement = pgTable("user_engagement", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  
+  // Login and session tracking
+  lastLoginAt: timestamp("last_login_at"),
+  totalLogins: integer("total_logins").default(0),
+  totalSessions: integer("total_sessions").default(0),
+  totalTimeSpent: integer("total_time_spent").default(0), // in minutes
+  
+  // Feature usage tracking
+  filesUploaded: integer("files_uploaded").default(0),
+  filesAnalyzed: integer("files_analyzed").default(0),
+  chatMessagesCount: integer("chat_messages_count").default(0),
+  aiInteractions: integer("ai_interactions").default(0),
+  
+  // Engagement scoring
+  engagementScore: integer("engagement_score").default(0), // 0-100
+  userSegment: text("user_segment").default("new"), // new, active, at_risk, dormant
+  
+  // Preferences and timezone
+  timezone: text("timezone").default("UTC"),
+  preferredContactTime: text("preferred_contact_time").default("morning"), // morning, afternoon, evening
+  
+  // Tracking metadata
+  firstSessionAt: timestamp("first_session_at").defaultNow(),
+  lastActivityAt: timestamp("last_activity_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Email preferences table
+export const emailPreferences = pgTable("email_preferences", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  
+  // Email subscription preferences
+  welcomeEmails: boolean("welcome_emails").default(true),
+  reengagementEmails: boolean("reengagement_emails").default(true),
+  featureUpdates: boolean("feature_updates").default(true),
+  productTips: boolean("product_tips").default(true),
+  usageInsights: boolean("usage_insights").default(true),
+  communityHighlights: boolean("community_highlights").default(false),
+  
+  // Frequency preferences
+  emailFrequency: text("email_frequency").default("weekly"), // daily, weekly, monthly
+  
+  // Unsubscribe management
+  isUnsubscribed: boolean("is_unsubscribed").default(false),
+  unsubscribeToken: text("unsubscribe_token").unique(),
+  unsubscribedAt: timestamp("unsubscribed_at"),
+  unsubscribeReason: text("unsubscribe_reason"),
+  
+  // Metadata
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Email campaigns table
+export const emailCampaigns = pgTable("email_campaigns", {
+  id: serial("id").primaryKey(),
+  
+  // Campaign details
+  name: text("name").notNull(),
+  description: text("description"),
+  campaignType: text("campaign_type").notNull(), // welcome, reengagement, feature_update, etc.
+  emailTemplate: text("email_template").notNull(),
+  
+  // Targeting
+  targetSegment: text("target_segment").default("all"), // all, new, active, at_risk, dormant
+  targetConditions: json("target_conditions"), // JSON for complex targeting rules
+  
+  // Scheduling
+  isActive: boolean("is_active").default(true),
+  scheduledAt: timestamp("scheduled_at"),
+  sendAfterDays: integer("send_after_days"), // Send X days after a trigger event
+  triggerEvent: text("trigger_event"), // signup, last_login, feature_usage, etc.
+  
+  // Analytics
+  totalSent: integer("total_sent").default(0),
+  totalDelivered: integer("total_delivered").default(0),
+  totalOpened: integer("total_opened").default(0),
+  totalClicked: integer("total_clicked").default(0),
+  totalUnsubscribed: integer("total_unsubscribed").default(0),
+  
+  // Metadata
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  createdBy: integer("created_by").references(() => users.id),
+});
+
+// Email send log table
+export const emailSendLog = pgTable("email_send_log", {
+  id: serial("id").primaryKey(),
+  
+  // References
+  userId: integer("user_id").references(() => users.id).notNull(),
+  campaignId: integer("campaign_id").references(() => emailCampaigns.id),
+  
+  // Email details
+  emailType: text("email_type").notNull(), // welcome, reengagement, feature_update, etc.
+  emailSubject: text("email_subject").notNull(),
+  recipientEmail: text("recipient_email").notNull(),
+  
+  // Delivery tracking
+  status: text("status").default("sent"), // sent, delivered, opened, clicked, bounced, failed
+  resendMessageId: text("resend_message_id"), // Resend's message ID for tracking
+  
+  // Engagement tracking
+  sentAt: timestamp("sent_at").defaultNow(),
+  deliveredAt: timestamp("delivered_at"),
+  openedAt: timestamp("opened_at"),
+  clickedAt: timestamp("clicked_at"),
+  bouncedAt: timestamp("bounced_at"),
+  
+  // Tracking tokens
+  openTrackingToken: text("open_tracking_token").unique(),
+  clickTrackingToken: text("click_tracking_token").unique(),
+  
+  // Error handling
+  errorMessage: text("error_message"),
+  retryCount: integer("retry_count").default(0),
+  
+  // Metadata
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// User activity tracking for real-time engagement
+export const userActivity = pgTable("user_activity", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  
+  // Activity details
+  activityType: text("activity_type").notNull(), // login, logout, file_upload, chat_message, etc.
+  activityData: json("activity_data"), // Additional context data
+  
+  // Session tracking
+  sessionId: text("session_id"),
+  userAgent: text("user_agent"),
+  ipAddress: text("ip_address"),
+  
+  // Timing
+  duration: integer("duration"), // Duration in seconds for activities that have duration
+  timestamp: timestamp("timestamp").defaultNow(),
+  
+  // Metadata
+  createdAt: timestamp("created_at").defaultNow(),
+});

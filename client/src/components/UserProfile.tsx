@@ -5,8 +5,11 @@ import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import { User, Mail } from 'lucide-react';
 import { useAuth, type UpdateProfileData } from '../hooks/useAuth';
 import { toast } from 'sonner';
+import { EmailPreferences } from './EmailPreferences';
 
 export const UserProfile: React.FC = () => {
   const { user, updateProfile } = useAuth();
@@ -80,7 +83,7 @@ export const UserProfile: React.FC = () => {
     : user.email[0].toUpperCase();
 
   return (
-    <Card className="w-full max-w-2xl mx-auto">
+    <Card className="w-full max-w-4xl mx-auto">
       <CardHeader className="text-center">
         <div className="flex justify-center mb-4">
           <Avatar className="h-20 w-20">
@@ -88,13 +91,26 @@ export const UserProfile: React.FC = () => {
             <AvatarFallback className="text-2xl">{initials}</AvatarFallback>
           </Avatar>
         </div>
-        <CardTitle>Profile Settings</CardTitle>
+        <CardTitle>Account Settings</CardTitle>
         <CardDescription>
-          Manage your personal information and preferences
+          Manage your personal information and email preferences
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <Tabs defaultValue="profile" className="w-full">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="profile" className="flex items-center gap-2">
+              <User className="w-4 h-4" />
+              Profile
+            </TabsTrigger>
+            <TabsTrigger value="email" className="flex items-center gap-2">
+              <Mail className="w-4 h-4" />
+              Email Preferences
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="profile" className="space-y-6 mt-6">
+            <form onSubmit={handleSubmit} className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="firstName">First Name</Label>
@@ -185,12 +201,18 @@ export const UserProfile: React.FC = () => {
             </p>
           </div>
 
-          <div className="flex justify-end space-x-2">
-            <Button type="submit" disabled={isLoading}>
-              {isLoading ? 'Saving...' : 'Save Changes'}
-            </Button>
-          </div>
-        </form>
+              <div className="flex justify-end space-x-2">
+                <Button type="submit" disabled={isLoading}>
+                  {isLoading ? 'Saving...' : 'Save Changes'}
+                </Button>
+              </div>
+            </form>
+          </TabsContent>
+
+          <TabsContent value="email" className="space-y-6 mt-6">
+            <EmailPreferences />
+          </TabsContent>
+        </Tabs>
       </CardContent>
     </Card>
   );

@@ -2,6 +2,7 @@ import { users, type User, type InsertUser, type RegisterUser, type OAuthUser, t
 import { eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { db } from "./db";
+import { engagementService } from "./engagement";
 import dotenv from "dotenv";
 import { Profile } from "passport";
 dotenv.config();
@@ -105,7 +106,14 @@ export class DatabaseStorage implements IStorage {
       };
       
       const result = await db.insert(users).values(newUser).returning();
-      return result[0];
+      const user = result[0];
+      
+      // Initialize engagement tracking for new user
+      if (user) {
+        await engagementService.initializeUserEngagement(user.id);
+      }
+      
+      return user;
     } catch (error) {
       console.error("Error creating user:", error);
       throw error;
@@ -147,7 +155,14 @@ export class DatabaseStorage implements IStorage {
       };
       
       const result = await db.insert(users).values(newUser).returning();
-      return result[0];
+      const user = result[0];
+      
+      // Initialize engagement tracking for new user
+      if (user) {
+        await engagementService.initializeUserEngagement(user.id);
+      }
+      
+      return user;
     } catch (error) {
       console.error("Error creating OAuth user:", error);
       throw error;

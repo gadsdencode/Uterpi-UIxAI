@@ -3,7 +3,8 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { requireAuth, requireGuest } from "./auth";
 import passport from "./auth";
-import { registerUserSchema, loginUserSchema, forgotPasswordSchema, resetPasswordSchema, publicUserSchema, updateProfileSchema, subscriptionPlans, subscriptions, users, files } from "@shared/schema";
+import { registerUserSchema, loginUserSchema, forgotPasswordSchema, resetPasswordSchema, publicUserSchema, updateProfileSchema, updateEmailPreferencesSchema, unsubscribeSchema, subscriptionPlans, subscriptions, users, files } from "@shared/schema";
+import { engagementService } from "./engagement";
 import { db } from "./db";
 import { eq, desc, and } from "drizzle-orm";
 import { createStripeCustomer, createSetupIntent, createSubscription, cancelSubscription, reactivateSubscription, createBillingPortalSession, syncSubscriptionFromStripe } from "./stripe";
@@ -571,6 +572,232 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else {
         res.status(500).json({ error: "Failed to reset password" });
       }
+    }
+  });
+
+  // =============================================================================
+  // ENGAGEMENT SYSTEM ROUTES
+  // =============================================================================
+
+  // Track user activity
+  app.post("/api/engagement/track", requireAuth, async (req, res) => {
+    try {
+      const { activityType, activityData, duration } = req.body;
+      
+      if (!activityType) {
+        return res.status(400).json({ error: "Activity type is required" });
+      }
+
+      const sessionId = req.sessionID;
+      const userAgent = req.headers['user-agent'];
+      const ipAddress = req.ip || req.connection.remoteAddress;
+
+      await engagementService.trackActivity(
+        req.user!.id,
+        activityType,
+        activityData,
+        sessionId,
+        userAgent,
+        ipAddress,
+        duration
+      );
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Track activity error:", error);
+      res.status(500).json({ error: "Failed to track activity" });
+    }
+  });
+
+  // Get user engagement data
+  app.get("/api/engagement/stats", requireAuth, async (req, res) => {
+    try {
+      let engagement = await engagementService.getUserEngagement(req.user!.id);
+      
+      // If engagement doesn't exist for existing user, initialize it
+      if (!engagement) {
+        console.log(`Initializing engagement for existing user stats: ${req.user!.id}`);
+        await engagementService.ensureUserEngagementExists(req.user!.id);
+        engagement = await engagementService.getUserEngagement(req.user!.id);
+      }
+
+      const activity = await engagementService.getUserActivity(req.user!.id, 20);
+
+      res.json({
+        success: true,
+        data: {
+          engagement,
+          recentActivity: activity,
+        }
+      });
+    } catch (error) {
+      console.error("Get engagement stats error:", error);
+      res.status(500).json({ error: "Failed to get engagement stats" });
+    }
+  });
+
+  // Get email preferences
+  app.get("/api/engagement/email-preferences", requireAuth, async (req, res) => {
+    try {
+      let preferences = await engagementService.getEmailPreferences(req.user!.id);
+      
+      // If preferences don't exist for existing user, initialize them
+      if (!preferences) {
+        console.log(`Initializing engagement for existing user: ${req.user!.id}`);
+        await engagementService.initializeUserEngagement(req.user!.id);
+        
+        // Try to get preferences again after initialization
+        preferences = await engagementService.getEmailPreferences(req.user!.id);
+        
+        if (!preferences) {
+          return res.status(500).json({ error: "Failed to initialize email preferences" });
+        }
+      }
+
+      // Return preferences without sensitive tokens
+      const { unsubscribeToken, ...safePreferences } = preferences;
+      res.json({
+        success: true,
+        preferences: safePreferences
+      });
+    } catch (error) {
+      console.error("Get email preferences error:", error);
+      res.status(500).json({ error: "Failed to get email preferences" });
+    }
+  });
+
+  // Update email preferences
+  app.put("/api/engagement/email-preferences", requireAuth, async (req, res) => {
+    try {
+      const validatedData = updateEmailPreferencesSchema.parse(req.body);
+      
+      const success = await engagementService.updateEmailPreferences(req.user!.id, validatedData);
+      
+      if (success) {
+        res.json({ success: true, message: "Email preferences updated" });
+      } else {
+        res.status(500).json({ error: "Failed to update email preferences" });
+      }
+    } catch (error: any) {
+      console.error("Update email preferences error:", error);
+      if (error.issues) {
+        res.status(400).json({ 
+          error: "Validation failed", 
+          details: error.issues 
+        });
+      } else {
+        res.status(500).json({ error: "Failed to update email preferences" });
+      }
+    }
+  });
+
+  // Unsubscribe from emails (public endpoint)
+  app.post("/api/engagement/unsubscribe", async (req, res) => {
+    try {
+      const validatedData = unsubscribeSchema.parse(req.body);
+      
+      const success = await engagementService.unsubscribeUser(validatedData.token, validatedData.reason);
+      
+      if (success) {
+        res.json({ success: true, message: "Successfully unsubscribed from emails" });
+      } else {
+        res.status(400).json({ error: "Invalid unsubscribe token" });
+      }
+    } catch (error: any) {
+      console.error("Unsubscribe error:", error);
+      if (error.issues) {
+        res.status(400).json({ 
+          error: "Validation failed", 
+          details: error.issues 
+        });
+      } else {
+        res.status(500).json({ error: "Failed to unsubscribe" });
+      }
+    }
+  });
+
+  // Email tracking endpoints
+  app.get("/api/engagement/track-open", async (req, res) => {
+    try {
+      const { token } = req.query;
+      
+      if (token && typeof token === 'string') {
+        // Track email open in database
+        // This would update the emailSendLog table
+        console.log('Email opened:', token);
+      }
+
+      // Return 1x1 transparent pixel
+      const pixel = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
+      res.set({
+        'Content-Type': 'image/gif',
+        'Content-Length': pixel.length,
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
+      });
+      res.send(pixel);
+    } catch (error) {
+      console.error("Track email open error:", error);
+      res.status(200).send(); // Always return success for tracking
+    }
+  });
+
+  app.get("/api/engagement/track-click", async (req, res) => {
+    try {
+      const { token, url } = req.query;
+      
+      if (token && typeof token === 'string') {
+        // Track email click in database
+        console.log('Email link clicked:', token);
+      }
+
+      // Redirect to the intended URL
+      if (url && typeof url === 'string') {
+        res.redirect(url);
+      } else {
+        res.redirect('/');
+      }
+    } catch (error) {
+      console.error("Track email click error:", error);
+      res.redirect('/'); // Always redirect somewhere
+    }
+  });
+
+  // Manual email triggers (for testing/admin)
+  app.post("/api/engagement/send-email", requireAuth, async (req, res) => {
+    try {
+      const { emailType, ...options } = req.body;
+      
+      let success = false;
+      switch (emailType) {
+        case 'welcome':
+          success = await engagementService.sendWelcomeEmail(req.user!.id);
+          break;
+        case 'reengagement':
+          success = await engagementService.sendReengagementEmail(req.user!.id);
+          break;
+        case 'feature_discovery':
+          success = await engagementService.sendFeatureDiscoveryEmail(req.user!.id);
+          break;
+        case 'usage_insights':
+          success = await engagementService.sendUsageInsightsEmail(req.user!.id, options.period);
+          break;
+        case 'product_tips':
+          success = await engagementService.sendProductTipsEmail(req.user!.id, options.category);
+          break;
+        default:
+          return res.status(400).json({ error: "Invalid email type" });
+      }
+
+      if (success) {
+        res.json({ success: true, message: "Email sent successfully" });
+      } else {
+        res.status(400).json({ error: "Email could not be sent (user preferences or eligibility)" });
+      }
+    } catch (error) {
+      console.error("Send email error:", error);
+      res.status(500).json({ error: "Failed to send email" });
     }
   });
 

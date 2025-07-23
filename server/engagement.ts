@@ -370,7 +370,7 @@ export class EngagementService {
          trackingPixel: trackingTokens.openToken,
        });
 
-      await this.logEmailSent(userId, 'welcome', 'Welcome to NomadAI! Let\'s get you started 🚀', trackingTokens);
+      await this.logEmailSent(userId, 'welcome', 'Welcome to Uterpi! Let\'s get you started 🚀', trackingTokens);
       return true;
     } catch (error) {
       console.error('Error sending welcome email:', error);
@@ -410,7 +410,7 @@ export class EngagementService {
         },
       });
 
-      await this.logEmailSent(userId, 'reengagement', `We miss you! Your AI assistant is waiting ⏰`, trackingTokens);
+      await this.logEmailSent(userId, 'reengagement', `We miss you! Your NomadAI assistant is waiting ⏰`, trackingTokens);
       return true;
     } catch (error) {
       console.error('Error sending reengagement email:', error);

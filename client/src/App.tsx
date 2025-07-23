@@ -461,8 +461,8 @@ const AuthenticatedApp: React.FC = () => {
                 <div className="flex items-center justify-center mb-4">
                   <div className="relative">
                     <img 
-                      src="/images/nomadai-logo2.png" 
-                      alt="NomadAI Logo" 
+                      src="/images/uterpi_logo.png" 
+                      alt="Uterpi Logo" 
                       className="w-72 h-72 rounded-full"
                     />
                     <motion.div
@@ -480,8 +480,8 @@ const AuthenticatedApp: React.FC = () => {
                     🚀 <span className="font-bold">Universal Interface for AI</span> - Just <span className="text-violet-400 font-bold">$5/month</span>
                   </p>
                   <div className="text-xs text-slate-300 mt-2 space-y-1">
-                    <p>• Use any AI model + NomadAI's proprietary model</p>
-                    <p>• Custom templates & personas to make Nomad your own</p>
+                    <p>• Use any AI model + Uterpi's proprietary model NomadAI</p>
+                    <p>• Custom templates & personas to make NomadAI your own</p>
                     <p>• AI analyzes and suggests optimizations to your workflow</p>
                     <p>• Ongoing feature updates & versioning of evolving AI models</p>
                   </div>
@@ -508,7 +508,7 @@ const AuthenticatedApp: React.FC = () => {
                   Join the Journey for $5/month
                 </RippleButton>
                 <p className="text-xs text-slate-400 text-center">
-                  ⚠️ Some LLM models may have parameters that are not currently supported by NomadAI.
+                  ⚠️ Some LLM models may have parameters that are not currently supported by Uterpi.
                 </p>
               </div>
             </HolographicBubble>

@@ -32,7 +32,7 @@ export async function sendPasswordResetEmail({
     const emailData = {
       from: FROM_EMAIL,
       to: [to],
-      subject: 'Reset Your Password - NomadAI',
+      subject: 'Reset Your Password - Uterpi',
       html: `
         <!DOCTYPE html>
         <html>
@@ -57,7 +57,7 @@ export async function sendPasswordResetEmail({
             </div>
             <div class="content">
               <h2>Hello${displayName}!</h2>
-              <p>We received a request to reset your password for your NomadAI account. If you made this request, click the button below to reset your password:</p>
+              <p>We received a request to reset your password for your Uterpi account. If you made this request, click the button below to reset your password:</p>
               
               <div style="text-align: center;">
                 <a href="${finalResetUrl}" class="button">Reset My Password</a>
@@ -79,10 +79,10 @@ export async function sendPasswordResetEmail({
               
               <p>If you continue to have problems, please contact our support team.</p>
               
-              <p>Best regards,<br>The NomadAI Team</p>
+              <p>Best regards,<br>The Uterpi Team</p>
             </div>
             <div class="footer">
-              <p>© 2025 NomadAI. All rights reserved.</p>
+              <p>© 2025 Uterpi. All rights reserved.</p>
               <p>This email was sent to ${to}. If you didn't request this, you can safely ignore it.</p>
             </div>
           </div>
@@ -92,7 +92,7 @@ export async function sendPasswordResetEmail({
       text: `
 Hello${displayName}!
 
-We received a request to reset your password for your NomadAI account.
+We received a request to reset your password for your Uterpi account.
 
 To reset your password, visit this link:
 ${finalResetUrl}
@@ -102,10 +102,10 @@ This link will expire in 1 hour for security reasons.
 If you didn't request this password reset, please ignore this email.
 
 Best regards,
-The NomadAI Team
+The Uterpi Team
 
 ---
-© 2025 NomadAI. All rights reserved.
+© 2025 Uterpi. All rights reserved.
 This email was sent to ${to}. If you didn't request this, you can safely ignore it.
       `
     };
@@ -135,7 +135,7 @@ export async function sendPasswordResetConfirmationEmail(to: string, name?: stri
     const emailData = {
       from: FROM_EMAIL,
       to: [to],
-      subject: 'Password Successfully Reset - NomadAI',
+      subject: 'Password Successfully Reset - Uterpi',
       html: `
         <!DOCTYPE html>
         <html>
@@ -164,7 +164,7 @@ export async function sendPasswordResetConfirmationEmail(to: string, name?: stri
                 <strong>Your password has been successfully reset!</strong>
               </div>
               
-              <p>This email confirms that your NomadAI account password was changed successfully. You can now log in with your new password.</p>
+              <p>This email confirms that your Uterpi account password was changed successfully. You can now log in with your new password.</p>
               
               <p>If you didn't make this change, please contact our support team immediately as your account may be compromised.</p>
               
@@ -175,10 +175,10 @@ export async function sendPasswordResetConfirmationEmail(to: string, name?: stri
                 <li>Not sharing your password with anyone</li>
               </ul>
               
-              <p>Best regards,<br>The NomadAI Team</p>
+              <p>Best regards,<br>The Uterpi Team</p>
             </div>
             <div class="footer">
-              <p>© 2025 NomadAI. All rights reserved.</p>
+              <p>© 2025 Uterpi. All rights reserved.</p>
               <p>This email was sent to ${to}.</p>
             </div>
           </div>
@@ -190,15 +190,15 @@ Hello${displayName}!
 
 Your password has been successfully reset!
 
-This email confirms that your NomadAI account password was changed successfully. You can now log in with your new password.
+This email confirms that your Uterpi account password was changed successfully. You can now log in with your new password.
 
 If you didn't make this change, please contact our support team immediately.
 
 Best regards,
-The NomadAI Team
+The Uterpi Team
 
 ---
-© 2025 NomadAI. All rights reserved.
+© 2025 Uterpi. All rights reserved.
 This email was sent to ${to}.
       `
     };
@@ -244,9 +244,9 @@ function generateEmailFooter(unsubscribeToken?: string, trackingPixel?: string):
   return `
     <div class="footer" style="background-color: #f8f9fa; padding: 30px 20px; text-align: center; color: #6c757d; font-size: 14px; border-top: 1px solid #e9ecef;">
       <div style="max-width: 600px; margin: 0 auto;">
-        <p style="margin: 0 0 15px 0;">© 2025 NomadAI. All rights reserved.</p>
+        <p style="margin: 0 0 15px 0;">© 2025 Uterpi. All rights reserved.</p>
         <p style="margin: 0 0 15px 0;">
-          <a href="${FRONTEND_URL}" style="color: #667eea; text-decoration: none;">Visit NomadAI</a> | 
+          <a href="${FRONTEND_URL}" style="color: #667eea; text-decoration: none;">Visit Uterpi</a> | 
           <a href="${FRONTEND_URL}/help" style="color: #667eea; text-decoration: none;">Help Center</a> | 
           <a href="${FRONTEND_URL}/privacy" style="color: #667eea; text-decoration: none;">Privacy Policy</a>
         </p>
@@ -271,14 +271,14 @@ export async function sendWelcomeEmail(options: EngagementEmailOptions): Promise
     const emailData = {
       from: FROM_EMAIL,
       to: [to],
-      subject: `Welcome to NomadAI${displayName}! Let's get you started 🚀`,
+      subject: `Welcome to Uterpi${displayName}! Let's get you started 🚀`,
       html: `
         <!DOCTYPE html>
         <html>
         <head>
           <meta charset="utf-8">
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <title>Welcome to NomadAI</title>
+          <title>Welcome to Uterpi</title>
           <style>
             body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 0; background-color: #f8f9fa; }
             .container { max-width: 600px; margin: 0 auto; background-color: white; }
@@ -292,12 +292,12 @@ export async function sendWelcomeEmail(options: EngagementEmailOptions): Promise
         <body>
           <div class="container">
             <div class="header">
-              <h1>🎉 Welcome to NomadAI${displayName}!</h1>
+              <h1>🎉 Welcome to Uterpi${displayName}!</h1>
               <p style="margin: 0; opacity: 0.9;">Your AI-powered productivity companion is ready</p>
             </div>
             <div class="content">
               <h2>Ready to supercharge your productivity?</h2>
-              <p>Thank you for joining NomadAI! We're excited to help you unlock the power of AI for your daily tasks. Here's how to get started:</p>
+              <p>Thank you for joining Uterpi! We're excited to help you unlock the power of AI for your daily tasks. Here's how to get started:</p>
               
               <div class="feature-card">
                 <h3>🤖 Start Your First Chat</h3>
@@ -323,7 +323,7 @@ export async function sendWelcomeEmail(options: EngagementEmailOptions): Promise
               
               <p>Need help getting started? Our <a href="${FRONTEND_URL}/help?utm_source=email&utm_campaign=welcome" style="color: #667eea;">help center</a> has guides and tutorials.</p>
               
-              <p>Best regards,<br>The NomadAI Team</p>
+              <p>Best regards,<br>The Uterpi Team</p>
             </div>
             ${generateEmailFooter(unsubscribeToken, trackingPixel)}
           </div>
@@ -331,21 +331,21 @@ export async function sendWelcomeEmail(options: EngagementEmailOptions): Promise
         </html>
       `,
       text: `
-Welcome to NomadAI${displayName}!
+Welcome to Uterpi${displayName}!
 
-Thank you for joining NomadAI! We're excited to help you unlock the power of AI for your daily tasks.
+Thank you for joining Uterpi! We're excited to help you unlock the power of NomadAI for your daily tasks.
 
 Get started with these features:
 - Start your first chat with our AI assistant
 - Upload and analyze files for insights
 - Explore different AI models for various tasks
 
-Visit NomadAI: ${FRONTEND_URL}
+Visit Uterpi: ${FRONTEND_URL}
 
 Need help? Check our help center: ${FRONTEND_URL}/help
 
 Best regards,
-The NomadAI Team
+The Uterpi Team
       `
     };
 
@@ -375,14 +375,14 @@ export async function sendReengagementEmail(options: EngagementEmailOptions): Pr
     const emailData = {
       from: FROM_EMAIL,
       to: [to],
-      subject: `We miss you${displayName}! Your AI assistant is waiting ⏰`,
+      subject: `We miss you${displayName}! Your NomadAI assistant is waiting ⏰`,
       html: `
         <!DOCTYPE html>
         <html>
         <head>
           <meta charset="utf-8">
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <title>Come Back to NomadAI</title>
+          <title>Come Back to Uterpi</title>
           <style>
             body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 0; background-color: #f8f9fa; }
             .container { max-width: 600px; margin: 0 auto; background-color: white; }
@@ -397,7 +397,7 @@ export async function sendReengagementEmail(options: EngagementEmailOptions): Pr
           <div class="container">
             <div class="header">
               <h1>🤖 We miss you${displayName}!</h1>
-              <p style="margin: 0; opacity: 0.9;">Your AI assistant has been waiting for you</p>
+              <p style="margin: 0; opacity: 0.9;">Your NomadAI assistant has been waiting for you</p>
             </div>
             <div class="content">
               <h2>It's been ${daysSinceLastLogin} days since your last visit</h2>
@@ -414,7 +414,7 @@ export async function sendReengagementEmail(options: EngagementEmailOptions): Pr
               </div>
               
               <div class="stats">
-                <h3>Your NomadAI Journey</h3>
+                <h3>Your Uterpi Journey</h3>
                 <p><strong>${personalData?.totalSessions || 0}</strong> sessions completed</p>
                 <p><strong>${personalData?.filesAnalyzed || 0}</strong> files analyzed</p>
                 <p><strong>${personalData?.chatMessages || 0}</strong> AI conversations</p>
@@ -427,7 +427,7 @@ export async function sendReengagementEmail(options: EngagementEmailOptions): Pr
               <p>Need a refresher? Check out our <a href="${FRONTEND_URL}/help?utm_source=email&utm_campaign=reengagement" style="color: #667eea;">latest tutorials</a> or start with a simple question.</p>
               
               <p>Looking forward to seeing you again!</p>
-              <p>The NomadAI Team</p>
+              <p>The Uterpi Team</p>
             </div>
             ${generateEmailFooter(unsubscribeToken, trackingPixel)}
           </div>
@@ -437,15 +437,14 @@ export async function sendReengagementEmail(options: EngagementEmailOptions): Pr
       text: `
 We miss you${displayName}!
 
-It's been ${daysSinceLastLogin} days since your last visit to NomadAI. We'd love to have you back!
+It's been ${daysSinceLastLogin} days since your last visit to Uterpi. We'd love to have you back!
 
 What's new since you've been away:
-- Improved AI response accuracy and speed
-- New file analysis capabilities  
+- Improved NomadAI response accuracy and speed
+- New file upload & analysis capabilities  
 - Enhanced chat experience with better memory
-- Community features and user showcases
 
-Your NomadAI journey so far:
+Your Uterpi journey so far:
 - ${personalData?.totalSessions || 0} sessions completed
 - ${personalData?.filesAnalyzed || 0} files analyzed
 - ${personalData?.chatMessages || 0} AI conversations
@@ -453,7 +452,7 @@ Your NomadAI journey so far:
 Continue your AI journey: ${FRONTEND_URL}
 
 Looking forward to seeing you again!
-The NomadAI Team
+The Uterpi Team
       `
     };
 
@@ -505,10 +504,10 @@ export async function sendFeatureDiscoveryEmail(options: EngagementEmailOptions)
           <div class="container">
             <div class="header">
               <h1>🔍 Hidden Features Await${displayName}!</h1>
-              <p style="margin: 0; opacity: 0.9;">Unlock the full power of NomadAI</p>
+              <p style="margin: 0; opacity: 0.9;">Unlock the full power of Uterpi & NomadAI</p>
             </div>
             <div class="content">
-              <h2>You're only using a fraction of NomadAI's capabilities!</h2>
+              <h2>You're only using a fraction of Uterpi & NomadAI's capabilities!</h2>
               <p>We noticed you haven't explored some of our most powerful features yet. Here's what you're missing out on:</p>
               
                              ${unusedFeatures.map((feature: string) => {
@@ -544,14 +543,14 @@ export async function sendFeatureDiscoveryEmail(options: EngagementEmailOptions)
               
               <div class="cta-box">
                 <h3>🚀 Ready to Level Up?</h3>
-                <p style="margin: 10px 0;">Take the full tour and discover all the ways NomadAI can boost your productivity.</p>
+                <p style="margin: 10px 0;">Take the full tour and discover all the ways Uterpi & NomadAI can boost your productivity.</p>
                 <a href="${FRONTEND_URL}/tour?utm_source=email&utm_campaign=feature_discovery&utm_content=full_tour" style="display: inline-block; background: white; color: #667eea; text-decoration: none; padding: 12px 24px; border-radius: 6px; font-weight: 600; margin: 10px 0;">Take the Full Tour</a>
               </div>
               
               <p>Questions about any of these features? Just reply to this email or check our <a href="${FRONTEND_URL}/help" style="color: #667eea;">help center</a>.</p>
               
               <p>Happy exploring!</p>
-              <p>The NomadAI Team</p>
+              <p>The Uterpi Team</p>
             </div>
             ${generateEmailFooter(unsubscribeToken, trackingPixel)}
           </div>
@@ -570,7 +569,7 @@ Take the full tour: ${FRONTEND_URL}/tour
 Questions? Check our help center: ${FRONTEND_URL}/help
 
 Happy exploring!
-The NomadAI Team
+The Uterpi Team
       `
     };
 
@@ -629,7 +628,7 @@ export async function sendUsageInsightsEmail(options: EngagementEmailOptions): P
             </div>
             <div class="content">
               <h2>Your productivity this ${period}</h2>
-              <p>Here's a summary of your amazing progress with NomadAI:</p>
+              <p>Here's a summary of your amazing progress with Uterpi & NomadAI:</p>
               
               <div class="stat-grid">
                 <div class="stat-card">
@@ -669,7 +668,7 @@ export async function sendUsageInsightsEmail(options: EngagementEmailOptions): P
               <p>Want to improve your productivity even more? Check out our <a href="${FRONTEND_URL}/tips?utm_source=email&utm_campaign=usage_insights" style="color: #667eea;">productivity tips</a>.</p>
               
               <p>Keep up the great work!</p>
-              <p>The NomadAI Team</p>
+              <p>The Uterpi Team</p>
             </div>
             ${generateEmailFooter(unsubscribeToken, trackingPixel)}
           </div>
@@ -692,7 +691,7 @@ Keep the momentum going: ${FRONTEND_URL}
 Want productivity tips? Visit: ${FRONTEND_URL}/tips
 
 Keep up the great work!
-The NomadAI Team
+The Uterpi Team
       `
     };
 
@@ -768,8 +767,8 @@ export async function sendProductTipsEmail(options: EngagementEmailOptions): Pro
               <p style="margin: 0; opacity: 0.9;">Master the art of AI collaboration</p>
             </div>
             <div class="content">
-              <h2>Level up your AI game with these pro tips</h2>
-              <p>Ready to become an AI productivity master? Here are some expert techniques to get better results from NomadAI:</p>
+              <h2>Level up your AI game with these Uterpi pro tips</h2>
+              <p>Ready to become an AI productivity master? Here are some expert techniques to get better results from Uterpi & NomadAI:</p>
               
               ${selectedTips.map(tip => `
                 <div class="tip">
@@ -794,7 +793,7 @@ export async function sendProductTipsEmail(options: EngagementEmailOptions): Pro
               <p>Have your own productivity tips to share? Reply to this email - we love hearing from our community!</p>
               
               <p>Happy optimizing!</p>
-              <p>The NomadAI Team</p>
+              <p>The Uterpi Team</p>
             </div>
             ${generateEmailFooter(unsubscribeToken, trackingPixel)}
           </div>
@@ -813,7 +812,7 @@ Ready to apply these tips? Visit: ${FRONTEND_URL}
 Have your own tips to share? Reply to this email!
 
 Happy optimizing!
-The NomadAI Team
+The Uterpi Team
       `
     };
 

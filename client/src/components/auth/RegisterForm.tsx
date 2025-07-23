@@ -470,8 +470,8 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin, onS
             <div className="flex items-center justify-center mb-4">
               <div className="relative">
                 <img 
-                  src="/images/nomadai-logo2.png" 
-                  alt="NomadAI Logo" 
+                  src="/images/uterpi_logo.png" 
+                  alt="Uterpi Logo" 
                   className="w-72 h-72 rounded-full"
                 />
                 <motion.div
@@ -485,7 +485,7 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin, onS
               Join the Journey
             </h1>
             <p className="text-slate-300">
-              Create your account to start exploring Nomad
+              Create your account to start exploring Uterpi with NomadAI
             </p>
           </div>
           

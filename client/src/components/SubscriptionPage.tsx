@@ -723,23 +723,23 @@ export const SubscriptionPage: React.FC = () => {
         >
           <div className="mb-6 p-6 bg-gradient-to-r from-violet-500/10 to-purple-600/10 rounded-2xl border border-violet-500/20">
             <h3 className="text-xl font-bold text-foreground mb-2">
-              💡 Why developers choose NomadAI Pro?
+              💡 Why choose Uterpi Pro?
             </h3>
             <p className="text-muted-foreground mb-4">
-              At just $5/month, you get unlimited access to advanced AI that can save you hours of development time every week.
+              At just $5/month, you get unlimited access to advanced AI within the Uterpi platform.
             </p>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
               <div className="flex items-center gap-2">
                 <Star className="h-4 w-4 text-yellow-500" />
-                <span>Saves 10+ hours/week</span>
+                <span>Unlimited* AI usage</span>
               </div>
               <div className="flex items-center gap-2">
                 <Zap className="h-4 w-4 text-violet-500" />
-                <span>Instant code analysis</span>
+                <span>Upload files for in-depth AI analysis</span>
               </div>
               <div className="flex items-center gap-2">
                 <Crown className="h-4 w-4 text-purple-500" />
-                <span>All premium AI models</span>
+                <span>Access to cutting-edge AI models</span>
               </div>
             </div>
           </div>

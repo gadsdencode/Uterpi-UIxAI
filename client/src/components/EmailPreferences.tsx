@@ -253,7 +253,7 @@ export function EmailPreferences() {
               Your Engagement Overview
             </CardTitle>
             <CardDescription>
-              Your activity and engagement with NomadAI
+              Your activity and engagement with Uterpi
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -306,7 +306,7 @@ export function EmailPreferences() {
             Email Preferences
           </CardTitle>
           <CardDescription>
-            Control what emails you receive from NomadAI
+            Control what emails you receive from Uterpi
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">

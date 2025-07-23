@@ -352,8 +352,8 @@ const commandSuggestions: CommandSuggestion[] = [
   },
   {
     icon: <Brain className="w-4 h-4" />,
-    label: "NomadAI System Status",
-    description: "NomadAI system reports and analysis",
+    label: "Uterpi System Status",
+    description: "Uterpi system reports and analysis",
     prefix: "/analyze"
   }
 ];
@@ -563,11 +563,11 @@ const FuturisticAIChat: React.FC = () => {
   // Create personalized welcome message
   const getPersonalizedWelcome = useCallback(() => {
     if (!user) {
-      return "Hello! I'm Nomad AI. What would you like to accomplish today?";
+      return "Hello! I'm NomadAI. What would you like to accomplish today?";
     }
 
     const name = user.firstName || user.username || "there";
-    const greeting = `Hello ${name}! I'm Nomad AI.`;
+    const greeting = `Hello ${name}! I'm NomadAI.`;
     
     const personalizations = [];
     
@@ -1178,8 +1178,8 @@ const FuturisticAIChat: React.FC = () => {
             <div className="flex items-center gap-3">
               <div className="relative">
                 <img 
-                  src="/images/nomadai-logo2.png" 
-                  alt="NomadAI Logo" 
+                  src="/images/uterpi_logo.png" 
+                  alt="Uterpi Logo" 
                   className="w-24 h-24 rounded-full"
                 />
                 <motion.div

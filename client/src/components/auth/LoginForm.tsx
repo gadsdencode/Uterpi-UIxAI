@@ -434,8 +434,8 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSwitchToRegister, onForg
             <div className="flex items-center justify-center mb-4">
               <div className="relative">
                 <img 
-                  src="/images/nomadai-logo2.png" 
-                  alt="NomadAI Logo" 
+                  src="/images/uterpi_logo.png" 
+                  alt="Uterpi Logo" 
                   className="w-72 h-72 rounded-full"
                 />
                 <motion.div

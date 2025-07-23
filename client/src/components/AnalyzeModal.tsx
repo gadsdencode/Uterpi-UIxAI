@@ -178,8 +178,8 @@ const AnalyzeModal: React.FC<AnalyzeModalProps> = ({ isOpen, onClose }) => {
                 <Brain className="w-6 h-6 text-purple-400" />
               </div>
               <div>
-                <h2 className="text-xl font-semibold text-white">NomadAI System Performance & Status</h2>
-                <p className="text-sm text-slate-400">Analysis of performance, system architecture, and current status</p>
+                <h2 className="text-xl font-semibold text-white">Uterpi System Performance & Status</h2>
+                <p className="text-sm text-slate-400">Analysis of performance, system architecture, & current status</p>
               </div>
             </div>
             <button

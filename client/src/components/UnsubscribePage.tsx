@@ -28,7 +28,7 @@ export function UnsubscribePage() {
     { value: 'too_frequent', label: 'Emails are too frequent' },
     { value: 'not_relevant', label: 'Content is not relevant to me' },
     { value: 'too_many_emails', label: 'I receive too many emails in general' },
-    { value: 'no_longer_interested', label: 'No longer interested in NomadAI' },
+    { value: 'no_longer_interested', label: 'No longer interested in Uterpi' },
     { value: 'never_signed_up', label: 'I never signed up for these emails' },
     { value: 'spam', label: 'These emails feel like spam' },
     { value: 'other', label: 'Other reason' },
@@ -119,12 +119,12 @@ export function UnsubscribePage() {
               Successfully Unsubscribed
             </CardTitle>
             <CardDescription>
-              You've been unsubscribed from NomadAI emails.
+              You've been unsubscribed from Uterpi emails.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm text-gray-600">
-              We're sorry to see you go! You will no longer receive marketing emails from NomadAI.
+              We're sorry to see you go! You will no longer receive marketing emails from Uterpi.
             </p>
             
             <Alert>
@@ -147,7 +147,7 @@ export function UnsubscribePage() {
                   className="justify-start"
                 >
                   <ArrowRight className="w-4 h-4 mr-2" />
-                  Return to NomadAI
+                  Return to Uterpi
                 </Button>
                 <Button 
                   variant="ghost" 
@@ -172,7 +172,7 @@ export function UnsubscribePage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Mail className="w-5 h-5 text-blue-600" />
-            Unsubscribe from NomadAI Emails
+            Unsubscribe from Uterpi Emails
           </CardTitle>
           <CardDescription>
             We're sorry to see you go! Let us know how we can improve.
@@ -294,7 +294,7 @@ export function UnsubscribePage() {
 
           <div className="text-center pt-4 border-t">
             <p className="text-xs text-gray-500 flex items-center justify-center gap-1">
-              Made with <Heart className="w-3 h-3 text-red-500" /> by the NomadAI team
+              Made with <Heart className="w-3 h-3 text-red-500" /> by the Uterpi team
             </p>
           </div>
         </CardContent>

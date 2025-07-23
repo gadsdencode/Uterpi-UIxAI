@@ -1,4 +1,4 @@
-import { eq, and, gte, desc, sql } from "drizzle-orm";
+import { eq, and, gte, desc, sql, lt, lte, ne, notInArray } from "drizzle-orm";
 import { db } from "./db";
 import { 
   users, userEngagement, emailPreferences, emailCampaigns, 
@@ -554,6 +554,439 @@ export class EngagementService {
   }
 
   // =============================================================================
+  // AUTOMATED CAMPAIGN IMPLEMENTATIONS
+  // =============================================================================
+
+  /**
+   * Send welcome emails to users who registered 2 hours ago
+   */
+  private async sendWelcomeEmailsToNewUsers(): Promise<void> {
+    try {
+      console.log('🎉 Starting welcome email campaign...');
+      
+      // Find users who registered 2 hours ago but haven't received welcome emails
+      const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+      const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000);
+      
+      const newUsers = await db
+        .select({
+          userId: users.id,
+          email: users.email,
+          firstName: users.firstName,
+          username: users.username,
+          createdAt: users.createdAt,
+        })
+        .from(users)
+        .innerJoin(emailPreferences, eq(users.id, emailPreferences.userId))
+        .leftJoin(
+          emailSendLog,
+          and(
+            eq(emailSendLog.userId, users.id),
+            eq(emailSendLog.emailType, 'welcome')
+          )
+        )
+        .where(
+          and(
+            // Registered between 2-4 hours ago
+            gte(users.createdAt, fourHoursAgo),
+            lte(users.createdAt, twoHoursAgo),
+            // Email preferences allow welcome emails
+            eq(emailPreferences.welcomeEmails, true),
+            eq(emailPreferences.isUnsubscribed, false),
+            // No welcome email sent yet
+            sql`${emailSendLog.id} IS NULL`
+          )
+        )
+        .limit(50); // Process in batches
+
+      console.log(`Found ${newUsers.length} users eligible for welcome emails`);
+
+      if (newUsers.length === 0) {
+        return;
+      }
+
+      let successCount = 0;
+      let failureCount = 0;
+
+      // Process users in smaller batches to avoid overwhelming email service
+      for (const user of newUsers) {
+        try {
+          // Add small delay between emails to respect rate limits
+          await this.delay(100);
+          
+          const success = await this.sendWelcomeEmail(user.userId);
+          if (success) {
+            successCount++;
+            console.log(`✅ Welcome email sent to ${user.email}`);
+          } else {
+            failureCount++;
+            console.log(`❌ Failed to send welcome email to ${user.email} (preferences/eligibility)`);
+          }
+        } catch (error) {
+          failureCount++;
+          console.error(`❌ Error sending welcome email to ${user.email}:`, error);
+        }
+      }
+
+      console.log(`🎉 Welcome email campaign completed: ${successCount} sent, ${failureCount} failed`);
+      
+    } catch (error) {
+      console.error('❌ Error in sendWelcomeEmailsToNewUsers:', error);
+    }
+  }
+
+  /**
+   * Send re-engagement emails to users inactive for 7+ days
+   */
+  private async sendReengagementEmails(): Promise<void> {
+    try {
+      console.log('📧 Starting re-engagement email campaign...');
+      
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const oneMonthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      
+      // Find users who:
+      // 1. Haven't been active for 7+ days
+      // 2. Have been registered for at least 7 days (not too new)
+      // 3. Haven't received a re-engagement email in the last 30 days
+      const inactiveUsers = await db
+        .select({
+          userId: users.id,
+          email: users.email,
+          firstName: users.firstName,
+          username: users.username,
+          lastActivityAt: userEngagement.lastActivityAt,
+          userSegment: userEngagement.userSegment,
+        })
+        .from(users)
+        .innerJoin(userEngagement, eq(users.id, userEngagement.userId))
+        .innerJoin(emailPreferences, eq(users.id, emailPreferences.userId))
+        .leftJoin(
+          emailSendLog,
+          and(
+            eq(emailSendLog.userId, users.id),
+            eq(emailSendLog.emailType, 'reengagement'),
+            gte(emailSendLog.sentAt, oneMonthAgo)
+          )
+        )
+        .where(
+          and(
+            // User registered at least 7 days ago
+            lte(users.createdAt, sevenDaysAgo),
+            // Last activity was 7+ days ago
+            lte(userEngagement.lastActivityAt, sevenDaysAgo),
+            // User is at_risk or dormant (not new users)
+            sql`${userEngagement.userSegment} IN ('at_risk', 'dormant')`,
+            // Email preferences allow re-engagement
+            eq(emailPreferences.reengagementEmails, true),
+            eq(emailPreferences.isUnsubscribed, false),
+            // No re-engagement email sent in last 30 days
+            sql`${emailSendLog.id} IS NULL`
+          )
+        )
+        .limit(30); // Conservative batch size for re-engagement
+
+      console.log(`Found ${inactiveUsers.length} users eligible for re-engagement emails`);
+
+      if (inactiveUsers.length === 0) {
+        return;
+      }
+
+      let successCount = 0;
+      let failureCount = 0;
+
+      for (const user of inactiveUsers) {
+        try {
+          await this.delay(200); // Longer delay for re-engagement emails
+          
+          const success = await this.sendReengagementEmail(user.userId);
+          if (success) {
+            successCount++;
+            console.log(`✅ Re-engagement email sent to ${user.email} (${user.userSegment})`);
+          } else {
+            failureCount++;
+            console.log(`❌ Failed to send re-engagement email to ${user.email}`);
+          }
+        } catch (error) {
+          failureCount++;
+          console.error(`❌ Error sending re-engagement email to ${user.email}:`, error);
+        }
+      }
+
+      console.log(`📧 Re-engagement campaign completed: ${successCount} sent, ${failureCount} failed`);
+      
+    } catch (error) {
+      console.error('❌ Error in sendReengagementEmails:', error);
+    }
+  }
+
+  /**
+   * Send feature discovery emails to users who haven't used key features
+   */
+  private async sendFeatureDiscoveryEmails(): Promise<void> {
+    try {
+      console.log('🔍 Starting feature discovery email campaign...');
+      
+      const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+      const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+      
+      // Find users who:
+      // 1. Registered at least 3 days ago (give them time to explore)
+      // 2. Have low feature usage (files analyzed = 0 OR chat messages < 5)
+      // 3. Are active or at_risk (not dormant)
+      // 4. Haven't received feature discovery email in last 2 weeks
+      const underutilizedUsers = await db
+        .select({
+          userId: users.id,
+          email: users.email,
+          firstName: users.firstName,
+          username: users.username,
+          filesAnalyzed: userEngagement.filesAnalyzed,
+          chatMessagesCount: userEngagement.chatMessagesCount,
+          userSegment: userEngagement.userSegment,
+        })
+        .from(users)
+        .innerJoin(userEngagement, eq(users.id, userEngagement.userId))
+        .innerJoin(emailPreferences, eq(users.id, emailPreferences.userId))
+        .leftJoin(
+          emailSendLog,
+          and(
+            eq(emailSendLog.userId, users.id),
+            eq(emailSendLog.emailType, 'feature_discovery'),
+            gte(emailSendLog.sentAt, twoWeeksAgo)
+          )
+        )
+        .where(
+          and(
+            // Registered at least 3 days ago
+            lte(users.createdAt, threeDaysAgo),
+            // Low feature usage
+            sql`(${userEngagement.filesAnalyzed} = 0 OR ${userEngagement.chatMessagesCount} < 5)`,
+            // Active or at-risk users (not dormant)
+            sql`${userEngagement.userSegment} IN ('new', 'active', 'at_risk')`,
+            // Email preferences allow feature updates
+            eq(emailPreferences.featureUpdates, true),
+            eq(emailPreferences.isUnsubscribed, false),
+            // No feature discovery email sent in last 2 weeks
+            sql`${emailSendLog.id} IS NULL`
+          )
+        )
+        .limit(40);
+
+      console.log(`Found ${underutilizedUsers.length} users eligible for feature discovery emails`);
+
+      if (underutilizedUsers.length === 0) {
+        return;
+      }
+
+      let successCount = 0;
+      let failureCount = 0;
+
+      for (const user of underutilizedUsers) {
+        try {
+          await this.delay(150);
+          
+          const success = await this.sendFeatureDiscoveryEmail(user.userId);
+          if (success) {
+            successCount++;
+            console.log(`✅ Feature discovery email sent to ${user.email} (files: ${user.filesAnalyzed}, chats: ${user.chatMessagesCount})`);
+          } else {
+            failureCount++;
+            console.log(`❌ Failed to send feature discovery email to ${user.email}`);
+          }
+        } catch (error) {
+          failureCount++;
+          console.error(`❌ Error sending feature discovery email to ${user.email}:`, error);
+        }
+      }
+
+      console.log(`🔍 Feature discovery campaign completed: ${successCount} sent, ${failureCount} failed`);
+      
+    } catch (error) {
+      console.error('❌ Error in sendFeatureDiscoveryEmails:', error);
+    }
+  }
+
+  /**
+   * Send weekly usage insights to active users
+   */
+  private async sendWeeklyUsageInsights(): Promise<void> {
+    try {
+      console.log('📊 Starting weekly usage insights campaign...');
+      
+      const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const tenDaysAgo = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000);
+      
+      // Send on Sundays or if no email sent in the last week
+      const today = new Date();
+      const dayOfWeek = today.getDay(); // 0 = Sunday, 1 = Monday, etc.
+      
+      // Find active users who:
+      // 1. Have been active in the last 7 days
+      // 2. Want usage insights and weekly frequency
+      // 3. Haven't received insights email in the last week
+      const activeUsers = await db
+        .select({
+          userId: users.id,
+          email: users.email,
+          firstName: users.firstName,
+          username: users.username,
+          lastActivityAt: userEngagement.lastActivityAt,
+          userSegment: userEngagement.userSegment,
+        })
+        .from(users)
+        .innerJoin(userEngagement, eq(users.id, userEngagement.userId))
+        .innerJoin(emailPreferences, eq(users.id, emailPreferences.userId))
+        .leftJoin(
+          emailSendLog,
+          and(
+            eq(emailSendLog.userId, users.id),
+            eq(emailSendLog.emailType, 'usage_insights'),
+            gte(emailSendLog.sentAt, tenDaysAgo)
+          )
+        )
+        .where(
+          and(
+            // Active in the last 7 days
+            gte(userEngagement.lastActivityAt, oneWeekAgo),
+            // Active users only
+            eq(userEngagement.userSegment, 'active'),
+            // Email preferences
+            eq(emailPreferences.usageInsights, true),
+            eq(emailPreferences.emailFrequency, 'weekly'),
+            eq(emailPreferences.isUnsubscribed, false),
+            // No insights email in last 10 days
+            sql`${emailSendLog.id} IS NULL`
+          )
+        )
+        .limit(25); // Conservative limit for insights emails
+
+      console.log(`Found ${activeUsers.length} users eligible for weekly usage insights`);
+
+      if (activeUsers.length === 0) {
+        return;
+      }
+
+      let successCount = 0;
+      let failureCount = 0;
+
+      for (const user of activeUsers) {
+        try {
+          await this.delay(300); // Longer delay for insights emails
+          
+          const success = await this.sendUsageInsightsEmail(user.userId, 'week');
+          if (success) {
+            successCount++;
+            console.log(`✅ Usage insights email sent to ${user.email}`);
+          } else {
+            failureCount++;
+            console.log(`❌ Failed to send usage insights email to ${user.email}`);
+          }
+        } catch (error) {
+          failureCount++;
+          console.error(`❌ Error sending usage insights email to ${user.email}:`, error);
+        }
+      }
+
+      console.log(`📊 Weekly usage insights campaign completed: ${successCount} sent, ${failureCount} failed`);
+      
+    } catch (error) {
+      console.error('❌ Error in sendWeeklyUsageInsights:', error);
+    }
+  }
+
+  /**
+   * Send weekly product tips based on user behavior
+   */
+  private async sendWeeklyProductTips(): Promise<void> {
+    try {
+      console.log('💡 Starting weekly product tips campaign...');
+      
+      const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+      
+      // Find users who:
+      // 1. Want product tips
+      // 2. Are active or at_risk (engaged enough to benefit from tips)
+      // 3. Haven't received tips in the last 2 weeks
+      const eligibleUsers = await db
+        .select({
+          userId: users.id,
+          email: users.email,
+          firstName: users.firstName,
+          username: users.username,
+          filesAnalyzed: userEngagement.filesAnalyzed,
+          chatMessagesCount: userEngagement.chatMessagesCount,
+          userSegment: userEngagement.userSegment,
+        })
+        .from(users)
+        .innerJoin(userEngagement, eq(users.id, userEngagement.userId))
+        .innerJoin(emailPreferences, eq(users.id, emailPreferences.userId))
+        .leftJoin(
+          emailSendLog,
+          and(
+            eq(emailSendLog.userId, users.id),
+            eq(emailSendLog.emailType, 'product_tips'),
+            gte(emailSendLog.sentAt, twoWeeksAgo)
+          )
+        )
+        .where(
+          and(
+            // Users who might benefit from tips
+            sql`${userEngagement.userSegment} IN ('new', 'active', 'at_risk')`,
+            // Email preferences
+            eq(emailPreferences.productTips, true),
+            eq(emailPreferences.isUnsubscribed, false),
+            // No tips email in last 2 weeks
+            sql`${emailSendLog.id} IS NULL`
+          )
+        )
+        .limit(35);
+
+      console.log(`Found ${eligibleUsers.length} users eligible for product tips`);
+
+      if (eligibleUsers.length === 0) {
+        return;
+      }
+
+      let successCount = 0;
+      let failureCount = 0;
+
+      for (const user of eligibleUsers) {
+        try {
+          await this.delay(200);
+          
+          // Determine tip category based on user behavior
+          let tipCategory = 'general';
+          if ((user.filesAnalyzed || 0) > 0) {
+            tipCategory = 'files';
+          } else if ((user.chatMessagesCount || 0) > 10) {
+            tipCategory = 'productivity';
+          }
+          
+          const success = await this.sendProductTipsEmail(user.userId, tipCategory);
+          if (success) {
+            successCount++;
+            console.log(`✅ Product tips email sent to ${user.email} (category: ${tipCategory})`);
+          } else {
+            failureCount++;
+            console.log(`❌ Failed to send product tips email to ${user.email}`);
+          }
+        } catch (error) {
+          failureCount++;
+          console.error(`❌ Error sending product tips email to ${user.email}:`, error);
+        }
+      }
+
+      console.log(`💡 Weekly product tips campaign completed: ${successCount} sent, ${failureCount} failed`);
+      
+    } catch (error) {
+      console.error('❌ Error in sendWeeklyProductTips:', error);
+    }
+  }
+
+  // =============================================================================
   // PRIVATE HELPER METHODS
   // =============================================================================
 
@@ -691,29 +1124,11 @@ export class EngagementService {
     }
   }
 
-  private async sendWelcomeEmailsToNewUsers(): Promise<void> {
-    // Implementation for sending welcome emails to new users
-    // This would query for users who registered 2 hours ago and don't have welcome emails sent
-  }
-
-  private async sendReengagementEmails(): Promise<void> {
-    // Implementation for sending re-engagement emails
-    // This would query for users who haven't logged in for 7+ days
-  }
-
-  private async sendFeatureDiscoveryEmails(): Promise<void> {
-    // Implementation for sending feature discovery emails
-    // This would identify users who haven't used key features
-  }
-
-  private async sendWeeklyUsageInsights(): Promise<void> {
-    // Implementation for sending weekly usage insights
-    // This would send to all active users who have opted in
-  }
-
-  private async sendWeeklyProductTips(): Promise<void> {
-    // Implementation for sending weekly product tips
-    // This would send different tips based on user behavior
+  /**
+   * Add delay between email sends to respect rate limits
+   */
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 }
 

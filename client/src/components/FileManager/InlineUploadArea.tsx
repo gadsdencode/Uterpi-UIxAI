@@ -59,7 +59,7 @@ const HolographicBubble: React.FC<{
       bg-gradient-to-br from-slate-800/40 to-slate-900/40 border-slate-600/30
       ${className}
     `}
-    onClick={onClick}
+    onClick={onClick && typeof onClick === 'function' ? onClick : undefined}
     onDragEnter={onDragEnter}
     onDragLeave={onDragLeave}
     onDragOver={onDragOver}

@@ -482,7 +482,16 @@ const RippleButton: React.FC<{
       setRipples(prev => prev.filter(ripple => ripple.id !== newRipple.id));
     }, 600);
     
-    onClick?.();
+    if (onClick && typeof onClick === 'function') {
+      try {
+        // Call onClick without parameters to avoid event object issues
+        onClick();
+      } catch (error) {
+        console.error('Error in onClick handler:', error);
+        // If calling without parameters fails, log the error
+        console.error('onClick handler failed:', error);
+      }
+    }
   };
 
   return (
@@ -1143,7 +1152,8 @@ const FuturisticAIChat: React.FC = () => {
   }, [getPersonalizedWelcome]);
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white relative overflow-hidden">
+    <TooltipProvider>
+      <div className="min-h-screen bg-slate-950 text-white relative overflow-hidden">
       {/* Background Effects */}
       <div className="absolute inset-0">
         <Particles
@@ -1191,18 +1201,32 @@ const FuturisticAIChat: React.FC = () => {
             </div>
             
             <div className="flex items-center gap-2">
-              <RippleButton
-                onClick={() => setShowShareModal(true)}
-                className="p-2 bg-slate-800/50 hover:bg-slate-700/50 rounded-lg border border-slate-700/50"
-              >
-                <Share2 className="w-4 h-4" />
-              </RippleButton>
-              <RippleButton
-                onClick={() => setShowEditModal(true)}
-                className="p-2 bg-slate-800/50 hover:bg-slate-700/50 rounded-lg border border-slate-700/50"
-              >
-                <Settings className="w-4 h-4" />
-              </RippleButton>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <RippleButton
+                    onClick={() => setShowShareModal(true)}
+                    className="p-2 bg-slate-800/50 hover:bg-slate-700/50 rounded-lg border border-slate-700/50"
+                  >
+                    <Share2 className="w-4 h-4" />
+                  </RippleButton>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Share or export conversation</p>
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <RippleButton
+                    onClick={() => setShowEditModal(true)}
+                    className="p-2 bg-slate-800/50 hover:bg-slate-700/50 rounded-lg border border-slate-700/50"
+                  >
+                    <Settings className="w-4 h-4" />
+                  </RippleButton>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>AI provider settings</p>
+                </TooltipContent>
+              </Tooltip>
             </div>
           </div>
         </motion.header>
@@ -1340,7 +1364,23 @@ const FuturisticAIChat: React.FC = () => {
                         );
                       }
 
-                      return buttonContent;
+                      // Add tooltips for available commands
+                      return (
+                        <TooltipProvider key={command.prefix}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              {buttonContent}
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="bg-slate-800 border-slate-700">
+                              <p className="text-sm">
+                                {command.description}
+                                <br />
+                                <span className="text-violet-400 font-medium">Click to use {command.prefix}</span>
+                              </p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      );
                     })}
                   </div>
                 </motion.div>
@@ -1405,24 +1445,45 @@ const FuturisticAIChat: React.FC = () => {
             <div className="relative">
               <div className="flex items-end gap-4 p-4 bg-slate-900/50 backdrop-blur-xl rounded-2xl border border-slate-700/50">
                 <div className="flex gap-2">
-                  <RippleButton
-                    onClick={() => setShowCommands(!showCommands)}
-                    className="p-2 text-slate-400 hover:text-violet-400 transition-colors"
-                  >
-                    <Command className="w-5 h-5" />
-                  </RippleButton>
-                  <RippleButton
-                    onClick={() => setShowSystemMessageModal(true)}
-                    className="p-2 text-slate-400 hover:text-violet-400 transition-colors"
-                  >
-                    <Brain className="w-5 h-5" />
-                  </RippleButton>
-                  <RippleButton
-                    onClick={() => setShowFileManager(true)}
-                    className="p-2 text-slate-400 hover:text-violet-400 transition-colors"
-                  >
-                    <Files className="w-5 h-5" />
-                  </RippleButton>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <RippleButton
+                        onClick={() => setShowCommands(!showCommands)}
+                        className="p-2 text-slate-400 hover:text-violet-400 transition-colors"
+                      >
+                        <Command className="w-5 h-5" />
+                      </RippleButton>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Quick commands & shortcuts</p>
+                    </TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <RippleButton
+                        onClick={() => setShowSystemMessageModal(true)}
+                        className="p-2 text-slate-400 hover:text-violet-400 transition-colors"
+                      >
+                        <Brain className="w-5 h-5" />
+                      </RippleButton>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Change AI personality & style</p>
+                    </TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <RippleButton
+                        onClick={() => setShowFileManager(true)}
+                        className="p-2 text-slate-400 hover:text-violet-400 transition-colors"
+                      >
+                        <Files className="w-5 h-5" />
+                      </RippleButton>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Manage files & uploads</p>
+                    </TooltipContent>
+                  </Tooltip>
 
                 </div>
                 
@@ -1439,17 +1500,24 @@ const FuturisticAIChat: React.FC = () => {
                   />
                 </div>
                 
-                <RippleButton
-                  onClick={handleSend}
-                  disabled={(!input.trim() && attachments.length === 0) || isLoading}
-                  className="p-3 bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700 rounded-xl transition-all duration-200"
-                >
-                  {isLoading ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                  ) : (
-                    <Send className="w-5 h-5" />
-                  )}
-                </RippleButton>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <RippleButton
+                      onClick={handleSend}
+                      disabled={(!input.trim() && attachments.length === 0) || isLoading}
+                      className="p-3 bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700 rounded-xl transition-all duration-200"
+                    >
+                      {isLoading ? (
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                      ) : (
+                        <Send className="w-5 h-5" />
+                      )}
+                    </RippleButton>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>{isLoading ? "AI is thinking..." : "Send message (Enter)"}</p>
+                  </TooltipContent>
+                </Tooltip>
               </div>
             </div>
           </div>
@@ -1527,16 +1595,23 @@ const FuturisticAIChat: React.FC = () => {
               Streaming Mode
             </label>
             <div className="flex items-center gap-3">
-              <RippleButton
-                onClick={() => setEnableStreaming(!enableStreaming)}
-                className={`p-2 rounded-lg transition-colors ${
-                  enableStreaming 
-                    ? "bg-violet-600 text-white" 
-                    : "bg-slate-800 text-slate-400"
-                }`}
-              >
-                {enableStreaming ? "Enabled" : "Disabled"}
-              </RippleButton>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <RippleButton
+                    onClick={() => setEnableStreaming(!enableStreaming)}
+                    className={`p-2 rounded-lg transition-colors ${
+                      enableStreaming 
+                        ? "bg-violet-600 text-white" 
+                        : "bg-slate-800 text-slate-400"
+                    }`}
+                  >
+                    {enableStreaming ? "Enabled" : "Disabled"}
+                  </RippleButton>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{enableStreaming ? "Disable real-time streaming" : "Enable real-time streaming"}</p>
+                </TooltipContent>
+              </Tooltip>
               <span className="text-sm text-slate-400">
                 {enableStreaming ? "Real-time responses" : "Wait for complete response"}
               </span>
@@ -1576,18 +1651,32 @@ const FuturisticAIChat: React.FC = () => {
                 )}
               </div>
               <div className="flex gap-2">
-                <RippleButton
-                  onClick={() => setShowLLMSelector(true)}
-                  className="flex-1 px-4 py-2 bg-violet-600 hover:bg-violet-700 rounded-lg text-white text-sm transition-colors"
-                >
-                  Choose Model
-                </RippleButton>
-                <RippleButton
-                  onClick={() => setShowProviderSettings(true)}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-white text-sm transition-colors"
-                >
-                  <Settings className="w-4 h-4" />
-                </RippleButton>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <RippleButton
+                      onClick={() => setShowLLMSelector(true)}
+                      className="flex-1 px-4 py-2 bg-violet-600 hover:bg-violet-700 rounded-lg text-white text-sm transition-colors"
+                    >
+                      Choose Model
+                    </RippleButton>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Select a different AI model</p>
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <RippleButton
+                      onClick={() => setShowProviderSettings(true)}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-white text-sm transition-colors"
+                    >
+                      <Settings className="w-4 h-4" />
+                    </RippleButton>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Configure AI provider settings</p>
+                  </TooltipContent>
+                </Tooltip>
               </div>
             </div>
             <div className="mt-2">
@@ -1637,12 +1726,19 @@ const FuturisticAIChat: React.FC = () => {
             >
               <div className="flex items-center justify-between mb-6">
                 <h3 className="text-xl font-semibold text-white">AI Personality & Style</h3>
-                <RippleButton
-                  onClick={() => setShowSystemMessageModal(false)}
-                  className="p-2 text-slate-400 hover:text-white rounded-lg"
-                >
-                  <X className="w-5 h-5" />
-                </RippleButton>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <RippleButton
+                      onClick={() => setShowSystemMessageModal(false)}
+                      className="p-2 text-slate-400 hover:text-white rounded-lg"
+                    >
+                      <X className="w-5 h-5" />
+                    </RippleButton>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Close personality settings</p>
+                  </TooltipContent>
+                </Tooltip>
               </div>
               
               <div className="space-y-6">
@@ -1667,12 +1763,19 @@ const FuturisticAIChat: React.FC = () => {
                 )}
                 
                 <div className="flex justify-end gap-3 pt-4 border-t border-slate-600">
-                  <RippleButton
-                    onClick={() => setShowSystemMessageModal(false)}
-                    className="px-6 py-2 bg-violet-600 hover:bg-violet-700 rounded-lg text-white font-medium"
-                  >
-                    Apply Settings
-                  </RippleButton>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <RippleButton
+                        onClick={() => setShowSystemMessageModal(false)}
+                        className="px-6 py-2 bg-violet-600 hover:bg-violet-700 rounded-lg text-white font-medium"
+                      >
+                        Apply Settings
+                      </RippleButton>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Apply personality changes and close</p>
+                    </TooltipContent>
+                  </Tooltip>
                 </div>
               </div>
             </motion.div>
@@ -1734,13 +1837,20 @@ const FuturisticAIChat: React.FC = () => {
             >
               <div className="flex items-center justify-between p-6 border-b border-slate-700/50">
                 <h2 className="text-2xl font-bold text-white">File Manager</h2>
-                <button
-                  onClick={() => setShowFileManager(false)}
-                  className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
-                  aria-label="Close File Manager"
-                >
-                  <X className="w-6 h-6" />
-                </button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => setShowFileManager(false)}
+                      className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+                      aria-label="Close File Manager"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Close file manager</p>
+                  </TooltipContent>
+                </Tooltip>
               </div>
               <div className="p-6 max-h-[calc(90vh-120px)] overflow-auto">
                 <FileManager />
@@ -1804,6 +1914,7 @@ const FuturisticAIChat: React.FC = () => {
         )}
       </AnimatePresence>
     </div>
+    </TooltipProvider>
   );
 };
 

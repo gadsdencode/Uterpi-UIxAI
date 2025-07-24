@@ -351,7 +351,13 @@ const RippleButton: React.FC<{
       setRipples(prev => prev.filter(ripple => ripple.id !== newRipple.id));
     }, 600);
     
-    onClick?.();
+    if (onClick && typeof onClick === 'function') {
+      try {
+        onClick();
+      } catch (error) {
+        console.error('Error in onClick handler:', error);
+      }
+    }
   };
 
   return (

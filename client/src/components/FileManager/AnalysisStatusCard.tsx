@@ -257,7 +257,7 @@ export const CompactAnalysisStatus: React.FC<{
     <Badge 
       variant="outline"
       className={`text-xs cursor-pointer transition-colors ${config.color} ${config.borderColor} hover:${config.bgColor}`}
-      onClick={onClick}
+      onClick={onClick && typeof onClick === 'function' ? onClick : undefined}
     >
       <IconComponent className="w-3 h-3 mr-1" />
       {status === 'completed' && 'Analyzed'}

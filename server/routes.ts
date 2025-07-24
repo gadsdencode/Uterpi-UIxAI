@@ -251,7 +251,7 @@ function setCachedResponse(cacheKey: string, response: any, ttlMinutes: number =
 export function createAzureAIClient(): { client: any; config: AzureAIConfig } {
   const endpoint = process.env.VITE_AZURE_AI_ENDPOINT;
   const apiKey = process.env.VITE_AZURE_AI_API_KEY;
-  const modelName = process.env.VITE_AZURE_AI_MODEL_NAME || "gpt-4o-mini";
+  const modelName = process.env.VITE_AZURE_AI_MODEL_NAME || "ministral-3b";
 
   if (!endpoint || !apiKey) {
     throw new Error(

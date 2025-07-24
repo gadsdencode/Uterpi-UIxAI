@@ -114,8 +114,40 @@ export const useOpenAI = (options: OpenAIOptions = {}): UseOpenAIReturn => {
       } catch (err) {
         console.warn("Failed to parse saved OpenAI model:", err);
         localStorage.removeItem(SELECTED_MODEL_KEY);
+        // Set default model if no saved model exists
+        setDefaultModel();
       }
+    } else {
+      // Set default model if no saved model exists
+      setDefaultModel();
     }
+  }, []);
+
+  // Set default model (GPT-4o Mini)
+  const setDefaultModel = useCallback(() => {
+    const defaultModel: LLMModel = {
+      id: "gpt-4o-mini",
+      name: "GPT-4o Mini",
+      provider: "OpenAI",
+      performance: 88,
+      cost: 0.00015,
+      latency: 600,
+      contextLength: 128000,
+      description: "Efficient and cost-effective GPT-4 model",
+      category: "text",
+      tier: "free",
+      isFavorite: true,
+      capabilities: {
+        supportsVision: false,
+        supportsCodeGeneration: true,
+        supportsAnalysis: true,
+        supportsImageGeneration: false
+      }
+    };
+    
+    setSelectedLLMModel(defaultModel);
+    setCurrentModel(defaultModel.id);
+    localStorage.setItem(SELECTED_MODEL_KEY, JSON.stringify(defaultModel));
   }, []);
 
   // Initialize OpenAI service

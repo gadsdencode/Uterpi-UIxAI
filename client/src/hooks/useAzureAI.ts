@@ -245,8 +245,40 @@ export const useAzureAI = (options: AzureAIOptions = {}): UseAzureAIReturn => {
       } catch (err) {
         console.warn("Failed to parse saved model:", err);
         localStorage.removeItem(SELECTED_MODEL_KEY);
+        // Set default model if no saved model exists
+        setDefaultModel();
       }
+    } else {
+      // Set default model if no saved model exists
+      setDefaultModel();
     }
+  }, []);
+
+  // Set default model (Ministral-3B)
+  const setDefaultModel = useCallback(() => {
+    const defaultModel: LLMModel = {
+      id: "ministral-3b",
+      name: "Ministral 3B",
+      provider: "Mistral AI",
+      performance: 78,
+      cost: 0.0001,
+      latency: 300,
+      contextLength: 131072,
+      description: "Compact and efficient Mistral model",
+      category: "text",
+      tier: "free",
+      isFavorite: false,
+      capabilities: {
+        supportsVision: false,
+        supportsCodeGeneration: true,
+        supportsAnalysis: true,
+        supportsImageGeneration: false
+      }
+    };
+    
+    setSelectedLLMModel(defaultModel);
+    setCurrentModel(defaultModel.id);
+    localStorage.setItem(SELECTED_MODEL_KEY, JSON.stringify(defaultModel));
   }, []);
 
   // Initialize Azure AI service
@@ -254,7 +286,7 @@ export const useAzureAI = (options: AzureAIOptions = {}): UseAzureAIReturn => {
     if (!aiServiceRef.current) {
       try {
         // Use the model-aware configuration method to handle custom endpoints
-        const modelId = selectedLLMModel?.id || "gpt-4o-mini";
+        const modelId = selectedLLMModel?.id || "ministral-3b";
         const config = AzureAIService.createWithModel(modelId);
         aiServiceRef.current = new AzureAIService(config);
         

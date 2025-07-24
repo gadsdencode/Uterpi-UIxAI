@@ -84,21 +84,30 @@ const ModelCard: React.FC<ModelCardProps> = ({ model, onFavorite, onSelect, isSe
         onClick={() => onSelect(model)}
       >
         {/* Favorite Button */}
-        <motion.button
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.9 }}
-          onClick={(e) => {
-            e.stopPropagation();
-            onFavorite(model.id);
-          }}
-          className="absolute top-4 right-4 p-2 rounded-full bg-slate-800/80 backdrop-blur-sm border border-slate-600/50 hover:bg-slate-700/80 transition-colors"
-        >
-          {model.isFavorite ? (
-            <Heart className="w-4 h-4 text-red-400 fill-current" />
-          ) : (
-            <HeartOff className="w-4 h-4 text-slate-400" />
-          )}
-        </motion.button>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <motion.button
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onFavorite(model.id);
+                }}
+                className="absolute top-4 right-4 p-2 rounded-full bg-slate-800/80 backdrop-blur-sm border border-slate-600/50 hover:bg-slate-700/80 transition-colors"
+              >
+                {model.isFavorite ? (
+                  <Heart className="w-4 h-4 text-red-400 fill-current" />
+                ) : (
+                  <HeartOff className="w-4 h-4 text-slate-400" />
+                )}
+              </motion.button>
+            </TooltipTrigger>
+            <TooltipContent className="bg-slate-800 border-slate-700">
+              <p>{model.isFavorite ? "Remove from favorites" : "Add to favorites"}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
 
         {/* Header */}
         <div className="flex items-start gap-3 mb-4">
@@ -270,20 +279,29 @@ const FilterControls: React.FC<FilterControlsProps> = ({
           </SelectContent>
         </Select>
 
-        <Button
-          variant={showFavoritesOnly ? "default" : "outline"}
-          onClick={onToggleFavorites}
-          size="sm"
-          className={cn(
-            "h-10 px-4 rounded-xl transition-colors",
-            showFavoritesOnly 
-              ? "bg-violet-600 hover:bg-violet-700 text-white" 
-              : "border-slate-600 bg-slate-800/50 text-slate-300 hover:bg-slate-700/50"
-          )}
-        >
-          <Star className={cn("w-3 h-3 mr-1", showFavoritesOnly && "fill-current")} />
-          Favorites
-        </Button>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={showFavoritesOnly ? "default" : "outline"}
+                onClick={onToggleFavorites}
+                size="sm"
+                className={cn(
+                  "h-10 px-4 rounded-xl transition-colors",
+                  showFavoritesOnly 
+                    ? "bg-violet-600 hover:bg-violet-700 text-white" 
+                    : "border-slate-600 bg-slate-800/50 text-slate-300 hover:bg-slate-700/50"
+                )}
+              >
+                <Star className={cn("w-3 h-3 mr-1", showFavoritesOnly && "fill-current")} />
+                Favorites
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent className="bg-slate-800 border-slate-700">
+              <p>{showFavoritesOnly ? "Show all models" : "Show only favorite models"}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       </div>
     </div>
   );
@@ -377,14 +395,23 @@ const LLMModalSelector: React.FC<LLMModalSelectorProps> = ({
                 </DialogDescription>
               </motion.div>
             </DialogHeader>
-            <motion.button
-              onClick={onClose}
-              className="absolute right-4 top-4 p-2 rounded-xl bg-slate-800/50 hover:bg-slate-700/50 transition-colors"
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.9 }}
-            >
-              <X className="w-5 h-5 text-slate-400" />
-            </motion.button>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <motion.button
+                    onClick={onClose}
+                    className="absolute right-4 top-4 p-2 rounded-xl bg-slate-800/50 hover:bg-slate-700/50 transition-colors"
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
+                  >
+                    <X className="w-5 h-5 text-slate-400" />
+                  </motion.button>
+                </TooltipTrigger>
+                <TooltipContent className="bg-slate-800 border-slate-700">
+                  <p>Close model selector</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </div>
 
           {/* Content */}
@@ -463,20 +490,38 @@ const LLMModalSelector: React.FC<LLMModalSelectorProps> = ({
           {/* Footer */}
           <div className="p-6 pt-4 border-t border-slate-700/50 bg-slate-900/30">
             <div className="flex items-center justify-between">
-              <Button
-                variant="outline"
-                onClick={onClose}
-                className="border-slate-600 bg-slate-800/50 text-slate-300 hover:bg-slate-700/50 px-6"
-              >
-                Cancel
-              </Button>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="outline"
+                      onClick={onClose}
+                      className="border-slate-600 bg-slate-800/50 text-slate-300 hover:bg-slate-700/50 px-6"
+                    >
+                      Cancel
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent className="bg-slate-800 border-slate-700">
+                    <p>Cancel and keep current model</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
               <div className="flex gap-3">
                 {selectedModel && (
                   <Dialog>
                     <DialogTrigger asChild>
-                      <Button variant="outline" className="border-slate-600 bg-slate-800/50 text-slate-300 hover:bg-slate-700/50 px-6">
-                        View Details
-                      </Button>
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button variant="outline" className="border-slate-600 bg-slate-800/50 text-slate-300 hover:bg-slate-700/50 px-6">
+                              View Details
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent className="bg-slate-800 border-slate-700">
+                            <p>View detailed model information</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
                     </DialogTrigger>
                     <DialogContent className="max-w-2xl bg-slate-950/95 backdrop-blur-xl border-slate-700/50 text-white">
                       <DialogHeader>
@@ -520,13 +565,22 @@ const LLMModalSelector: React.FC<LLMModalSelectorProps> = ({
                     </DialogContent>
                   </Dialog>
                 )}
-                <Button
-                  onClick={handleConfirmSelection}
-                  disabled={!selectedModel}
-                  className="bg-violet-600 hover:bg-violet-700 text-white px-8 disabled:opacity-50"
-                >
-                  Select Model
-                </Button>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        onClick={handleConfirmSelection}
+                        disabled={!selectedModel}
+                        className="bg-violet-600 hover:bg-violet-700 text-white px-8 disabled:opacity-50"
+                      >
+                        Select Model
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent className="bg-slate-800 border-slate-700">
+                      <p>{selectedModel ? `Use ${selectedModel.name} for this conversation` : "Please select a model first"}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               </div>
             </div>
           </div>

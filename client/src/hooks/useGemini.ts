@@ -114,8 +114,40 @@ export const useGemini = (options: GeminiOptions = {}): UseGeminiReturn => {
       } catch (err) {
         console.warn("Failed to parse saved Gemini model:", err);
         localStorage.removeItem(SELECTED_MODEL_KEY);
+        // Set default model if no saved model exists
+        setDefaultModel();
       }
+    } else {
+      // Set default model if no saved model exists
+      setDefaultModel();
     }
+  }, []);
+
+  // Set default model (Gemini 2.5 Flash)
+  const setDefaultModel = useCallback(() => {
+    const defaultModel: LLMModel = {
+      id: "gemini-2.5-flash",
+      name: "Gemini 2.5 Flash",
+      provider: "Google",
+      performance: 85,
+      cost: 0.00025,
+      latency: 500,
+      contextLength: 1000000,
+      description: "Fast and efficient Gemini model for general tasks",
+      category: "text",
+      tier: "free",
+      isFavorite: false,
+      capabilities: {
+        supportsVision: false,
+        supportsCodeGeneration: true,
+        supportsAnalysis: true,
+        supportsImageGeneration: false
+      }
+    };
+    
+    setSelectedLLMModel(defaultModel);
+    setCurrentModel(defaultModel.id);
+    localStorage.setItem(SELECTED_MODEL_KEY, JSON.stringify(defaultModel));
   }, []);
 
   // Initialize Gemini service

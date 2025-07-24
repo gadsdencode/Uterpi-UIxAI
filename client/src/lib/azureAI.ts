@@ -623,7 +623,7 @@ export class AzureAIService {
   static createFromEnv(): AzureAIConfig {
     const endpoint = import.meta.env.VITE_AZURE_AI_ENDPOINT;
     const apiKey = import.meta.env.VITE_AZURE_AI_API_KEY;
-    const modelName = import.meta.env.VITE_AZURE_AI_MODEL_NAME || "Ministral-3B";
+    const modelName = import.meta.env.VITE_AZURE_AI_MODEL_NAME || "ministral-3b";
 
     if (!endpoint || !apiKey) {
       throw new Error(

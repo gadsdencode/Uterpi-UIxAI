@@ -116,6 +116,12 @@ export class IntelligentToastService {
   private modelSwitchCallback?: (modelId: string) => void;
   private newChatCallback?: () => void;
 
+  // Toast queue management to avoid rapid-fire notifications
+  private toastQueue: SmartToast[] = [];
+  private isShowingToast: boolean = false;
+  private lastToastTimestamp: number = 0;
+  private readonly MIN_TOAST_GAP_MS: number = 3000; // Minimum gap between toasts
+
   // Cache rules by category
   private readonly CACHE_RULES = {
     'alert': { permanent: true, cooldownMinutes: 0 },           // Never show again
@@ -1151,28 +1157,40 @@ Return ONLY a JSON object with this structure:
   }
 
   private showSmartToast(smartToast: SmartToast): void {
-    console.log('🎬 showSmartToast called with:', smartToast);
-    
-    const icon = this.getCategoryIcon(smartToast.category);
-    const duration = smartToast.priority === 'urgent' ? 10000 : 
-                    smartToast.priority === 'high' ? 8000 : 6000;
+    console.log('🎬 Queueing toast:', smartToast.title);
+    this.toastQueue.push(smartToast);
+    this.processToastQueue();
+  }
 
-    console.log('⏰ Toast will show in 1 second with duration:', duration);
+  private processToastQueue(): void {
+    if (this.isShowingToast) return;
+    const next = this.toastQueue.shift();
+    if (!next) return;
+
+    const now = Date.now();
+    const sinceLast = now - this.lastToastTimestamp;
+    const wait = Math.max(0, this.MIN_TOAST_GAP_MS - sinceLast);
+
+    this.isShowingToast = true;
 
     window.setTimeout(() => {
-      console.log('🚀 Actually displaying toast:', smartToast.title);
-      
-      this.toastFunction(smartToast.title, {
-        description: smartToast.description,
-        duration: duration,
-        action: smartToast.action ? {
-          label: smartToast.action.label,
-          onClick: smartToast.action.callback
-        } : undefined
+      const duration = next.priority === 'urgent' ? 10000 :
+                       next.priority === 'high' ? 8000 : 6000;
+
+      console.log('🚀 Displaying queued toast:', next.title);
+      this.toastFunction(next.title, {
+        description: next.description,
+        duration,
+        action: next.action ? { label: next.action.label, onClick: next.action.callback } : undefined
       });
-      
-      console.log('✅ Toast function called successfully');
-    }, 1000); // Small delay to avoid overwhelming the user
+
+      // Schedule ready for next toast after this one finishes plus a small buffer
+      window.setTimeout(() => {
+        this.lastToastTimestamp = Date.now();
+        this.isShowingToast = false;
+        this.processToastQueue();
+      }, duration + 400);
+    }, wait);
   }
 
   private getCategoryIcon(category: string): string {

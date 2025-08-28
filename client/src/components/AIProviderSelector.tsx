@@ -19,6 +19,7 @@ interface AIProviderSelectorProps {
 interface ProviderStatus {
   configured: boolean;
   hasApiKey?: boolean;
+  hasEndpoint?: boolean; // for Hugging Face
   error?: string;
 }
 
@@ -50,7 +51,7 @@ const AIProviderSelector: React.FC<AIProviderSelectorProps> = ({
         azure: { configured: true }, // Azure is always ready
         openai: { configured: !!openaiKey, hasApiKey: !!openaiKey },
         gemini: { configured: !!geminiKey, hasApiKey: !!geminiKey },
-        huggingface: { configured: !!hfToken && !!hfUrl, hasApiKey: !!hfToken }
+        huggingface: { configured: !!hfToken && !!hfUrl, hasApiKey: !!hfToken, hasEndpoint: !!hfUrl }
       });
     };
 
@@ -150,7 +151,7 @@ const AIProviderSelector: React.FC<AIProviderSelectorProps> = ({
             <CardTitle>AI Provider Selection</CardTitle>
           </div>
           <CardDescription>
-            Choose your preferred AI provider. Azure AI is ready to use, while OpenAI and Gemini require API keys.
+            Choose your preferred AI provider. Azure AI is ready to use; OpenAI and Gemini require API keys; Hugging Face requires both an API token and endpoint URL.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -189,6 +190,34 @@ const AIProviderSelector: React.FC<AIProviderSelectorProps> = ({
                           {feature}
                         </div>
                       ))}
+                      {provider.id === 'openai' && (
+                        <div className="mt-2 text-xs text-gray-600 dark:text-gray-400">
+                          <div className="flex items-center gap-2">
+                            <span className={`w-2 h-2 rounded-full ${providerStatus.openai.hasApiKey ? 'bg-green-500' : 'bg-red-500'}`} />
+                            API Key {providerStatus.openai.hasApiKey ? 'Present' : 'Required'}
+                          </div>
+                        </div>
+                      )}
+                      {provider.id === 'gemini' && (
+                        <div className="mt-2 text-xs text-gray-600 dark:text-gray-400">
+                          <div className="flex items-center gap-2">
+                            <span className={`w-2 h-2 rounded-full ${providerStatus.gemini.hasApiKey ? 'bg-green-500' : 'bg-red-500'}`} />
+                            API Key {providerStatus.gemini.hasApiKey ? 'Present' : 'Required'}
+                          </div>
+                        </div>
+                      )}
+                      {provider.id === 'huggingface' && (
+                        <div className="mt-2 text-xs text-gray-600 dark:text-gray-400 space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className={`w-2 h-2 rounded-full ${providerStatus.huggingface.hasApiKey ? 'bg-green-500' : 'bg-red-500'}`} />
+                            API Token {providerStatus.huggingface.hasApiKey ? 'Present' : 'Required'}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className={`w-2 h-2 rounded-full ${providerStatus.huggingface.hasEndpoint ? 'bg-green-500' : 'bg-red-500'}`} />
+                            Endpoint URL {providerStatus.huggingface.hasEndpoint ? 'Present' : 'Required'}
+                          </div>
+                        </div>
+                      )}
                     </div>
                     
                     <div className="mt-4 flex gap-2">
@@ -217,6 +246,20 @@ const AIProviderSelector: React.FC<AIProviderSelectorProps> = ({
                           >
                             {isActive ? 'Active' : status.configured ? 'Select' : 'Setup'}
                           </Button>
+                          {!status.configured && (
+                            <Button 
+                              variant="default" 
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (provider.id === 'openai') setShowOpenAISettings(true);
+                                if (provider.id === 'gemini') setShowGeminiSettings(true);
+                                if (provider.id === 'huggingface') setShowHFSettings(true);
+                              }}
+                            >
+                              Configure
+                            </Button>
+                          )}
                           {status.configured && (
                             <Button 
                               variant="ghost" 

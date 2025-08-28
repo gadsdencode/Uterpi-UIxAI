@@ -313,6 +313,7 @@ interface LLMModalSelectorProps {
   onSelect: (model: LLMModel) => void;
   selectedModel?: LLMModel | null;
   getAvailableModels?: () => LLMModel[];
+  providerLabel?: string;
 }
 
 const LLMModalSelector: React.FC<LLMModalSelectorProps> = ({
@@ -320,7 +321,8 @@ const LLMModalSelector: React.FC<LLMModalSelectorProps> = ({
   onClose,
   onSelect,
   selectedModel: externalSelectedModel,
-  getAvailableModels
+  getAvailableModels,
+  providerLabel
 }) => {
   const [models, setModels] = React.useState<LLMModel[]>(getModelsForProvider(getAvailableModels));
   const [selectedModel, setSelectedModel] = React.useState<LLMModel | null>(externalSelectedModel || null);
@@ -329,6 +331,29 @@ const LLMModalSelector: React.FC<LLMModalSelectorProps> = ({
   const [selectedTier, setSelectedTier] = React.useState("all");
   const [sortBy, setSortBy] = React.useState("performance");
   const [showFavoritesOnly, setShowFavoritesOnly] = React.useState(false);
+
+  // Refresh model list whenever the modal opens or the provider's getter changes
+  React.useEffect(() => {
+    if (isOpen) {
+      const next = getModelsForProvider(getAvailableModels);
+      setModels(next);
+      if (selectedModel && !next.find(m => m.id === selectedModel.id)) {
+        setSelectedModel(null);
+      }
+    }
+  }, [isOpen, getAvailableModels]);
+
+  // Keep external selected model in sync for current provider
+  React.useEffect(() => {
+    if (externalSelectedModel) {
+      const available = getModelsForProvider(getAvailableModels);
+      if (available.find(m => m.id === externalSelectedModel.id)) {
+        setSelectedModel(externalSelectedModel);
+      } else {
+        setSelectedModel(null);
+      }
+    }
+  }, [externalSelectedModel, getAvailableModels]);
 
   const handleFavorite = (id: string) => {
     setModels(prev => prev.map(model => 
@@ -391,7 +416,7 @@ const LLMModalSelector: React.FC<LLMModalSelectorProps> = ({
                   Select AI Model
                 </DialogTitle>
                 <DialogDescription className="text-base text-slate-300">
-                  Choose from Azure's premium collection of AI models
+                  Choose from {providerLabel || 'the current provider'} models
                 </DialogDescription>
               </motion.div>
             </DialogHeader>

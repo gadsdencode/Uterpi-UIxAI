@@ -227,6 +227,7 @@ const ProviderSettingsPage: React.FC<ProviderSettingsPageProps> = ({ onBack }) =
         onSelect={handleModelSelection}
         selectedModel={selectedLLMModel}
         getAvailableModels={getAvailableModels}
+        providerLabel={providerInfo[currentProvider].name}
       />
     </div>
   );

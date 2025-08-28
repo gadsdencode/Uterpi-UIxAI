@@ -693,7 +693,8 @@ const FuturisticAIChat: React.FC = () => {
     modelCapabilities,
     isLoadingCapabilities,
     refreshCapabilities,
-    getAvailableModels
+    getAvailableModels,
+    currentProvider
   } = useAIProvider({
     enableStreaming,
     systemMessage: getCurrentSystemMessage(),
@@ -705,23 +706,44 @@ const FuturisticAIChat: React.FC = () => {
     userContext: { user } // Pass user context correctly
   });
 
-  // Get AI service instance for intelligent toasts
+  // Get AI service instance for intelligent toasts (prefer Uterpi, then current provider)
   const aiServiceRef = useRef<any>(null);
   useEffect(() => {
     const getAIService = async () => {
       try {
-        const { AzureAIService } = await import('../lib/azureAI');
-        if (!aiServiceRef.current) {
-          const config = AzureAIService.createFromEnv();
-          aiServiceRef.current = new AzureAIService(config);
-          console.log('✅ AI Service initialized for intelligent toasts');
+        // If provider is Uterpi, force-initialize to Uterpi each time
+        if (currentProvider !== 'uterpi' && aiServiceRef.current) return;
+
+        const uterpiToken = (import.meta as any).env?.VITE_UTERPI_API_TOKEN;
+        const uterpiUrl = (import.meta as any).env?.VITE_UTERPI_ENDPOINT_URL;
+        if (uterpiToken && uterpiUrl) {
+          const { HuggingFaceService } = await import('../lib/huggingface');
+          aiServiceRef.current = new HuggingFaceService({ apiToken: uterpiToken, endpointUrl: uterpiUrl, modelName: 'hf-endpoint' });
+          console.log('✅ Uterpi AI Service initialized for intelligent toasts');
+          return;
         }
+
+        if (currentProvider === 'huggingface') {
+          const token = localStorage.getItem('hf-api-token');
+          const url = localStorage.getItem('hf-endpoint-url');
+          if (token && url) {
+            const { HuggingFaceService } = await import('../lib/huggingface');
+            aiServiceRef.current = new HuggingFaceService({ apiToken: token, endpointUrl: url, modelName: 'hf-endpoint' });
+            console.log('✅ Hugging Face AI Service initialized for intelligent toasts');
+            return;
+          }
+        }
+
+        const { AzureAIService } = await import('../lib/azureAI');
+        const config = AzureAIService.createFromEnv();
+        aiServiceRef.current = new AzureAIService(config);
+        console.log('✅ Azure AI Service initialized for intelligent toasts');
       } catch (err) {
         console.warn('Failed to initialize AI service for toasts:', err);
       }
     };
     getAIService();
-  }, []);
+  }, [currentProvider]);
 
   // Intelligent toast system - pass toast function explicitly
   const {
@@ -741,8 +763,7 @@ const FuturisticAIChat: React.FC = () => {
       toast(title, options);
     },
     onModelSwitch: (modelId: string) => {
-      // Find and switch to the recommended model
-      const availableModels = AzureAIService.getAvailableModels();
+      const availableModels = getAvailableModels();
       const targetModel = availableModels.find((m: any) => m.id === modelId);
       if (targetModel) {
         updateModel(targetModel);

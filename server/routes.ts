@@ -1531,10 +1531,27 @@ You MUST respond with ONLY valid JSON in this exact structure. No markdown, no e
   }), async (req, res) => {
     try {
       const { projectPath, metrics } = req.body;
-      const { client, config } = createAzureAIClient();
-      
-      // Use Azure AI to analyze performance
-      const analysis = await analyzePerformanceWithAI(client, config, projectPath, metrics);
+
+      const uterpiEndpoint = process.env.VITE_UTERPI_ENDPOINT_URL;
+      const uterpiToken = process.env.VITE_UTERPI_API_TOKEN;
+
+      if (!uterpiEndpoint || !uterpiToken) {
+        return res.status(500).json({
+          error: "Uterpi API not configured. Set VITE_UTERPI_ENDPOINT_URL and VITE_UTERPI_API_TOKEN."
+        });
+      }
+
+      const analysis = await analyzePerformanceWithUterpi(
+        {
+          endpointUrl: uterpiEndpoint,
+          apiToken: uterpiToken,
+          cacheEnabled: true,
+          maxRetries: 3,
+          retryDelay: 1000
+        },
+        projectPath,
+        metrics || []
+      );
 
       res.json({
         success: true,
@@ -1542,7 +1559,7 @@ You MUST respond with ONLY valid JSON in this exact structure. No markdown, no e
       });
     } catch (error) {
       console.error("Performance analysis error:", error);
-      res.status(500).json({ error: "Failed to analyze performance with Azure AI" });
+      res.status(500).json({ error: "Failed to analyze performance with Uterpi" });
     }
   });
 
@@ -3040,6 +3057,196 @@ Respond with ONLY valid JSON in this exact structure:
     
   } catch (error) {
     console.error("❌ AI performance analysis error:", extractAzureAIError(error));
+    return generateFallbackPerformanceAnalysis();
+  }
+}
+
+// Uterpi-backed performance analysis using Hugging Face-style Inference Endpoint
+type UterpiConfig = {
+  endpointUrl: string;
+  apiToken: string;
+  cacheEnabled?: boolean;
+  maxRetries?: number;
+  retryDelay?: number;
+  modelName?: string;
+};
+
+async function analyzePerformanceWithUterpi(config: UterpiConfig, projectPath: string, metrics: string[]): Promise<any> {
+  try {
+    console.log("🚀 Starting enhanced performance analysis (Uterpi)...");
+
+    const performancePrompt = `Conduct a comprehensive performance analysis of a React/TypeScript project.
+
+**PROJECT CONTEXT:**
+- Project Path: ${projectPath}
+- Requested Metrics: ${metrics.join(', ')}
+- Analysis Type: Full-stack performance evaluation
+
+**ANALYSIS REQUIREMENTS:**
+
+1. **Frontend Performance Metrics**:
+   - Initial page load time and Time to Interactive (TTI)
+   - Bundle size analysis and code splitting effectiveness
+   - Render performance and React component optimization
+   - Memory usage patterns and potential leaks
+   - Network request optimization and caching strategies
+
+2. **React-Specific Analysis**:
+   - Component re-render frequency and causes
+   - State management efficiency
+   - Hook usage patterns and optimization opportunities
+   - Virtual DOM performance considerations
+   - Concurrent features utilization
+
+3. **Build and Bundle Analysis**:
+   - Webpack/Vite bundle analysis
+   - Tree-shaking effectiveness
+   - Code splitting strategy evaluation
+   - Asset optimization (images, fonts, etc.)
+   - Third-party library impact
+
+4. **Runtime Performance**:
+   - JavaScript execution time
+   - Paint and layout performance
+   - Memory consumption patterns
+   - User interaction responsiveness
+   - Progressive loading strategies
+
+**RESPONSE FORMAT:**
+Respond with ONLY valid JSON in this exact structure:
+
+{
+  "performanceMetrics": {
+    "loadTime": {
+      "value": "realistic load time in seconds (0.5-8.0)",
+      "grade": "A|B|C|D|F",
+      "benchmark": "comparison to industry standards"
+    },
+    "bundleSize": {
+      "main": "main bundle size in KB",
+      "chunks": "number and size of chunks",
+      "total": "total bundle size in KB",
+      "grade": "A|B|C|D|F"
+    },
+    "renderPerformance": {
+      "firstPaint": "time to first paint in ms",
+      "firstContentfulPaint": "time to FCP in ms",
+      "largestContentfulPaint": "time to LCP in ms",
+      "cumulativeLayoutShift": "CLS score 0-1",
+      "grade": "A|B|C|D|F"
+    },
+    "memoryUsage": {
+      "initialHeap": "initial memory usage in MB",
+      "peakHeap": "peak memory usage in MB",
+      "memoryLeaks": "potential leak indicators",
+      "grade": "A|B|C|D|F"
+    }
+  },
+  "optimizationSuggestions": [
+    {
+      "category": "loading|rendering|memory|bundle|network",
+      "priority": "critical|high|medium|low",
+      "issue": "specific performance issue identified",
+      "solution": "detailed solution with implementation steps",
+      "expectedImprovement": "quantified expected improvement",
+      "effort": "low|medium|high",
+      "impact": "low|medium|high"
+    }
+  ],
+  "codeQualityMetrics": {
+    "codeSmells": "number of code smells (0-15)",
+    "duplicateCode": "percentage of duplicate code",
+    "complexity": "cyclomatic complexity score",
+    "maintainability": "maintainability index (0-100)"
+  },
+  "securityAssessment": {
+    "vulnerabilities": "number of security issues (0-10)",
+    "riskLevel": "low|medium|high|critical",
+    "recommendations": ["security improvement suggestions"]
+  },
+  "overallScore": {
+    "performance": "overall performance score (0-100)",
+    "grade": "A|B|C|D|F",
+    "summary": "concise summary of current state",
+    "priorityActions": ["top 3 priority improvements"]
+  }
+}`;
+
+    const cacheKey = getCacheKey(
+      `perf-analysis-${projectPath}-${metrics.join(',')}`,
+      config.modelName || 'uterpi-endpoint',
+      { temperature: 0.2 }
+    );
+
+    let cachedResult = config.cacheEnabled ? getCachedResponse(cacheKey) : null;
+    if (cachedResult) {
+      console.log("📄 Using cached performance analysis result (Uterpi)");
+      return cachedResult;
+    }
+
+    const maxRetries = config.maxRetries ?? 3;
+    const retryDelay = config.retryDelay ?? 1000;
+
+    const response = await retryWithBackoff(async () => {
+      const r = await fetch(config.endpointUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${config.apiToken}`
+        },
+        body: JSON.stringify({
+          inputs: performancePrompt,
+          parameters: {
+            max_new_tokens: 2048,
+            temperature: 0.2,
+            top_p: 0.9,
+            return_full_text: false
+          }
+        })
+      });
+      if (!r.ok) {
+        const errText = await r.text().catch(() => "");
+        throw new Error(`Uterpi endpoint error (${r.status}): ${errText}`);
+      }
+      return r;
+    }, maxRetries, retryDelay);
+
+    let aiResponseText = "";
+    try {
+      const data: any = await response.json();
+      if (Array.isArray(data)) {
+        aiResponseText = data[0]?.generated_text || data[0]?.summary_text || "";
+      } else if (data && typeof data === 'object') {
+        aiResponseText = data.generated_text || data?.choices?.[0]?.message?.content || "";
+      }
+      if (typeof data === 'string' && !aiResponseText) {
+        aiResponseText = data;
+      }
+    } catch (e) {
+      console.warn("Failed to parse Uterpi JSON response, attempting text fallback");
+      aiResponseText = await response.text();
+    }
+
+    console.log("🎯 Performance analysis response (Uterpi) received, length:", aiResponseText?.length || 0);
+
+    const parsed = parseAzureAIJSON(aiResponseText);
+    if (parsed && parsed.performanceMetrics) {
+      if (config.cacheEnabled) {
+        setCachedResponse(cacheKey, parsed, 180);
+      }
+      console.log("✅ Performance analysis (Uterpi) successful:", {
+        overallScore: parsed.overallScore?.performance || 'unknown',
+        grade: parsed.overallScore?.grade || 'unknown',
+        suggestionsCount: parsed.optimizationSuggestions?.length || 0
+      });
+      return parsed;
+    }
+
+    console.warn("⚠️ Failed to parse Uterpi performance analysis, using fallback");
+    return generateFallbackPerformanceAnalysis();
+
+  } catch (error) {
+    console.error("❌ Uterpi performance analysis error:", error);
     return generateFallbackPerformanceAnalysis();
   }
 }

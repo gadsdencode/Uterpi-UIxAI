@@ -72,6 +72,10 @@ export const useAIProvider = (options: AIProviderOptions = {}): UseAIProviderRet
   const setProvider = useCallback((provider: AIProvider) => {
     setCurrentProvider(provider);
     localStorage.setItem(CURRENT_PROVIDER_KEY, provider);
+    try {
+      // Notify other hook instances in the same tab
+      window.dispatchEvent(new CustomEvent('ai-provider-changed', { detail: provider }));
+    } catch {}
   }, []);
 
   // Get available models for current provider
@@ -105,6 +109,27 @@ export const useAIProvider = (options: AIProviderOptions = {}): UseAIProviderRet
       default:
         return false;
     }
+  }, []);
+
+  // Keep provider in sync across different hook instances/components
+  useEffect(() => {
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === CURRENT_PROVIDER_KEY && e.newValue) {
+        setCurrentProvider(e.newValue as AIProvider);
+      }
+    };
+    const handleCustom = (e: Event) => {
+      const custom = e as CustomEvent<AIProvider>;
+      if (custom.detail) {
+        setCurrentProvider(custom.detail);
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener('ai-provider-changed', handleCustom as EventListener);
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('ai-provider-changed', handleCustom as EventListener);
+    };
   }, []);
 
   // Forward all provider hook methods to the current provider

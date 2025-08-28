@@ -48,7 +48,7 @@ export const useAIProvider = (options: AIProviderOptions = {}): UseAIProviderRet
   // Load saved provider or default to Azure
   const [currentProvider, setCurrentProvider] = useState<AIProvider>(() => {
     const saved = localStorage.getItem(CURRENT_PROVIDER_KEY);
-    return (saved as AIProvider) || 'azure';
+    return (saved as AIProvider) || 'huggingface';
   });
 
   // Initialize all providers with the same options

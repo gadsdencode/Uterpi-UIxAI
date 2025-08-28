@@ -53,6 +53,11 @@ const ProviderSettingsPage: React.FC<ProviderSettingsPageProps> = ({ onBack }) =
       name: 'Hugging Face',
       description: 'Use your Hugging Face Inference Endpoint',
       status: isProviderConfigured('huggingface') ? 'Configured' : 'Setup required'
+    },
+    uterpi: {
+      name: 'Uterpi',
+      description: 'Curated Hugging Face endpoint. Ready out-of-the-box.',
+      status: isProviderConfigured('uterpi') ? 'Configured' : 'Unavailable'
     }
   };
 

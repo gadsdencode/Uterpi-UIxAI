@@ -9,7 +9,7 @@ import OpenAISettingsModal from './OpenAISettingsModal';
 import GeminiSettingsModal from './GeminiSettingsModal';
 import HuggingFaceSettingsModal from './HuggingFaceSettingsModal';
 
-export type AIProvider = 'azure' | 'openai' | 'gemini' | 'huggingface';
+export type AIProvider = 'azure' | 'openai' | 'gemini' | 'huggingface' | 'uterpi';
 
 interface AIProviderSelectorProps {
   currentProvider: AIProvider;
@@ -36,7 +36,8 @@ const AIProviderSelector: React.FC<AIProviderSelectorProps> = ({
     azure: { configured: true }, // Azure is always configured via env vars
     openai: { configured: false },
     gemini: { configured: false },
-    huggingface: { configured: false }
+    huggingface: { configured: false },
+    uterpi: { configured: false }
   });
 
   // Check provider configurations on mount
@@ -51,7 +52,8 @@ const AIProviderSelector: React.FC<AIProviderSelectorProps> = ({
         azure: { configured: true }, // Azure is always ready
         openai: { configured: !!openaiKey, hasApiKey: !!openaiKey },
         gemini: { configured: !!geminiKey, hasApiKey: !!geminiKey },
-        huggingface: { configured: !!hfToken && !!hfUrl, hasApiKey: !!hfToken, hasEndpoint: !!hfUrl }
+        huggingface: { configured: !!hfToken && !!hfUrl, hasApiKey: !!hfToken, hasEndpoint: !!hfUrl },
+        uterpi: { configured: !!(import.meta as any).env?.VITE_UTERPI_API_TOKEN && !!(import.meta as any).env?.VITE_UTERPI_ENDPOINT_URL }
       });
     };
 
@@ -81,6 +83,9 @@ const AIProviderSelector: React.FC<AIProviderSelectorProps> = ({
         setShowGeminiSettings(true);
       } else if (provider === 'huggingface') {
         setShowHFSettings(true);
+      } else if (provider === 'uterpi') {
+        // No settings modal; credentials provided by app creator
+        onProviderChange(provider);
       }
     }
   };
@@ -115,6 +120,14 @@ const AIProviderSelector: React.FC<AIProviderSelectorProps> = ({
       icon: <Cloud className="w-6 h-6" />,
       features: ['Enterprise Security', 'Pre-configured', 'Multiple Models'],
       color: 'blue'
+    },
+    {
+      id: 'uterpi' as AIProvider,
+      name: 'Uterpi',
+      description: 'Curated Hugging Face endpoint. Ready out-of-the-box.',
+      icon: <Cloud className="w-6 h-6" />,
+      features: ['No Setup Required', 'Managed Endpoint', 'Great Defaults'],
+      color: 'amber'
     },
     {
       id: 'openai' as AIProvider,

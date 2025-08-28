@@ -10,7 +10,7 @@ import { OpenAIService } from '../lib/openAI';
 import { GeminiService } from '../lib/gemini';
 import { HuggingFaceService } from '../lib/huggingface';
 
-export type AIProvider = 'azure' | 'openai' | 'gemini' | 'huggingface';
+export type AIProvider = 'azure' | 'openai' | 'gemini' | 'huggingface' | 'uterpi';
 
 interface AIProviderOptions {
   enableStreaming?: boolean;
@@ -48,7 +48,7 @@ export const useAIProvider = (options: AIProviderOptions = {}): UseAIProviderRet
   // Load saved provider or default to Azure
   const [currentProvider, setCurrentProvider] = useState<AIProvider>(() => {
     const saved = localStorage.getItem(CURRENT_PROVIDER_KEY);
-    return (saved as AIProvider) || 'huggingface';
+    return (saved as AIProvider) || 'uterpi';
   });
 
   // Initialize all providers with the same options
@@ -56,6 +56,11 @@ export const useAIProvider = (options: AIProviderOptions = {}): UseAIProviderRet
   const openAI = useOpenAI(options);
   const gemini = useGemini(options);
   const huggingface = useHuggingFace(options as any);
+  const uterpi = useHuggingFace({
+    ...options,
+    apiToken: (import.meta as any).env?.VITE_UTERPI_API_TOKEN,
+    endpointUrl: (import.meta as any).env?.VITE_UTERPI_ENDPOINT_URL
+  } as any);
 
   // Get the current active provider hook
   const getCurrentProviderHook = useCallback(() => {
@@ -64,9 +69,10 @@ export const useAIProvider = (options: AIProviderOptions = {}): UseAIProviderRet
       case 'openai': return openAI;
       case 'gemini': return gemini;
       case 'huggingface': return huggingface;
+      case 'uterpi': return uterpi;
       default: return azureAI;
     }
-  }, [currentProvider, azureAI, openAI, gemini, huggingface]);
+  }, [currentProvider, azureAI, openAI, gemini, huggingface, uterpi]);
 
   // Set provider and persist choice
   const setProvider = useCallback((provider: AIProvider) => {
@@ -89,6 +95,12 @@ export const useAIProvider = (options: AIProviderOptions = {}): UseAIProviderRet
         return GeminiService.getAvailableModels();
       case 'huggingface':
         return HuggingFaceService.getAvailableModels();
+      case 'uterpi':
+        return HuggingFaceService.getAvailableModels().map(m => ({
+          ...m,
+          name: 'Uterpi Endpoint',
+          provider: 'Uterpi'
+        }));
       default:
         return [];
     }
@@ -106,6 +118,8 @@ export const useAIProvider = (options: AIProviderOptions = {}): UseAIProviderRet
         return !!localStorage.getItem('gemini-api-key');
       case 'huggingface':
         return !!localStorage.getItem('hf-api-token') && !!localStorage.getItem('hf-endpoint-url');
+      case 'uterpi':
+        return !!(import.meta as any).env?.VITE_UTERPI_API_TOKEN && !!(import.meta as any).env?.VITE_UTERPI_ENDPOINT_URL;
       default:
         return false;
     }

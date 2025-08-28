@@ -7,8 +7,9 @@ import { Settings, Cloud, Key, CheckCircle, AlertCircle } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
 import OpenAISettingsModal from './OpenAISettingsModal';
 import GeminiSettingsModal from './GeminiSettingsModal';
+import HuggingFaceSettingsModal from './HuggingFaceSettingsModal';
 
-export type AIProvider = 'azure' | 'openai' | 'gemini';
+export type AIProvider = 'azure' | 'openai' | 'gemini' | 'huggingface';
 
 interface AIProviderSelectorProps {
   currentProvider: AIProvider;
@@ -27,12 +28,14 @@ const AIProviderSelector: React.FC<AIProviderSelectorProps> = ({
 }) => {
   const [showOpenAISettings, setShowOpenAISettings] = useState(false);
   const [showGeminiSettings, setShowGeminiSettings] = useState(false);
+  const [showHFSettings, setShowHFSettings] = useState(false);
   
   // Provider status tracking
   const [providerStatus, setProviderStatus] = useState<Record<AIProvider, ProviderStatus>>({
     azure: { configured: true }, // Azure is always configured via env vars
     openai: { configured: false },
-    gemini: { configured: false }
+    gemini: { configured: false },
+    huggingface: { configured: false }
   });
 
   // Check provider configurations on mount
@@ -40,11 +43,14 @@ const AIProviderSelector: React.FC<AIProviderSelectorProps> = ({
     const checkProviderStatus = () => {
       const openaiKey = localStorage.getItem('openai-api-key');
       const geminiKey = localStorage.getItem('gemini-api-key');
+      const hfToken = localStorage.getItem('hf-api-token');
+      const hfUrl = localStorage.getItem('hf-endpoint-url');
       
       setProviderStatus({
         azure: { configured: true }, // Azure is always ready
         openai: { configured: !!openaiKey, hasApiKey: !!openaiKey },
-        gemini: { configured: !!geminiKey, hasApiKey: !!geminiKey }
+        gemini: { configured: !!geminiKey, hasApiKey: !!geminiKey },
+        huggingface: { configured: !!hfToken && !!hfUrl, hasApiKey: !!hfToken }
       });
     };
 
@@ -55,7 +61,7 @@ const AIProviderSelector: React.FC<AIProviderSelectorProps> = ({
     window.addEventListener('storage', handleStorageChange);
     
     return () => window.removeEventListener('storage', handleStorageChange);
-  }, [showOpenAISettings, showGeminiSettings]);
+  }, [showOpenAISettings, showGeminiSettings, showHFSettings]);
 
   const handleProviderSelect = (provider: AIProvider) => {
     const status = providerStatus[provider];
@@ -72,6 +78,8 @@ const AIProviderSelector: React.FC<AIProviderSelectorProps> = ({
         setShowOpenAISettings(true);
       } else if (provider === 'gemini') {
         setShowGeminiSettings(true);
+      } else if (provider === 'huggingface') {
+        setShowHFSettings(true);
       }
     }
   };
@@ -83,6 +91,8 @@ const AIProviderSelector: React.FC<AIProviderSelectorProps> = ({
       setShowOpenAISettings(false);
     } else if (provider === 'gemini') {
       setShowGeminiSettings(false);
+    } else if (provider === 'huggingface') {
+      setShowHFSettings(false);
     }
   };
 
@@ -120,6 +130,14 @@ const AIProviderSelector: React.FC<AIProviderSelectorProps> = ({
       icon: <Key className="w-6 h-6" />,
       features: ['Multimodal', 'Long Context', 'API Key Required'],
       color: 'purple'
+    },
+    {
+      id: 'huggingface' as AIProvider,
+      name: 'Hugging Face',
+      description: 'Use your Hugging Face Inference Endpoint',
+      icon: <Key className="w-6 h-6" />,
+      features: ['Custom Endpoint', 'API Token Required', 'Provider-Agnostic'],
+      color: 'orange'
     }
   ];
 
@@ -209,6 +227,8 @@ const AIProviderSelector: React.FC<AIProviderSelectorProps> = ({
                                   setShowOpenAISettings(true);
                                 } else if (provider.id === 'gemini') {
                                   setShowGeminiSettings(true);
+                                } else if (provider.id === 'huggingface') {
+                                  setShowHFSettings(true);
                                 }
                               }}
                             >
@@ -248,6 +268,13 @@ const AIProviderSelector: React.FC<AIProviderSelectorProps> = ({
         open={showGeminiSettings}
         onOpenChange={setShowGeminiSettings}
         onComplete={() => handleSettingsComplete('gemini')}
+      />
+
+      {/* Hugging Face Settings Modal */}
+      <HuggingFaceSettingsModal
+        open={showHFSettings}
+        onOpenChange={setShowHFSettings}
+        onComplete={() => handleSettingsComplete('huggingface')}
       />
     </>
   );

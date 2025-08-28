@@ -5,6 +5,52 @@ import { ModelConfiguration } from "../types";
  * Each model has specific parameter limits and capabilities
  */
 export const MODEL_CONFIGURATIONS: Record<string, ModelConfiguration> = {
+  // Hugging Face Endpoint (generic)
+  "hf-endpoint": {
+    id: "hf-endpoint",
+    name: "Hugging Face Endpoint",
+    provider: "Hugging Face",
+    contextLength: 16384,
+    limits: {
+      maxTokens: {
+        input: 16384,
+        output: 2048
+      },
+      temperature: {
+        min: 0,
+        max: 1,
+        default: 0.7
+      },
+      topP: {
+        min: 0,
+        max: 1,
+        default: 0.9
+      }
+    },
+    capabilities: {
+      supportsVision: false,
+      supportsCodeGeneration: true,
+      supportsAnalysis: true,
+      supportsImageGeneration: false,
+      supportsSystemMessages: true,
+      supportsJSONMode: false,
+      supportsFunctionCalling: false,
+      supportsStreaming: false,
+      supportsStop: false,
+      supportsLogitBias: false,
+      supportsFrequencyPenalty: false,
+      supportsPresencePenalty: false
+    },
+    recommendedParams: {
+      maxTokens: 512,
+      temperature: 0.7,
+      topP: 0.9
+    },
+    specialInstructions: [
+      "Parameters map to HF text-generation: max_new_tokens, temperature, top_p",
+      "Set return_full_text=false to get only the completion"
+    ]
+  },
   // Azure OpenAI Models
   "gpt-4o": {
     id: "gpt-4o",

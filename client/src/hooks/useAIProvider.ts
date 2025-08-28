@@ -3,12 +3,14 @@ import { Message, LLMModel, ModelCapabilities } from '../types';
 import { useAzureAI } from './useAzureAI';
 import { useOpenAI } from './useOpenAI';
 import { useGemini } from './useGemini';
+import { useHuggingFace } from './useHuggingFace';
 import { User } from './useAuth';
 import { AzureAIService } from '../lib/azureAI';
 import { OpenAIService } from '../lib/openAI';
 import { GeminiService } from '../lib/gemini';
+import { HuggingFaceService } from '../lib/huggingface';
 
-export type AIProvider = 'azure' | 'openai' | 'gemini';
+export type AIProvider = 'azure' | 'openai' | 'gemini' | 'huggingface';
 
 interface AIProviderOptions {
   enableStreaming?: boolean;
@@ -53,6 +55,7 @@ export const useAIProvider = (options: AIProviderOptions = {}): UseAIProviderRet
   const azureAI = useAzureAI(options);
   const openAI = useOpenAI(options);
   const gemini = useGemini(options);
+  const huggingface = useHuggingFace(options as any);
 
   // Get the current active provider hook
   const getCurrentProviderHook = useCallback(() => {
@@ -60,9 +63,10 @@ export const useAIProvider = (options: AIProviderOptions = {}): UseAIProviderRet
       case 'azure': return azureAI;
       case 'openai': return openAI;
       case 'gemini': return gemini;
+      case 'huggingface': return huggingface;
       default: return azureAI;
     }
-  }, [currentProvider, azureAI, openAI, gemini]);
+  }, [currentProvider, azureAI, openAI, gemini, huggingface]);
 
   // Set provider and persist choice
   const setProvider = useCallback((provider: AIProvider) => {
@@ -79,6 +83,8 @@ export const useAIProvider = (options: AIProviderOptions = {}): UseAIProviderRet
         return OpenAIService.getAvailableModels();
       case 'gemini':
         return GeminiService.getAvailableModels();
+      case 'huggingface':
+        return HuggingFaceService.getAvailableModels();
       default:
         return [];
     }
@@ -94,6 +100,8 @@ export const useAIProvider = (options: AIProviderOptions = {}): UseAIProviderRet
         return !!localStorage.getItem('openai-api-key');
       case 'gemini':
         return !!localStorage.getItem('gemini-api-key');
+      case 'huggingface':
+        return !!localStorage.getItem('hf-api-token') && !!localStorage.getItem('hf-endpoint-url');
       default:
         return false;
     }

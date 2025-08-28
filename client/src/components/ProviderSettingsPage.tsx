@@ -48,6 +48,11 @@ const ProviderSettingsPage: React.FC<ProviderSettingsPageProps> = ({ onBack }) =
       name: 'Google Gemini',
       description: 'Google\'s advanced multimodal AI models',
       status: isProviderConfigured('gemini') ? 'Configured' : 'Setup required'
+    },
+    huggingface: {
+      name: 'Hugging Face',
+      description: 'Use your Hugging Face Inference Endpoint',
+      status: isProviderConfigured('huggingface') ? 'Configured' : 'Setup required'
     }
   };
 

@@ -723,6 +723,13 @@ const FuturisticAIChat: React.FC = () => {
           return;
         }
 
+        // If Uterpi is selected but credentials are missing, do not fallback to Azure
+        if (currentProvider === 'uterpi') {
+          aiServiceRef.current = null;
+          console.warn('Uterpi selected but VITE_UTERPI_* not set; disabling system analysis to avoid Azure fallback');
+          return;
+        }
+
         if (currentProvider === 'huggingface') {
           const token = localStorage.getItem('hf-api-token');
           const url = localStorage.getItem('hf-endpoint-url');

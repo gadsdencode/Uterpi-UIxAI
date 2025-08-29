@@ -29,7 +29,7 @@ export class HuggingFaceService {
     return [
       {
         id: "hf-endpoint",
-        name: "Hugging Face Endpoint",
+        name: "HuggingFace",
         provider: "Hugging Face",
         performance: 80,
         cost: 0,

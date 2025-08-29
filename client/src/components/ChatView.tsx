@@ -661,6 +661,35 @@ const FuturisticAIChat: React.FC = () => {
     };
   }, [showProviderSettings]);
 
+  // Keyboard shortcuts: New Chat (Ctrl/Cmd+N) and Open Model Selector (Ctrl/Cmd+M)
+  useEffect(() => {
+    const handleGlobalKeydown = (e: KeyboardEvent) => {
+      const isMeta = e.metaKey || e.ctrlKey;
+      if (!isMeta) return;
+
+      if (e.key.toLowerCase() === 'n') {
+        e.preventDefault();
+        setMessages([
+          {
+            id: "1",
+            content: getPersonalizedWelcome(),
+            role: "assistant",
+            timestamp: new Date(),
+          }
+        ]);
+        toast.success("Started new conversation!");
+      }
+
+      if (e.key.toLowerCase() === 'm') {
+        e.preventDefault();
+        setShowLLMSelector(true);
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeydown);
+    return () => window.removeEventListener('keydown', handleGlobalKeydown);
+  }, [getPersonalizedWelcome]);
+
   // Get the current system message based on selection
   const getCurrentSystemMessage = () => {
     if (selectedSystemPreset === "custom") {
@@ -1229,11 +1258,53 @@ const FuturisticAIChat: React.FC = () => {
             </div>
             
             <div className="flex items-center gap-2">
+              {/* New Chat */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <RippleButton
+                    onClick={() => {
+                      setMessages([
+                        {
+                          id: "1",
+                          content: getPersonalizedWelcome(),
+                          role: "assistant",
+                          timestamp: new Date(),
+                        }
+                      ]);
+                      toast.success("Started new conversation!");
+                    }}
+                    className="px-3 py-2 bg-slate-800/50 hover:bg-slate-700/50 rounded-lg border border-slate-700/50 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                    aria-label="New Chat (Ctrl+N)"
+                  >
+                    New Chat
+                  </RippleButton>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Start a new chat (Ctrl/Cmd + N)</p>
+                </TooltipContent>
+              </Tooltip>
+
+              {/* Current Model */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <RippleButton
+                    onClick={() => setShowLLMSelector(true)}
+                    className="px-3 py-2 bg-slate-800/50 hover:bg-slate-700/50 rounded-lg border border-slate-700/50 text-xs sm:text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                    aria-label={`Current model: ${selectedLLMModel?.name || currentModel || 'Choose model'} (Ctrl+M)`}
+                  >
+                    {selectedLLMModel?.name || currentModel || 'Choose Model'}
+                  </RippleButton>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Change model (Ctrl/Cmd + M)</p>
+                </TooltipContent>
+              </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <RippleButton
                     onClick={() => setShowShareModal(true)}
-                    className="p-2 bg-slate-800/50 hover:bg-slate-700/50 rounded-lg border border-slate-700/50"
+                    className="p-2 bg-slate-800/50 hover:bg-slate-700/50 rounded-lg border border-slate-700/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                    aria-label="Share or export conversation"
                   >
                     <Share2 className="w-4 h-4" />
                   </RippleButton>
@@ -1246,7 +1317,8 @@ const FuturisticAIChat: React.FC = () => {
                 <TooltipTrigger asChild>
                   <RippleButton
                     onClick={() => setShowEditModal(true)}
-                    className="p-2 bg-slate-800/50 hover:bg-slate-700/50 rounded-lg border border-slate-700/50"
+                    className="p-2 bg-slate-800/50 hover:bg-slate-700/50 rounded-lg border border-slate-700/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                    aria-label="Open AI provider settings"
                   >
                     <Settings className="w-4 h-4" />
                   </RippleButton>
@@ -1477,7 +1549,8 @@ const FuturisticAIChat: React.FC = () => {
                     <TooltipTrigger asChild>
                       <RippleButton
                         onClick={() => setShowCommands(!showCommands)}
-                        className="p-2 text-slate-400 hover:text-violet-400 transition-colors"
+                        className="p-2 text-slate-400 hover:text-violet-400 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                        aria-label="Toggle quick commands"
                       >
                         <Command className="w-5 h-5" />
                       </RippleButton>
@@ -1490,7 +1563,8 @@ const FuturisticAIChat: React.FC = () => {
                     <TooltipTrigger asChild>
                       <RippleButton
                         onClick={() => setShowSystemMessageModal(true)}
-                        className="p-2 text-slate-400 hover:text-violet-400 transition-colors"
+                        className="p-2 text-slate-400 hover:text-violet-400 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                        aria-label="Change AI personality"
                       >
                         <Brain className="w-5 h-5" />
                       </RippleButton>
@@ -1503,7 +1577,8 @@ const FuturisticAIChat: React.FC = () => {
                     <TooltipTrigger asChild>
                       <RippleButton
                         onClick={() => setShowFileManager(true)}
-                        className="p-2 text-slate-400 hover:text-violet-400 transition-colors"
+                        className="p-2 text-slate-400 hover:text-violet-400 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                        aria-label="Open file manager"
                       >
                         <Files className="w-5 h-5" />
                       </RippleButton>

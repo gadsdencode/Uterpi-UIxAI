@@ -152,7 +152,7 @@ const HuggingFaceSettingsModal: React.FC<HuggingFaceSettingsModalProps> = ({ ope
             <Alert className="border-green-200 bg-green-50 dark:bg-green-950">
               <CheckCircle className="h-4 w-4 text-green-600" />
               <AlertDescription className="text-green-800 dark:text-green-200">
-                Connection successful! Your Hugging Face endpoint responded.
+                Connection successful! Your HuggingFace Inference Endpoint responded.
               </AlertDescription>
             </Alert>
           )}
@@ -173,7 +173,7 @@ const HuggingFaceSettingsModal: React.FC<HuggingFaceSettingsModalProps> = ({ ope
 
           <div className="p-3 bg-gray-50 dark:bg-gray-900 rounded-lg">
             <p className="text-xs text-gray-600 dark:text-gray-400">
-              <strong>Security:</strong> Your token and endpoint URL are stored locally in your browser and only used for direct requests to your Hugging Face endpoint.
+              <strong>Security:</strong> Your token and endpoint URL are stored locally in your browser and only used for direct requests to your HuggingFace Inference Endpoint.
             </p>
           </div>
         </div>

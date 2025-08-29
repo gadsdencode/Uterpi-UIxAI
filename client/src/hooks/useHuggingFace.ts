@@ -94,7 +94,7 @@ export const useHuggingFace = (options: HuggingFaceOptions = {}): UseHuggingFace
   const setDefaultModel = useCallback(() => {
     const defaultModel: LLMModel = {
       id: "hf-endpoint",
-      name: "Hugging Face Endpoint",
+      name: "HuggingFace",
       provider: "Hugging Face",
       performance: 80,
       cost: 0,

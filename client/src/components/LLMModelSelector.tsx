@@ -72,16 +72,26 @@ const ModelCard: React.FC<ModelCardProps> = ({ model, onFavorite, onSelect, isSe
       transition={{ duration: 0.2 }}
     >
       <Card 
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onSelect(model);
+          }
+        }}
         className={cn(
           "relative overflow-hidden border transition-all duration-300 cursor-pointer group",
           "bg-slate-900/50 backdrop-blur-xl border-slate-700/50",
           "hover:bg-slate-800/50 hover:border-violet-500/50 hover:shadow-lg hover:shadow-violet-500/10",
-          "rounded-2xl p-6",
+          "rounded-2xl p-6 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950",
           isSelected 
             ? "border-violet-500 bg-violet-500/10 shadow-lg shadow-violet-500/20" 
             : ""
         )}
         onClick={() => onSelect(model)}
+        aria-pressed={isSelected}
+        aria-label={`Select model ${model.name}`}
       >
         {/* Favorite Button */}
         <TooltipProvider>
@@ -402,7 +412,7 @@ const LLMModalSelector: React.FC<LLMModalSelectorProps> = ({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto bg-slate-950/95 backdrop-blur-xl border-slate-700/50 text-white p-0">
+      <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto bg-slate-950/95 backdrop-blur-xl border-slate-700/50 text-white p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500">
         <div className="flex flex-col h-full">
           {/* Header */}
           <div className="p-6 pb-4 border-b border-slate-700/50">
@@ -425,7 +435,8 @@ const LLMModalSelector: React.FC<LLMModalSelectorProps> = ({
                 <TooltipTrigger asChild>
                   <motion.button
                     onClick={onClose}
-                    className="absolute right-4 top-4 p-2 rounded-xl bg-slate-800/50 hover:bg-slate-700/50 transition-colors"
+                    aria-label="Close model selector"
+                    className="absolute right-4 top-4 p-2 rounded-xl bg-slate-800/50 hover:bg-slate-700/50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
                     whileHover={{ scale: 1.1 }}
                     whileTap={{ scale: 0.9 }}
                   >

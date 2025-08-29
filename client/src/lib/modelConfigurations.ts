@@ -8,7 +8,7 @@ export const MODEL_CONFIGURATIONS: Record<string, ModelConfiguration> = {
   // Hugging Face Endpoint (generic)
   "hf-endpoint": {
     id: "hf-endpoint",
-    name: "Hugging Face Endpoint",
+    name: "HuggingFace",
     provider: "Hugging Face",
     contextLength: 16384,
     limits: {

@@ -37,7 +37,7 @@ const ProviderSettingsPage: React.FC<ProviderSettingsPageProps> = ({ onBack }) =
     azure: {
       name: 'Azure AI',
       description: 'Enterprise-grade AI models from Microsoft Azure',
-      status: 'Always available'
+      status: isProviderConfigured('azure') ? 'Configured' : 'Setup required'
     },
     openai: {
       name: 'OpenAI',
@@ -51,12 +51,12 @@ const ProviderSettingsPage: React.FC<ProviderSettingsPageProps> = ({ onBack }) =
     },
     huggingface: {
       name: 'Hugging Face',
-      description: 'Use your Hugging Face Inference Endpoint',
+      description: 'Use your own HuggingFace Inference Endpoint',
       status: isProviderConfigured('huggingface') ? 'Configured' : 'Setup required'
     },
     uterpi: {
       name: 'Uterpi',
-      description: 'Curated Hugging Face endpoint. Ready out-of-the-box.',
+      description: 'Proprietary LLM. Ready out-of-the-box.',
       status: isProviderConfigured('uterpi') ? 'Configured' : 'Unavailable'
     }
   };
@@ -130,11 +130,11 @@ const ProviderSettingsPage: React.FC<ProviderSettingsPageProps> = ({ onBack }) =
             <CardContent>
               <div className="space-y-4">
                 {selectedLLMModel ? (
-                  <div className="p-4 bg-gray-50 dark:bg-gray-900 rounded-lg">
+                  <div className="p-4 bg-gray-50 dark:bg-slate-900 rounded-lg border border-gray-200 dark:border-slate-700/60">
                     <div className="flex items-center justify-between">
                       <div>
-                        <h3 className="font-medium text-white">{selectedLLMModel.name}</h3>
-                        <p className="text-sm text-slate-400">
+                        <h3 className="font-medium text-slate-900 dark:text-white">{selectedLLMModel.name}</h3>
+                        <p className="text-sm text-slate-600 dark:text-slate-400">
                           {selectedLLMModel.description}
                         </p>
                         <div className="flex items-center gap-4 mt-2">
@@ -150,8 +150,8 @@ const ProviderSettingsPage: React.FC<ProviderSettingsPageProps> = ({ onBack }) =
                         </div>
                       </div>
                       <div className="text-right">
-                        <p className="text-sm font-medium text-white">Performance: {selectedLLMModel.performance}%</p>
-                        <p className="text-xs text-slate-400">
+                        <p className="text-sm font-medium text-slate-900 dark:text-white">Performance: {selectedLLMModel.performance}%</p>
+                        <p className="text-xs text-slate-600 dark:text-slate-400">
                           {selectedLLMModel.contextLength.toLocaleString()} tokens
                         </p>
                       </div>
@@ -198,12 +198,12 @@ const ProviderSettingsPage: React.FC<ProviderSettingsPageProps> = ({ onBack }) =
                     className={`flex items-center justify-between p-3 rounded-lg border ${
                       provider === currentProvider 
                         ? 'border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/20' 
-                        : 'border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800/50'
+                        : 'border-gray-200 bg-gray-50 dark:border-slate-700/60 dark:bg-slate-900/60'
                     }`}
                   >
                     <div>
-                      <h4 className="font-medium text-white">{providerInfo[provider].name}</h4>
-                      <p className="text-sm text-slate-400">
+                      <h4 className="font-medium text-slate-900 dark:text-white">{providerInfo[provider].name}</h4>
+                      <p className="text-sm text-slate-600 dark:text-slate-400">
                         {providerInfo[provider].status}
                       </p>
                     </div>

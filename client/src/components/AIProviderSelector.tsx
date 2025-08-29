@@ -124,7 +124,7 @@ const AIProviderSelector: React.FC<AIProviderSelectorProps> = ({
     {
       id: 'uterpi' as AIProvider,
       name: 'Uterpi',
-      description: 'Curated Hugging Face endpoint. Ready out-of-the-box.',
+      description: 'Proprietary LLM. Ready out-of-the-box.',
       icon: <Cloud className="w-6 h-6" />,
       features: ['No Setup Required', 'Managed Endpoint', 'Great Defaults'],
       color: 'amber'
@@ -148,7 +148,7 @@ const AIProviderSelector: React.FC<AIProviderSelectorProps> = ({
     {
       id: 'huggingface' as AIProvider,
       name: 'Hugging Face',
-      description: 'Use your Hugging Face Inference Endpoint',
+      description: 'Use your own HuggingFace Inference Endpoint',
       icon: <Key className="w-6 h-6" />,
       features: ['Custom Endpoint', 'API Token Required', 'Provider-Agnostic'],
       color: 'orange'
@@ -173,6 +173,14 @@ const AIProviderSelector: React.FC<AIProviderSelectorProps> = ({
               const status = providerStatus[provider.id];
               const isActive = currentProvider === provider.id;
               
+              const colorMap: Record<string, string> = {
+                blue: 'bg-blue-100 dark:bg-blue-900/20',
+                amber: 'bg-amber-100 dark:bg-amber-900/20',
+                green: 'bg-green-100 dark:bg-green-900/20',
+                purple: 'bg-purple-100 dark:bg-purple-900/20',
+                orange: 'bg-orange-100 dark:bg-orange-900/20'
+              };
+
               return (
                 <Card 
                   key={provider.id}
@@ -185,7 +193,7 @@ const AIProviderSelector: React.FC<AIProviderSelectorProps> = ({
                 >
                   <CardContent className="p-6">
                     <div className="flex items-start justify-between mb-4">
-                      <div className={`p-2 rounded-lg bg-${provider.color}-100 dark:bg-${provider.color}-900/20`}>
+                      <div className={`p-2 rounded-lg ${colorMap[provider.color]}`}>
                         {provider.icon}
                       </div>
                       <StatusBadge status={status} isActive={isActive} />

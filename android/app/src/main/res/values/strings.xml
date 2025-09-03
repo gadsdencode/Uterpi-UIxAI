@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">uterpi-mobile</string>
+    <string name="title_activity_main">uterpi-mobile</string>
+    <string name="package_name">com.uterpi.mobile</string>
+    <string name="custom_url_scheme">com.uterpi.mobile</string>
+</resources>

@@ -44,11 +44,25 @@ interface UseAIProviderReturn {
 
 const CURRENT_PROVIDER_KEY = 'current-ai-provider';
 
+// Prefer Uterpi if configured, then user-configured Hugging Face, else Azure
+function determineDefaultProvider(): AIProvider {
+  try {
+    const uterpiToken = (import.meta as any).env?.VITE_UTERPI_API_TOKEN;
+    const uterpiUrl = (import.meta as any).env?.VITE_UTERPI_ENDPOINT_URL;
+    if (uterpiToken && uterpiUrl) return 'uterpi';
+
+    const hfToken = localStorage.getItem('hf-api-token');
+    const hfUrl = localStorage.getItem('hf-endpoint-url');
+    if (hfToken && hfUrl) return 'huggingface';
+  } catch {}
+  return 'azure';
+}
+
 export const useAIProvider = (options: AIProviderOptions = {}): UseAIProviderReturn => {
-  // Load saved provider or default to Azure
+  // Load saved provider or compute default by configuration
   const [currentProvider, setCurrentProvider] = useState<AIProvider>(() => {
     const saved = localStorage.getItem(CURRENT_PROVIDER_KEY);
-    return (saved as AIProvider) || 'uterpi';
+    return (saved as AIProvider) || determineDefaultProvider();
   });
 
   // Initialize all providers with the same options
@@ -59,7 +73,8 @@ export const useAIProvider = (options: AIProviderOptions = {}): UseAIProviderRet
   const uterpi = useHuggingFace({
     ...options,
     apiToken: (import.meta as any).env?.VITE_UTERPI_API_TOKEN,
-    endpointUrl: (import.meta as any).env?.VITE_UTERPI_ENDPOINT_URL
+    endpointUrl: (import.meta as any).env?.VITE_UTERPI_ENDPOINT_URL,
+    isUterpi: true
   } as any);
 
   // Get the current active provider hook
@@ -82,6 +97,18 @@ export const useAIProvider = (options: AIProviderOptions = {}): UseAIProviderRet
       // Notify other hook instances in the same tab
       window.dispatchEvent(new CustomEvent('ai-provider-changed', { detail: provider }));
     } catch {}
+  }, []);
+
+  // If the currently selected provider isn't configured, fall back automatically
+  useEffect(() => {
+    const valid = isProviderConfigured(currentProvider);
+    if (!valid) {
+      const fallback = determineDefaultProvider();
+      if (fallback !== currentProvider) {
+        setProvider(fallback);
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Get available models for current provider
@@ -145,6 +172,16 @@ export const useAIProvider = (options: AIProviderOptions = {}): UseAIProviderRet
       window.removeEventListener('ai-provider-changed', handleCustom as EventListener);
     };
   }, []);
+
+  // Persist computed default provider on first load if not already saved
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(CURRENT_PROVIDER_KEY);
+      if (!saved && currentProvider) {
+        localStorage.setItem(CURRENT_PROVIDER_KEY, currentProvider);
+      }
+    } catch {}
+  }, [currentProvider]);
 
   // Forward all provider hook methods to the current provider
   const activeHook = getCurrentProviderHook();

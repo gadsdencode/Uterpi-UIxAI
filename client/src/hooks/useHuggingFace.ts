@@ -92,15 +92,18 @@ export const useHuggingFace = (options: HuggingFaceOptions = {}): UseHuggingFace
   }, []);
 
   const setDefaultModel = useCallback(() => {
+    const uterpiToken = (import.meta as any).env?.VITE_UTERPI_API_TOKEN;
+    const uterpiUrl = (import.meta as any).env?.VITE_UTERPI_ENDPOINT_URL;
+    const isUterpi = !!options.apiToken && !!options.endpointUrl && options.apiToken === uterpiToken && options.endpointUrl === uterpiUrl;
     const defaultModel: LLMModel = {
       id: "hf-endpoint",
-      name: "HuggingFace",
-      provider: "Hugging Face",
+      name: isUterpi ? "Uterpi Endpoint" : "HuggingFace",
+      provider: isUterpi ? "Uterpi" : "Hugging Face",
       performance: 80,
       cost: 0,
       latency: 800,
       contextLength: 16384,
-      description: "Uses your configured Inference Endpoint",
+      description: isUterpi ? "Uses the managed Uterpi Inference Endpoint" : "Uses your configured Inference Endpoint",
       category: "text",
       tier: "pro",
       isFavorite: false,

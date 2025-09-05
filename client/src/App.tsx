@@ -12,6 +12,15 @@ import { Button } from './components/ui/button'
 import { Card, CardContent } from './components/ui/card'
 import { Loader2, Zap } from 'lucide-react'
 
+// Ensures mobile-safe viewport height and scrolling when content exceeds screen
+const ResponsiveViewport: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  return (
+    <div className="responsive-viewport">
+      {children}
+    </div>
+  );
+};
+
 interface ParticlesProps {
   className?: string;
   quantity?: number;
@@ -437,6 +446,7 @@ const AuthenticatedApp: React.FC = () => {
   if (!user) {
     if (!showAuth) {
       return (
+        <ResponsiveViewport>
         <div className="min-h-screen bg-slate-950 text-white relative overflow-hidden flex items-center justify-center p-4">
           {/* Background Effects */}
           <div className="absolute inset-0">
@@ -520,10 +530,12 @@ const AuthenticatedApp: React.FC = () => {
             </HolographicBubble>
           </div>
         </div>
+        </ResponsiveViewport>
       );
     }
 
     return (
+      <ResponsiveViewport>
       <div className="min-h-screen bg-slate-950 text-white relative overflow-hidden">
         {/* Background Effects */}
         <div className="absolute inset-0">
@@ -580,10 +592,12 @@ const AuthenticatedApp: React.FC = () => {
           </div>
         </div>
       </div>
+      </ResponsiveViewport>
     );
   }
 
   return (
+    <ResponsiveViewport>
     <main className="h-screen w-full">
       <div className="absolute top-4 right-4 z-50">
         <UserMenu />
@@ -596,6 +610,7 @@ const AuthenticatedApp: React.FC = () => {
       </SubscriptionGuard>
       <Toaster />
     </main>
+    </ResponsiveViewport>
   );
 };
 

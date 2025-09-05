@@ -109,3 +109,15 @@
     -webkit-line-clamp: 2;
   }
 }
+
+/* Mobile-safe viewport wrapper to allow scrolling on small screens */
+.responsive-viewport {
+  min-height: 100dvh;
+  height: 100%;
+  width: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}

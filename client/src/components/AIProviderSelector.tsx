@@ -9,7 +9,7 @@ import OpenAISettingsModal from './OpenAISettingsModal';
 import GeminiSettingsModal from './GeminiSettingsModal';
 import HuggingFaceSettingsModal from './HuggingFaceSettingsModal';
 
-export type AIProvider = 'azure' | 'openai' | 'gemini' | 'huggingface' | 'uterpi';
+export type AIProvider = 'azure' | 'openai' | 'gemini' | 'huggingface' | 'uterpi' | 'lmstudio';
 
 interface AIProviderSelectorProps {
   currentProvider: AIProvider;
@@ -37,7 +37,8 @@ const AIProviderSelector: React.FC<AIProviderSelectorProps> = ({
     openai: { configured: false },
     gemini: { configured: false },
     huggingface: { configured: false },
-    uterpi: { configured: false }
+    uterpi: { configured: false },
+    lmstudio: { configured: true }
   });
 
   // Check provider configurations on mount
@@ -47,13 +48,15 @@ const AIProviderSelector: React.FC<AIProviderSelectorProps> = ({
       const geminiKey = localStorage.getItem('gemini-api-key');
       const hfToken = localStorage.getItem('hf-api-token');
       const hfUrl = localStorage.getItem('hf-endpoint-url');
+      const lmstudioUrl = localStorage.getItem('lmstudio-base-url');
       
       setProviderStatus({
         azure: { configured: true }, // Azure is always ready
         openai: { configured: !!openaiKey, hasApiKey: !!openaiKey },
         gemini: { configured: !!geminiKey, hasApiKey: !!geminiKey },
         huggingface: { configured: !!hfToken && !!hfUrl, hasApiKey: !!hfToken, hasEndpoint: !!hfUrl },
-        uterpi: { configured: !!(import.meta as any).env?.VITE_UTERPI_API_TOKEN && !!(import.meta as any).env?.VITE_UTERPI_ENDPOINT_URL }
+        uterpi: { configured: !!(import.meta as any).env?.VITE_UTERPI_API_TOKEN && !!(import.meta as any).env?.VITE_UTERPI_ENDPOINT_URL },
+        lmstudio: { configured: true, hasEndpoint: !!lmstudioUrl }
       });
     };
 
@@ -85,6 +88,9 @@ const AIProviderSelector: React.FC<AIProviderSelectorProps> = ({
         setShowHFSettings(true);
       } else if (provider === 'uterpi') {
         // No settings modal; credentials provided by app creator
+        onProviderChange(provider);
+      } else if (provider === 'lmstudio') {
+        // LM Studio generally works out of the box on localhost
         onProviderChange(provider);
       }
     }
@@ -120,6 +126,14 @@ const AIProviderSelector: React.FC<AIProviderSelectorProps> = ({
       icon: <Cloud className="w-6 h-6" />,
       features: ['Enterprise Security', 'Pre-configured', 'Multiple Models'],
       color: 'blue'
+    },
+    {
+      id: 'lmstudio' as AIProvider,
+      name: 'LM Studio',
+      description: 'Local OpenAI-compatible server (default http://localhost:1234)',
+      icon: <Cloud className="w-6 h-6" />,
+      features: ['Runs Locally', 'OpenAI-Compatible', 'No API Key Needed'],
+      color: 'purple'
     },
     {
       id: 'uterpi' as AIProvider,

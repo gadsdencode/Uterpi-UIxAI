@@ -4,13 +4,15 @@ import { useAzureAI } from './useAzureAI';
 import { useOpenAI } from './useOpenAI';
 import { useGemini } from './useGemini';
 import { useHuggingFace } from './useHuggingFace';
+import { useLMStudio } from './useLMStudio';
 import { User } from './useAuth';
 import { AzureAIService } from '../lib/azureAI';
 import { OpenAIService } from '../lib/openAI';
 import { GeminiService } from '../lib/gemini';
 import { HuggingFaceService } from '../lib/huggingface';
+import { LMStudioService } from '../lib/lmstudio';
 
-export type AIProvider = 'azure' | 'openai' | 'gemini' | 'huggingface' | 'uterpi';
+export type AIProvider = 'azure' | 'openai' | 'gemini' | 'huggingface' | 'uterpi' | 'lmstudio';
 
 interface AIProviderOptions {
   enableStreaming?: boolean;
@@ -55,7 +57,8 @@ function determineDefaultProvider(): AIProvider {
     const hfUrl = localStorage.getItem('hf-endpoint-url');
     if (hfToken && hfUrl) return 'huggingface';
   } catch {}
-  return 'azure';
+  // Default to LM Studio provider
+  return 'lmstudio';
 }
 
 export const useAIProvider = (options: AIProviderOptions = {}): UseAIProviderReturn => {
@@ -70,6 +73,7 @@ export const useAIProvider = (options: AIProviderOptions = {}): UseAIProviderRet
   const openAI = useOpenAI(options);
   const gemini = useGemini(options);
   const huggingface = useHuggingFace(options as any);
+  const lmstudio = useLMStudio(options as any);
   const uterpi = useHuggingFace({
     ...options,
     apiToken: (import.meta as any).env?.VITE_UTERPI_API_TOKEN,
@@ -84,10 +88,11 @@ export const useAIProvider = (options: AIProviderOptions = {}): UseAIProviderRet
       case 'openai': return openAI;
       case 'gemini': return gemini;
       case 'huggingface': return huggingface;
+      case 'lmstudio': return lmstudio;
       case 'uterpi': return uterpi;
       default: return azureAI;
     }
-  }, [currentProvider, azureAI, openAI, gemini, huggingface, uterpi]);
+  }, [currentProvider, azureAI, openAI, gemini, huggingface, lmstudio, uterpi]);
 
   // Set provider and persist choice
   const setProvider = useCallback((provider: AIProvider) => {
@@ -122,6 +127,8 @@ export const useAIProvider = (options: AIProviderOptions = {}): UseAIProviderRet
         return GeminiService.getAvailableModels();
       case 'huggingface':
         return HuggingFaceService.getAvailableModels();
+      case 'lmstudio':
+        return LMStudioService.getAvailableModels();
       case 'uterpi':
         return HuggingFaceService.getAvailableModels().map(m => ({
           ...m,
@@ -145,6 +152,9 @@ export const useAIProvider = (options: AIProviderOptions = {}): UseAIProviderRet
         return !!localStorage.getItem('gemini-api-key');
       case 'huggingface':
         return !!localStorage.getItem('hf-api-token') && !!localStorage.getItem('hf-endpoint-url');
+      case 'lmstudio':
+        // LM Studio runs locally and is OpenAI-compatible; treat as available by default
+        return true;
       case 'uterpi':
         return !!(import.meta as any).env?.VITE_UTERPI_API_TOKEN && !!(import.meta as any).env?.VITE_UTERPI_ENDPOINT_URL;
       default:

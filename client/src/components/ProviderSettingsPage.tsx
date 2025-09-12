@@ -58,6 +58,11 @@ const ProviderSettingsPage: React.FC<ProviderSettingsPageProps> = ({ onBack }) =
       name: 'Uterpi',
       description: 'Proprietary LLM. Ready out-of-the-box.',
       status: isProviderConfigured('uterpi') ? 'Configured' : 'Unavailable'
+    },
+    lmstudio: {
+      name: 'LM Studio',
+      description: 'Local OpenAI-compatible server',
+      status: isProviderConfigured('lmstudio') ? 'Configured' : 'Setup required'
     }
   };
 

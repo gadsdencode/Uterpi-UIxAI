@@ -26,6 +26,9 @@ export const users = pgTable("users", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
   
+  // Account deletion (soft-delete)
+  deletedAt: timestamp("deleted_at"),
+  
   // Subscription-related fields
   stripeCustomerId: text("stripe_customer_id").unique(),
   subscriptionStatus: text("subscription_status").default("free"), // free, active, past_due, canceled, etc.

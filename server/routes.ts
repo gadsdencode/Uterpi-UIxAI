@@ -476,6 +476,71 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // =============================================================================
+  // ACCOUNT DELETION (IMMEDIATE) - cancels Stripe at period end
+  // =============================================================================
+  app.delete("/api/account", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+
+      // Fetch user subscriptions to cancel at period end
+      const activeSubs = await db
+        .select()
+        .from(subscriptions)
+        .where(and(eq(subscriptions.userId, userId), eq(subscriptions.status, "active")));
+
+      // Cancel each subscription at period end (Stripe + local mirror)
+      for (const sub of activeSubs) {
+        if (sub.stripeSubscriptionId) {
+          try {
+            await cancelSubscription(sub.stripeSubscriptionId, true);
+          } catch (e) {
+            console.error("Stripe cancel at period end failed", e);
+          }
+        }
+
+        // Mirror cancel_at_period_end locally
+        await db
+          .update(subscriptions)
+          .set({ cancelAtPeriodEnd: true, updatedAt: new Date() })
+          .where(eq(subscriptions.id, sub.id));
+      }
+
+      // Soft-delete user files
+      try {
+        const userFiles = await db
+          .select()
+          .from(files)
+          .where(eq(files.userId, userId));
+
+        for (const f of userFiles) {
+          await db
+            .update(files)
+            .set({ status: "deleted", updatedAt: new Date() })
+            .where(eq(files.id, f.id));
+        }
+      } catch (e) {
+        console.error("Soft-deleting user files failed", e);
+      }
+
+      // Mark user as deleted (soft-delete)
+      await db
+        .update(users)
+        .set({ deletedAt: new Date(), updatedAt: new Date() })
+        .where(eq(users.id, userId));
+
+      // Destroy session
+      req.logout(() => {
+        req.session.destroy(() => {
+          res.json({ success: true, message: "Your account has been deleted. This cannot be undone." });
+        });
+      });
+    } catch (error) {
+      console.error("Account deletion error:", error);
+      res.status(500).json({ error: "Failed to delete account" });
+    }
+  });
+
   app.post("/api/auth/reset-password", requireGuest, async (req, res) => {
     try {
       const validatedData = resetPasswordSchema.parse(req.body);

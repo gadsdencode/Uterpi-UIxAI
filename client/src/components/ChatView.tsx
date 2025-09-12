@@ -22,12 +22,17 @@ import {
   Copy,
   ExternalLink,
   Settings,
-  Files
+  Files,
+  Volume2,
+  VolumeX,
+  Mic,
+  MicOff
 } from "lucide-react";
 import { Message, CommandSuggestion, LLMModel, ModelCapabilities } from "../types";
 import { useAIProvider } from "../hooks/useAIProvider";
 import { SYSTEM_MESSAGE_PRESETS } from "../hooks/useAzureAI";
 import { useIntelligentToast } from "../hooks/useIntelligentToast";
+import { useSpeech } from "../hooks/useSpeech";
 import { AzureAIService } from "../lib/azureAI";
 import LLMModalSelector from './LLMModelSelector';
 import { SystemMessageSelector } from './SystemMessageSelector';
@@ -484,11 +489,10 @@ const RippleButton: React.FC<{
     
     if (onClick && typeof onClick === 'function') {
       try {
-        // Call onClick without parameters to avoid event object issues
-        onClick();
+        // Forward the original event so upstream handlers can access defaultPrevented, etc.
+        onClick(e);
       } catch (error) {
         console.error('Error in onClick handler:', error);
-        // If calling without parameters fails, log the error
         console.error('onClick handler failed:', error);
       }
     }
@@ -641,6 +645,8 @@ const FuturisticAIChat: React.FC = () => {
   const [showAnalyzeModal, setShowAnalyzeModal] = useState(false);
   const [showFileManager, setShowFileManager] = useState(false);
   const [showProviderSettings, setShowProviderSettings] = useState(false);
+  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -819,6 +825,126 @@ const FuturisticAIChat: React.FC = () => {
       toast.success("Started new conversation!");
     }
   });
+  
+  // Initialize speech functionality
+  const {
+    speak,
+    stopSpeaking,
+    isSpeaking,
+    startListening,
+    stopListening,
+    isListening,
+    transcript,
+    interimTranscript,
+    isAvailable: speechAvailable,
+    isHTTPS,
+    microphonePermission,
+    error: speechError
+  } = useSpeech({
+    autoInitialize: true,
+    onRecognitionResult: (result) => {
+      if (result.transcript) {
+        // For both interim and final results, show the full transcript
+        // The transcript already contains the accumulated text
+        setInput(result.transcript);
+      }
+    },
+    onRecognitionError: (error) => {
+      toast.error(`Speech recognition error: ${error.message}`);
+      setIsRecording(false);
+    }
+  });
+  
+  // Handle text-to-speech for messages
+  const handleSpeak = useCallback(async (messageId: string, text: string) => {
+    try {
+      if (speakingMessageId === messageId) {
+        // Stop speaking if clicking same message
+        stopSpeaking();
+        setSpeakingMessageId(null);
+      } else {
+        // Start speaking new message
+        stopSpeaking();
+        setSpeakingMessageId(messageId);
+        await speak(text);
+        setSpeakingMessageId(null);
+      }
+    } catch (error) {
+      console.error('Failed to speak:', error);
+      toast.error('Failed to speak message');
+      setSpeakingMessageId(null);
+    }
+  }, [speakingMessageId, speak, stopSpeaking]);
+  
+  // Handle speech-to-text for input
+  const handleVoiceInput = useCallback(async () => {
+    try {
+      // Check HTTPS requirement
+      if (!isHTTPS && microphonePermission !== 'granted') {
+        toast.error('🔒 Microphone access requires HTTPS. Please use a secure connection.');
+        return;
+      }
+      
+      if (isRecording) {
+        // Stop recording and get transcript
+        setIsRecording(false);
+        const finalTranscript = await stopListening();
+        if (finalTranscript) {
+          setInput(finalTranscript);
+        }
+      } else {
+        // Start recording
+        setIsRecording(true);
+        setInput(''); // Clear input to show fresh transcript
+        await startListening({
+          language: 'en-US',
+          continuous: true,
+          interimResults: true
+        });
+      }
+    } catch (error) {
+      console.error('Voice input error:', error);
+      const errorMessage = (error as Error).message || 'Voice input failed';
+      
+      // Provide helpful error messages
+      if (errorMessage.includes('permission')) {
+        toast.error('🎤 Microphone permission denied. Please allow microphone access and try again.');
+      } else if (errorMessage.includes('not-allowed')) {
+        toast.error('🔒 Microphone access blocked. Check your browser settings.');
+      } else if (errorMessage.includes('network')) {
+        toast.error('🌐 Network error. Please check your internet connection.');
+      } else {
+        toast.error(`🎤 ${errorMessage}`);
+      }
+      
+      setIsRecording(false);
+    }
+  }, [isRecording, startListening, stopListening, isHTTPS, microphonePermission]);
+
+  // Mic permission badge helper
+  const MicPermissionBadge = () => (
+    <div className="flex items-center gap-2 text-xs text-slate-400">
+      <span className={`w-2 h-2 rounded-full ${microphonePermission === 'granted' ? 'bg-green-500' : microphonePermission === 'denied' ? 'bg-red-500' : 'bg-yellow-500'}`} />
+      <span>
+        Mic: {microphonePermission === 'granted' ? 'Granted' : microphonePermission === 'denied' ? 'Denied' : 'Prompt'}
+        {!isHTTPS && microphonePermission !== 'granted' && (
+          <span className="ml-2 text-yellow-400">(HTTPS recommended)</span>
+        )}
+      </span>
+    </div>
+  );
+  
+  // Stop recording when component unmounts
+  useEffect(() => {
+    return () => {
+      if (isListening) {
+        stopListening();
+      }
+      if (isSpeaking) {
+        stopSpeaking();
+      }
+    };
+  }, [isListening, isSpeaking, stopListening, stopSpeaking]);
 
   // Add debugging commands to window object for console testing
   useEffect(() => {
@@ -1015,6 +1141,18 @@ const FuturisticAIChat: React.FC = () => {
         });
 
         setStreamingResponse("");
+        
+        // Auto-speak AI response if TTS is available and enabled (for streaming)
+        if (speechAvailable && !isSpeaking) {
+          const autoSpeak = localStorage.getItem('auto-speak-responses');
+          if (autoSpeak === 'true') {
+            // Get the final message content
+            const finalMessage = messages.find(m => m.id === aiMessageId);
+            if (finalMessage && finalMessage.content) {
+              handleSpeak(aiMessageId, finalMessage.content);
+            }
+          }
+        }
       } else {
         // Handle non-streaming response
         const response = await sendMessage(updatedMessages);
@@ -1025,6 +1163,14 @@ const FuturisticAIChat: React.FC = () => {
           timestamp: new Date(),
         };
         setMessages(prev => [...prev, aiMessage]);
+        
+        // Auto-speak AI response if TTS is available and enabled
+        if (speechAvailable && !isSpeaking && response) {
+          const autoSpeak = localStorage.getItem('auto-speak-responses');
+          if (autoSpeak === 'true') {
+            handleSpeak(aiMessage.id, response);
+          }
+        }
       }
 
       // Trigger intelligent analysis and track performance - earlier triggering
@@ -1313,6 +1459,26 @@ const FuturisticAIChat: React.FC = () => {
                   <p>Share or export conversation</p>
                 </TooltipContent>
               </Tooltip>
+              {/* Mic status indicator and Speech Settings */}
+              {speechAvailable && (
+                <div className="flex items-center gap-2">
+                  <MicPermissionBadge />
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <RippleButton
+                        onClick={() => setShowEditModal(true)}
+                        className="p-2 bg-slate-800/50 hover:bg-slate-700/50 rounded-lg border border-slate-700/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                        aria-label="Speech settings"
+                      >
+                        <Volume2 className="w-4 h-4" />
+                      </RippleButton>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Speech settings</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+              )}
               <Tooltip>
                 <TooltipTrigger asChild>
                   <RippleButton
@@ -1361,9 +1527,24 @@ const FuturisticAIChat: React.FC = () => {
                         <div className="flex items-center justify-between text-xs text-slate-400">
                           <span>{message.timestamp.toLocaleTimeString()}</span>
                           {message.role === 'assistant' && (
-                            <div className="flex items-center gap-1">
-                              <Cpu className="w-3 h-3" />
-                              <span>AI</span>
+                            <div className="flex items-center gap-2">
+                              {speechAvailable && message.content && (
+                                <button
+                                  onClick={() => handleSpeak(message.id, message.content)}
+                                  className="p-1 hover:bg-slate-600/50 rounded transition-colors"
+                                  title={speakingMessageId === message.id ? "Stop speaking" : "Read aloud"}
+                                >
+                                  {speakingMessageId === message.id ? (
+                                    <VolumeX className="w-3 h-3 text-blue-400" />
+                                  ) : (
+                                    <Volume2 className="w-3 h-3" />
+                                  )}
+                                </button>
+                              )}
+                              <div className="flex items-center gap-1">
+                                <Cpu className="w-3 h-3" />
+                                <span>AI</span>
+                              </div>
                             </div>
                           )}
                         </div>
@@ -1602,6 +1783,35 @@ const FuturisticAIChat: React.FC = () => {
                     disabled={isLoading}
                   />
                 </div>
+                
+                {/* Voice Input Button */}
+                {speechAvailable && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <RippleButton
+                        onClick={handleVoiceInput}
+                        className={`p-2 ${isRecording ? 'text-red-400 animate-pulse' : 'text-slate-400 hover:text-violet-400'} transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950`}
+                        aria-label={isRecording ? "Stop recording" : "Start voice input"}
+                      >
+                        {isRecording ? (
+                          <MicOff className="w-5 h-5" />
+                        ) : (
+                          <Mic className="w-5 h-5" />
+                        )}
+                      </RippleButton>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>
+                        {isRecording ? "Stop recording" : "Start voice input"}
+                        {!isHTTPS && microphonePermission !== 'granted' && (
+                          <span className="block text-xs text-yellow-400 mt-1">
+                            ⚠️ HTTPS required for continuous access
+                          </span>
+                        )}
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                )}
                 
                 <Tooltip>
                   <TooltipTrigger asChild>

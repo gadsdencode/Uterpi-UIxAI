@@ -10,10 +10,23 @@ import { User, Mail } from 'lucide-react';
 import { useAuth, type UpdateProfileData } from '../hooks/useAuth';
 import { toast } from 'sonner';
 import { EmailPreferences } from './EmailPreferences';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from './ui/alert-dialog';
+import { ExclamationTriangleIcon } from '@radix-ui/react-icons';
 
 export const UserProfile: React.FC = () => {
-  const { user, updateProfile } = useAuth();
+  const { user, updateProfile, logout } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [formData, setFormData] = useState<UpdateProfileData>({
     firstName: '',
     lastName: '',
@@ -41,6 +54,29 @@ export const UserProfile: React.FC = () => {
       ...prev,
       [field]: value
     }));
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!user) return;
+    setIsDeleting(true);
+    try {
+      const response = await fetch('/api/account', {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to delete account');
+      }
+      toast.success('Your account has been deleted. This cannot be undone.');
+      await logout();
+      window.location.href = '/';
+    } catch (error: any) {
+      console.error('Delete account error:', error);
+      toast.error(error?.message || 'Failed to delete account');
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -207,6 +243,41 @@ export const UserProfile: React.FC = () => {
                 </Button>
               </div>
             </form>
+
+            {/* Danger Zone */}
+            <div className="mt-10 border rounded-lg p-4 bg-red-50 dark:bg-red-950/20">
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="font-semibold text-red-700 dark:text-red-400 flex items-center gap-2">
+                    <ExclamationTriangleIcon className="h-4 w-4" /> Danger Zone
+                  </p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Permanently delete your account and all associated data. <strong>This cannot be undone.</strong>
+                  </p>
+                </div>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="destructive" disabled={isDeleting}>
+                      {isDeleting ? 'Deleting…' : 'Delete Account'}
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This action will immediately delete your account. Your active subscriptions will be set to cancel at the end of the current period. This cannot be undone.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={handleDeleteAccount} disabled={isDeleting}>
+                        Permanently Delete
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </div>
+            </div>
           </TabsContent>
 
           <TabsContent value="email" className="space-y-6 mt-6">

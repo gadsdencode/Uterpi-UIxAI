@@ -741,6 +741,12 @@ const FuturisticAIChat: React.FC = () => {
     userContext: { user } // Pass user context correctly
   });
 
+  // Display label for current model in header
+  const displayModelName = (() => {
+    if (currentProvider === 'lmstudio') return 'Uterpi AI';
+    return selectedLLMModel?.name || currentModel || 'Choose Model';
+  })();
+
   // Get AI service instance for intelligent toasts (prefer Uterpi, then current provider)
   const aiServiceRef = useRef<any>(null);
   useEffect(() => {
@@ -1436,9 +1442,9 @@ const FuturisticAIChat: React.FC = () => {
                   <RippleButton
                     onClick={() => setShowLLMSelector(true)}
                     className="px-3 py-2 bg-slate-800/50 hover:bg-slate-700/50 rounded-lg border border-slate-700/50 text-xs sm:text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                    aria-label={`Current model: ${selectedLLMModel?.name || currentModel || 'Choose model'} (Ctrl+M)`}
+                    aria-label={`Current model: ${displayModelName} (Ctrl+M)`}
                   >
-                    {selectedLLMModel?.name || currentModel || 'Choose Model'}
+                    {displayModelName}
                   </RippleButton>
                 </TooltipTrigger>
                 <TooltipContent>

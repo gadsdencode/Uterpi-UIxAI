@@ -53,7 +53,7 @@ export class LMStudioService {
       {
         id: "llama-3.1-8b-instruct",
         name: "Llama 3.1 8B Instruct",
-        provider: "LM Studio",
+        provider: "Uterpi AI",
         performance: 75,
         cost: 0,
         latency: 300,
@@ -72,7 +72,7 @@ export class LMStudioService {
       {
         id: "mistral-7b-instruct",
         name: "Mistral 7B Instruct",
-        provider: "LM Studio",
+        provider: "Uterpi AI",
         performance: 72,
         cost: 0,
         latency: 280,

@@ -129,8 +129,8 @@ const AIProviderSelector: React.FC<AIProviderSelectorProps> = ({
     },
     {
       id: 'lmstudio' as AIProvider,
-      name: 'LM Studio',
-      description: 'Local OpenAI-compatible server (default http://localhost:1234)',
+      name: 'Uterpi AI',
+      description: 'Uterpi AI via LM Studio provider',
       icon: <Cloud className="w-6 h-6" />,
       features: ['Runs Locally', 'OpenAI-Compatible', 'No API Key Needed'],
       color: 'purple'

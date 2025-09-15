@@ -87,8 +87,16 @@ export const useLMStudio = (options: LMStudioOptions = {}): UseLMStudioReturn =>
 
   const getAIService = useCallback(() => {
     if (!aiServiceRef.current) {
-      const apiKey = options.apiKey || localStorage.getItem(API_KEY_KEY) || 'lm-studio';
-      const baseUrl = options.baseUrl || localStorage.getItem(BASE_URL_KEY) || undefined;
+      const apiKey =
+        options.apiKey ||
+        localStorage.getItem(API_KEY_KEY) ||
+        (import.meta as any).env?.VITE_LMSTUDIO_API_KEY ||
+        'lm-studio';
+      const baseUrl =
+        options.baseUrl ||
+        localStorage.getItem(BASE_URL_KEY) ||
+        (import.meta as any).env?.VITE_LMSTUDIO_BASE_URL ||
+        undefined;
       const config = {
         apiKey,
         modelName: selectedLLMModel?.id || LMStudioService.getAvailableModels()[0].id,

@@ -294,6 +294,64 @@ const upload = multer({
 });
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // LM Studio proxy (OpenAI-compatible)
+  app.post("/lmstudio/v1/chat/completions", async (req, res) => {
+    try {
+      const lmBase = process.env.LMSTUDIO_BASE_URL || "http://localhost:1234";
+      const targetUrl = `${lmBase.replace(/\/$/, "")}/v1/chat/completions`;
+      const incomingAuth = req.get("authorization");
+      const proxyAuth = incomingAuth || (process.env.LMSTUDIO_API_KEY ? `Bearer ${process.env.LMSTUDIO_API_KEY}` : "Bearer lm-studio");
+
+      const response = await fetch(targetUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": proxyAuth,
+        } as any,
+        body: JSON.stringify(req.body),
+      });
+
+      const contentType = response.headers.get("content-type") || "";
+      const isEventStream = contentType.includes("text/event-stream");
+
+      if (isEventStream) {
+        res.setHeader("Content-Type", "text/event-stream");
+        res.setHeader("Cache-Control", "no-cache");
+        res.setHeader("Connection", "keep-alive");
+
+        const reader = (response as any).body?.getReader?.();
+        if (!reader) {
+          res.status(502).end("Upstream stream missing");
+          return;
+        }
+
+        const decoder = new TextDecoder();
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            const chunk = decoder.decode(value, { stream: true });
+            res.write(chunk);
+          }
+        } finally {
+          res.end();
+        }
+        return;
+      }
+
+      // Non-streaming: forward status and body
+      const text = await response.text();
+      res.status(response.status);
+      if (contentType.includes("application/json")) {
+        res.type("application/json").send(text);
+      } else {
+        res.send(text);
+      }
+    } catch (err: any) {
+      console.error("LM Studio proxy error:", err);
+      res.status(502).json({ error: "LM Studio proxy failed", message: err?.message || String(err) });
+    }
+  });
   
   // =============================================================================
   // AUTHENTICATION ROUTES

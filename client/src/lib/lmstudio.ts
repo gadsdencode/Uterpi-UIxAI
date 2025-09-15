@@ -9,7 +9,8 @@ export class LMStudioService {
     // Ensure baseUrl is set to LM Studio default if not provided
     this.config = {
       ...config,
-      baseUrl: config.baseUrl || "http://localhost:1234"
+      // Default to backend proxy to avoid CORS/mixed-content issues
+      baseUrl: config.baseUrl || "/lmstudio"
     };
   }
 
@@ -140,7 +141,7 @@ export class LMStudioService {
       requestBody.stop = options.stop;
     }
 
-    const response = await fetch(`${this.config.baseUrl || "http://localhost:1234"}/v1/chat/completions`, {
+    const response = await fetch(`${this.config.baseUrl || "/lmstudio"}/v1/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -192,7 +193,7 @@ export class LMStudioService {
       requestBody.stop = options.stop;
     }
 
-    const response = await fetch(`${this.config.baseUrl || "http://localhost:1234"}/v1/chat/completions`, {
+    const response = await fetch(`${this.config.baseUrl || "/lmstudio"}/v1/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -243,7 +244,8 @@ export class LMStudioService {
   static createFromEnv(): OpenAIConfig {
     const apiKey = import.meta.env.VITE_LMSTUDIO_API_KEY || "lm-studio";
     const modelName = import.meta.env.VITE_LMSTUDIO_MODEL_NAME || "llama-3.1-8b-instruct";
-    const baseUrl = import.meta.env.VITE_LMSTUDIO_BASE_URL || "http://localhost:1234";
+    // Default to backend proxy path
+    const baseUrl = import.meta.env.VITE_LMSTUDIO_BASE_URL || "/lmstudio";
     return { apiKey, modelName, baseUrl };
   }
 

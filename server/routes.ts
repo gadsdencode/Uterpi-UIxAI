@@ -325,6 +325,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const incomingAuth = req.get("authorization");
       const proxyAuth = incomingAuth || (process.env.LMSTUDIO_API_KEY ? `Bearer ${process.env.LMSTUDIO_API_KEY}` : "Bearer lm-studio");
 
+      console.log(`[LMStudio Proxy] POST -> ${targetUrl}`);
+
       const response = await fetch(targetUrl, {
         method: "POST",
         headers: {
@@ -364,6 +366,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Non-streaming: forward status and body
       const text = await response.text();
+      console.log(`[LMStudio Proxy] Response ${response.status} ${contentType}`);
       res.status(response.status);
       if (contentType.includes("application/json")) {
         res.type("application/json").send(text);
@@ -371,7 +374,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.send(text);
       }
     } catch (err: any) {
-      console.error("LM Studio proxy error:", err);
+      console.error("LM Studio proxy error:", err?.stack || err);
+      res.status(502).json({ error: "LM Studio proxy failed", message: err?.message || String(err) });
+    }
+  });
+
+  // Simple passthrough to check upstream reachability and list models
+  app.get("/lmstudio/v1/models", async (_req, res) => {
+    try {
+      const sanitizeBaseUrl = (raw: string): string => {
+        let base = (raw || "").trim();
+        base = base.replace(/:(\d+):(\d+)/, ":$1");
+        base = base.replace(/\/$/, "");
+        base = base.replace(/\/(v1|openai|api)(\/.*)?$/i, "");
+        if (!/^https?:\/\//i.test(base)) base = `http://${base}`;
+        // eslint-disable-next-line no-new
+        new URL(base);
+        return base;
+      };
+      const lmBaseRaw = process.env.LMSTUDIO_BASE_URL || "http://localhost:1234";
+      const lmBase = sanitizeBaseUrl(lmBaseRaw);
+      const targetUrl = `${lmBase}/v1/models`;
+      console.log(`[LMStudio Proxy] GET -> ${targetUrl}`);
+      const response = await fetch(targetUrl, { headers: { "Content-Type": "application/json" } as any });
+      const text = await response.text();
+      res.status(response.status).type(response.headers.get("content-type") || "application/json").send(text);
+    } catch (err: any) {
+      console.error("LM Studio models proxy error:", err?.stack || err);
       res.status(502).json({ error: "LM Studio proxy failed", message: err?.message || String(err) });
     }
   });

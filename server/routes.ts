@@ -297,7 +297,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // LM Studio proxy (OpenAI-compatible)
   app.post("/lmstudio/v1/chat/completions", async (req, res) => {
     try {
-      const lmBase = process.env.LMSTUDIO_BASE_URL || "http://localhost:1234";
+      const lmBase = process.env.LMSTUDIO_BASE_URL || "http://192.168.86.30:1234:1234";
       const targetUrl = `${lmBase.replace(/\/$/, "")}/v1/chat/completions`;
       const incomingAuth = req.get("authorization");
       const proxyAuth = incomingAuth || (process.env.LMSTUDIO_API_KEY ? `Bearer ${process.env.LMSTUDIO_API_KEY}` : "Bearer lm-studio");

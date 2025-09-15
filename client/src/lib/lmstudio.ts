@@ -1,7 +1,7 @@
 import { OpenAIMessage, OpenAIConfig, AzureAIMessage, ChatCompletionOptions, LLMModel } from "../types";
 import { getModelConfiguration, validateModelParameters } from "./modelConfigurations";
 
-// LM Studio uses an OpenAI-compatible API hosted locally (default http://localhost:1234)
+// LM Studio uses an OpenAI-compatible API (proxied via /lmstudio by default)
 export class LMStudioService {
   private config: OpenAIConfig;
 
@@ -48,45 +48,20 @@ export class LMStudioService {
   }
 
   static getAvailableModels(): LLMModel[] {
-    // Generic local models often used with LM Studio
+    // Only the Uterpi AI model is exposed via LM Studio in this app
     return [
       {
-        id: "llama-3.1-8b-instruct",
-        name: "Llama 3.1 8B Instruct",
+        id: "uterpi-ai",
+        name: "Uterpi AI",
         provider: "Uterpi AI",
-        performance: 75,
+        performance: 99,
         cost: 0,
-        latency: 300,
+        latency: 250,
         contextLength: 128000,
-        description: "Local Llama model via LM Studio (OpenAI-compatible)",
+        description: "Uterpi AI served through LM Studio (OpenAI-compatible)",
         category: "text",
         tier: "free",
-        isFavorite: true,
-        capabilities: {
-          supportsVision: false,
-          supportsCodeGeneration: true,
-          supportsAnalysis: true,
-          supportsImageGeneration: false
-        }
-      },
-      {
-        id: "mistral-7b-instruct",
-        name: "Mistral 7B Instruct",
-        provider: "Uterpi AI",
-        performance: 72,
-        cost: 0,
-        latency: 280,
-        contextLength: 32000,
-        description: "Local Mistral model via LM Studio",
-        category: "text",
-        tier: "free",
-        isFavorite: false,
-        capabilities: {
-          supportsVision: false,
-          supportsCodeGeneration: true,
-          supportsAnalysis: true,
-          supportsImageGeneration: false
-        }
+        isFavorite: true
       }
     ];
   }
@@ -243,7 +218,7 @@ export class LMStudioService {
 
   static createFromEnv(): OpenAIConfig {
     const apiKey = import.meta.env.VITE_LMSTUDIO_API_KEY || "lm-studio";
-    const modelName = import.meta.env.VITE_LMSTUDIO_MODEL_NAME || "llama-3.1-8b-instruct";
+    const modelName = import.meta.env.VITE_LMSTUDIO_MODEL_NAME || "uterpi-ai";
     // Default to backend proxy path
     const baseUrl = import.meta.env.VITE_LMSTUDIO_BASE_URL || "/lmstudio";
     return { apiKey, modelName, baseUrl };

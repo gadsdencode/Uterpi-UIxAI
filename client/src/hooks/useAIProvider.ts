@@ -46,18 +46,9 @@ interface UseAIProviderReturn {
 
 const CURRENT_PROVIDER_KEY = 'current-ai-provider';
 
-// Prefer Uterpi if configured, then user-configured Hugging Face, else Azure
+// Default provider selection: always use LM Studio when no prior choice is saved
 function determineDefaultProvider(): AIProvider {
-  try {
-    const uterpiToken = (import.meta as any).env?.VITE_UTERPI_API_TOKEN;
-    const uterpiUrl = (import.meta as any).env?.VITE_UTERPI_ENDPOINT_URL;
-    if (uterpiToken && uterpiUrl) return 'uterpi';
-
-    const hfToken = localStorage.getItem('hf-api-token');
-    const hfUrl = localStorage.getItem('hf-endpoint-url');
-    if (hfToken && hfUrl) return 'huggingface';
-  } catch {}
-  // Default to LM Studio provider
+  // Always default to LM Studio regardless of other configured providers
   return 'lmstudio';
 }
 

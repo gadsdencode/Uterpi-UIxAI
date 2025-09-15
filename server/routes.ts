@@ -297,8 +297,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // LM Studio proxy (OpenAI-compatible)
   app.post("/lmstudio/v1/chat/completions", async (req, res) => {
     try {
-      const lmBase = process.env.LMSTUDIO_BASE_URL || "http://192.168.86.30:1234:1234";
-      const targetUrl = `${lmBase.replace(/\/$/, "")}/v1/chat/completions`;
+      const sanitizeBaseUrl = (raw: string): string => {
+        let base = (raw || "").trim();
+        // Fix accidental duplicate port patterns like :1234:1234
+        base = base.replace(/:(\d+):(\d+)/, ":$1");
+        // Remove any trailing slash
+        base = base.replace(/\/$/, "");
+        // Strip accidental API path suffixes
+        base = base.replace(/\/(v1|openai|api)(\/.*)?$/i, "");
+        // Ensure protocol
+        if (!/^https?:\/\//i.test(base)) {
+          base = `http://${base}`;
+        }
+        // Validate URL
+        try {
+          // eslint-disable-next-line no-new
+          new URL(base);
+        } catch {
+          throw new Error(`Invalid LMSTUDIO_BASE_URL provided: ${raw}`);
+        }
+        return base;
+      };
+
+      const lmBaseRaw = process.env.LMSTUDIO_BASE_URL || "http://localhost:1234";
+      const lmBase = sanitizeBaseUrl(lmBaseRaw);
+      const targetUrl = `${lmBase}/v1/chat/completions`;
       const incomingAuth = req.get("authorization");
       const proxyAuth = incomingAuth || (process.env.LMSTUDIO_API_KEY ? `Bearer ${process.env.LMSTUDIO_API_KEY}` : "Bearer lm-studio");
 

@@ -34,14 +34,13 @@ import { SYSTEM_MESSAGE_PRESETS } from "../hooks/useAzureAI";
 import { useIntelligentToast } from "../hooks/useIntelligentToast";
 import { useSpeech } from "../hooks/useSpeech";
 import { AzureAIService } from "../lib/azureAI";
-import LLMModalSelector from './LLMModelSelector';
 import { SystemMessageSelector } from './SystemMessageSelector';
 import CloneUIModal from './CloneUIModal';
 import CreatePageModal from './CreatePageModal';
 import ImproveModal from './ImproveModal';
 import AnalyzeModal from './AnalyzeModal';
-import ProviderSettingsPage from './ProviderSettingsPage';
 import { FileManager } from './FileManager';
+import { AIProviderQuickSelector } from './AIProviderQuickSelector';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import { toast } from "sonner";
 import { useAuth } from '../hooks/useAuth';
@@ -631,7 +630,6 @@ const FuturisticAIChat: React.FC = () => {
   const [activeMessage, setActiveMessage] = useState<string | null>(null);
   const [showShareModal, setShowShareModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
-  const [showLLMSelector, setShowLLMSelector] = useState(false);
   const [enableStreaming, setEnableStreaming] = useState(true);
   const [streamingResponse, setStreamingResponse] = useState("");
   const [showSystemMessageModal, setShowSystemMessageModal] = useState(false);
@@ -644,28 +642,11 @@ const FuturisticAIChat: React.FC = () => {
   const [showImproveModal, setShowImproveModal] = useState(false);
   const [showAnalyzeModal, setShowAnalyzeModal] = useState(false);
   const [showFileManager, setShowFileManager] = useState(false);
-  const [showProviderSettings, setShowProviderSettings] = useState(false);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Handle escape key to close provider settings
-  useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && showProviderSettings) {
-        setShowProviderSettings(false);
-      }
-    };
-
-    if (showProviderSettings) {
-      document.addEventListener('keydown', handleEscape);
-    }
-
-    return () => {
-      document.removeEventListener('keydown', handleEscape);
-    };
-  }, [showProviderSettings]);
 
   // Keyboard shortcuts: New Chat (Ctrl/Cmd+N) and Open Model Selector (Ctrl/Cmd+M)
   useEffect(() => {
@@ -686,10 +667,11 @@ const FuturisticAIChat: React.FC = () => {
         toast.success("Started new conversation!");
       }
 
-      if (e.key.toLowerCase() === 'm') {
-        e.preventDefault();
-        setShowLLMSelector(true);
-      }
+      // Model selector moved to quick dropdown
+      // if (e.key.toLowerCase() === 'm') {
+      //   e.preventDefault();
+      //   // Now handled by AIProviderQuickSelector
+      // }
     };
 
     window.addEventListener('keydown', handleGlobalKeydown);
@@ -1319,32 +1301,6 @@ const FuturisticAIChat: React.FC = () => {
 
 
 
-  const handleModelSelection = (model: LLMModel) => {
-    updateModel(model);
-    setShowLLMSelector(false);
-    
-    // Track model switching
-    trackAction('model_switch');
-    
-    // Show optimization tip for model switching - only for significant switches
-    if (messages.length > 8) {
-      const isSignificantUpgrade = (
-        (model.id === 'gpt-4o' || model.id === 'gpt-4-turbo') &&
-        model.performance > 90
-      );
-      
-      if (isSignificantUpgrade) {
-        setTimeout(() => {
-          showOptimizationTip(
-            `${model.name} will provide more detailed and accurate responses for complex tasks`,
-            () => {
-              toast.success("Model upgrade applied!");
-            }
-          );
-        }, 3000);
-      }
-    }
-  };
 
   // Update welcome message when user profile changes
   useEffect(() => {
@@ -1437,20 +1393,6 @@ const FuturisticAIChat: React.FC = () => {
               </Tooltip>
 
               {/* Current Model */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <RippleButton
-                    onClick={() => setShowLLMSelector(true)}
-                    className="px-3 py-2 bg-slate-800/50 hover:bg-slate-700/50 rounded-lg border border-slate-700/50 text-xs sm:text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-                    aria-label={`Current model: ${displayModelName} (Ctrl+M)`}
-                  >
-                    {displayModelName}
-                  </RippleButton>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Change model (Ctrl/Cmd + M)</p>
-                </TooltipContent>
-              </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <RippleButton
@@ -1731,7 +1673,11 @@ const FuturisticAIChat: React.FC = () => {
             {/* Input */}
             <div className="relative">
               <div className="flex items-end gap-4 p-4 bg-slate-900/50 backdrop-blur-xl rounded-2xl border border-slate-700/50">
-                <div className="flex gap-2">
+                <div className="flex gap-2 items-center">
+                  {/* Quick Provider & Model Selector */}
+                  <AIProviderQuickSelector />
+                  <div className="w-px h-8 bg-slate-700" /> {/* Divider */}
+                  
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <RippleButton
@@ -1958,45 +1904,9 @@ const FuturisticAIChat: React.FC = () => {
             <label className="block text-sm font-medium text-slate-300 mb-2">
               Model Selection
             </label>
-            <div className="p-3 bg-slate-800 rounded-lg space-y-3">
-              <div>
-                <p className="text-sm text-slate-300">
-                  Current Model: {selectedLLMModel ? selectedLLMModel.name : (currentModel || "Ministral-3B")}
-                </p>
-                {selectedLLMModel && (
-                  <p className="text-xs text-slate-400 mt-1">
-                    {selectedLLMModel.provider} • {selectedLLMModel.category} • {selectedLLMModel.tier}
-                  </p>
-                )}
-              </div>
-              <div className="flex gap-2">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <RippleButton
-                      onClick={() => setShowLLMSelector(true)}
-                      className="flex-1 px-4 py-2 bg-violet-600 hover:bg-violet-700 rounded-lg text-white text-sm transition-colors"
-                    >
-                      Choose Model
-                    </RippleButton>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>Select a different AI model</p>
-                  </TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <RippleButton
-                      onClick={() => setShowProviderSettings(true)}
-                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-white text-sm transition-colors"
-                    >
-                      <Settings className="w-4 h-4" />
-                    </RippleButton>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>Configure AI provider settings</p>
-                  </TooltipContent>
-                </Tooltip>
-              </div>
+            <div className="p-3 bg-slate-800 rounded-lg">
+              {/* Streamlined Provider & Model Selector */}
+              <AIProviderQuickSelector />
             </div>
             <div className="mt-2">
               <p className="text-xs text-slate-400">
@@ -2102,14 +2012,6 @@ const FuturisticAIChat: React.FC = () => {
         )}
       </AnimatePresence>
 
-      {/* LLM Model Selector Modal */}
-      <LLMModalSelector
-        isOpen={showLLMSelector}
-        onClose={() => setShowLLMSelector(false)}
-        onSelect={handleModelSelection}
-        selectedModel={selectedLLMModel}
-        getAvailableModels={getAvailableModels}
-      />
 
       {/* Enhanced Feature Modals */}
       <CloneUIModal 
@@ -2179,59 +2081,6 @@ const FuturisticAIChat: React.FC = () => {
         )}
       </AnimatePresence>
 
-      {/* Provider Settings Modal */}
-      <AnimatePresence>
-        {showProviderSettings && (
-          <motion.div
-            className="fixed inset-0 z-50 flex items-center justify-center"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-          >
-            {/* Backdrop */}
-            <motion.div
-              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-              onClick={() => setShowProviderSettings(false)}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-            />
-
-            {/* Modal */}
-            <motion.div
-              className="relative w-full max-w-6xl max-h-[90vh] mx-4 bg-slate-900/95 backdrop-blur-xl rounded-2xl border border-slate-700/50 overflow-hidden"
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              transition={{ type: "spring", duration: 0.5 }}
-            >
-              {/* Header */}
-              <div className="flex items-center justify-between p-6 border-b border-slate-700/50">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-blue-500/20 rounded-lg">
-                    <Settings className="w-6 h-6 text-blue-400" />
-                  </div>
-                  <div>
-                    <h2 className="text-xl font-semibold text-white">AI Provider Settings</h2>
-                    <p className="text-sm text-slate-400">Configure your AI providers and select models</p>
-                  </div>
-                </div>
-                <RippleButton
-                  onClick={() => setShowProviderSettings(false)}
-                  className="p-2 hover:bg-slate-700/50 rounded-lg transition-colors"
-                >
-                  <X className="w-5 h-5 text-slate-400" />
-                </RippleButton>
-              </div>
-
-              {/* Content */}
-              <div className="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
-                <ProviderSettingsPage onBack={() => setShowProviderSettings(false)} />
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
     </TooltipProvider>
   );

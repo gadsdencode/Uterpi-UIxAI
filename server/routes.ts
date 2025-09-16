@@ -332,6 +332,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         headers: {
           "Content-Type": "application/json",
           "Authorization": proxyAuth,
+          // Hint upstream for SSE; some tunnels need explicit accept
+          "Accept": "text/event-stream, application/json"
         } as any,
         body: JSON.stringify(req.body),
       });

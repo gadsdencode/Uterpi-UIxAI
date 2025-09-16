@@ -5,6 +5,64 @@ import { ModelConfiguration } from "../types";
  * Each model has specific parameter limits and capabilities
  */
 export const MODEL_CONFIGURATIONS: Record<string, ModelConfiguration> = {
+  // Uterpi AI via LM Studio
+  "Pragmanic0/Nomadic-ICDU-v8": {
+    id: "Pragmanic0/Nomadic-ICDU-v8",
+    name: "Uterpi AI",
+    provider: "Uterpi AI",
+    contextLength: 128000,
+    limits: {
+      maxTokens: {
+        input: 128000,
+        output: 4096
+      },
+      temperature: {
+        min: 0,
+        max: 1,
+        default: 0.7
+      },
+      topP: {
+        min: 0,
+        max: 1,
+        default: 0.9
+      },
+      frequencyPenalty: {
+        min: -2,
+        max: 2,
+        default: 0
+      },
+      presencePenalty: {
+        min: -2,
+        max: 2,
+        default: 0
+      }
+    },
+    capabilities: {
+      supportsVision: false,
+      supportsCodeGeneration: true,
+      supportsAnalysis: true,
+      supportsImageGeneration: false,
+      supportsSystemMessages: true,
+      supportsJSONMode: false,
+      supportsFunctionCalling: false,
+      supportsStreaming: true,
+      supportsStop: true,
+      supportsLogitBias: false,
+      supportsFrequencyPenalty: true,
+      supportsPresencePenalty: true
+    },
+    recommendedParams: {
+      maxTokens: 1024,
+      temperature: 0.7,
+      topP: 0.9,
+      frequencyPenalty: 0,
+      presencePenalty: 0
+    },
+    specialInstructions: [
+      "Uterpi AI served via LM Studio (OpenAI-compatible endpoint)",
+      "If streaming is unreliable through tunnels, try non-streaming mode"
+    ]
+  },
   // Hugging Face Endpoint (generic)
   "hf-endpoint": {
     id: "hf-endpoint",

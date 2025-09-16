@@ -51,7 +51,7 @@ export class LMStudioService {
     // Only the Uterpi AI model is exposed via LM Studio in this app
     return [
       {
-        id: "uterpi-ai",
+        id: "Pragmanic0/Nomadic-ICDU-v8",
         name: "Uterpi AI",
         provider: "Uterpi AI",
         performance: 99,
@@ -218,7 +218,7 @@ export class LMStudioService {
 
   static createFromEnv(): OpenAIConfig {
     const apiKey = import.meta.env.VITE_LMSTUDIO_API_KEY || "lm-studio";
-    const modelName = import.meta.env.VITE_LMSTUDIO_MODEL_NAME || "uterpi-ai";
+    const modelName = import.meta.env.VITE_LMSTUDIO_MODEL_NAME || "Pragmanic0/Nomadic-ICDU-v8";
     // Default to backend proxy path
     const baseUrl = import.meta.env.VITE_LMSTUDIO_BASE_URL || "/lmstudio";
     return { apiKey, modelName, baseUrl };

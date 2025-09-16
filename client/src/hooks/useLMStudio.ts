@@ -167,7 +167,15 @@ export const useLMStudio = (options: LMStudioOptions = {}): UseLMStudioReturn =>
     try {
       const aiService = getAIService();
       const azureMessages = convertToAzureAIMessages(messages);
-      await aiService.sendStreamingChatCompletion(azureMessages, onChunk, options.chatOptions);
+      try {
+        await aiService.sendStreamingChatCompletion(azureMessages, onChunk, options.chatOptions);
+      } catch (streamErr) {
+        // Fallback to non-streaming if streaming fails (e.g., tunnel issues)
+        const response = await aiService.sendChatCompletion(azureMessages, options.chatOptions);
+        if (response) {
+          onChunk(response);
+        }
+      }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Failed to send streaming message";
       setError(errorMessage);

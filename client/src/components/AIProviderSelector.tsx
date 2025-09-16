@@ -2,12 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
 import { Settings, Cloud, Key, CheckCircle, AlertCircle } from 'lucide-react';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
-import OpenAISettingsModal from './OpenAISettingsModal';
-import GeminiSettingsModal from './GeminiSettingsModal';
-import HuggingFaceSettingsModal from './HuggingFaceSettingsModal';
+import { OpenAIService } from '../lib/openAI';
+import { GeminiService } from '../lib/gemini';
+import { HuggingFaceService } from '../lib/huggingface';
+import { LMStudioService } from '../lib/lmstudio';
 
 export type AIProvider = 'azure' | 'openai' | 'gemini' | 'huggingface' | 'uterpi' | 'lmstudio';
 
@@ -21,15 +22,14 @@ interface ProviderStatus {
   hasApiKey?: boolean;
   hasEndpoint?: boolean; // for Hugging Face
   error?: string;
+  connection?: 'unknown' | 'ok' | 'fail';
+  connectionMessage?: string;
 }
 
 const AIProviderSelector: React.FC<AIProviderSelectorProps> = ({
   currentProvider,
   onProviderChange
 }) => {
-  const [showOpenAISettings, setShowOpenAISettings] = useState(false);
-  const [showGeminiSettings, setShowGeminiSettings] = useState(false);
-  const [showHFSettings, setShowHFSettings] = useState(false);
   
   // Provider status tracking
   const [providerStatus, setProviderStatus] = useState<Record<AIProvider, ProviderStatus>>({
@@ -41,72 +41,115 @@ const AIProviderSelector: React.FC<AIProviderSelectorProps> = ({
     lmstudio: { configured: true }
   });
 
-  // Check provider configurations on mount
+  // Inline config inputs
+  const [openaiKey, setOpenaiKey] = useState('');
+  const [geminiKey, setGeminiKey] = useState('');
+  const [hfToken, setHfToken] = useState('');
+  const [hfUrl, setHfUrl] = useState('');
+  const [lmstudioUrl, setLmstudioUrl] = useState('');
+  const [lmstudioApiKey, setLmstudioApiKey] = useState('');
+
+  // Load stored values and compute status on mount
   useEffect(() => {
-    const checkProviderStatus = () => {
-      const openaiKey = localStorage.getItem('openai-api-key');
-      const geminiKey = localStorage.getItem('gemini-api-key');
-      const hfToken = localStorage.getItem('hf-api-token');
-      const hfUrl = localStorage.getItem('hf-endpoint-url');
-      const lmstudioUrl = localStorage.getItem('lmstudio-base-url');
-      
+    const savedOpenaiKey = localStorage.getItem('openai-api-key') || '';
+    const savedGeminiKey = localStorage.getItem('gemini-api-key') || '';
+    const savedHfToken = localStorage.getItem('hf-api-token') || '';
+    const savedHfUrl = localStorage.getItem('hf-endpoint-url') || '';
+    const savedLmstudioUrl = localStorage.getItem('lmstudio-base-url') || '';
+    const savedLmstudioApiKey = localStorage.getItem('lmstudio-api-key') || '';
+
+    setOpenaiKey(savedOpenaiKey);
+    setGeminiKey(savedGeminiKey);
+    setHfToken(savedHfToken);
+    setHfUrl(savedHfUrl);
+    setLmstudioUrl(savedLmstudioUrl);
+    setLmstudioApiKey(savedLmstudioApiKey);
+
+    const updateStatus = () => {
+      const uterpiConfigured = !!(import.meta as any).env?.VITE_UTERPI_API_TOKEN && !!(import.meta as any).env?.VITE_UTERPI_ENDPOINT_URL;
       setProviderStatus({
-        azure: { configured: true }, // Azure is always ready
-        openai: { configured: !!openaiKey, hasApiKey: !!openaiKey },
-        gemini: { configured: !!geminiKey, hasApiKey: !!geminiKey },
-        huggingface: { configured: !!hfToken && !!hfUrl, hasApiKey: !!hfToken, hasEndpoint: !!hfUrl },
-        uterpi: { configured: !!(import.meta as any).env?.VITE_UTERPI_API_TOKEN && !!(import.meta as any).env?.VITE_UTERPI_ENDPOINT_URL },
-        lmstudio: { configured: true, hasEndpoint: !!lmstudioUrl }
+        azure: { configured: true, connection: 'unknown' },
+        openai: { configured: !!savedOpenaiKey, hasApiKey: !!savedOpenaiKey, connection: 'unknown' },
+        gemini: { configured: !!savedGeminiKey, hasApiKey: !!savedGeminiKey, connection: 'unknown' },
+        huggingface: { configured: !!savedHfToken && !!savedHfUrl, hasApiKey: !!savedHfToken, hasEndpoint: !!savedHfUrl, connection: 'unknown' },
+        uterpi: { configured: uterpiConfigured, connection: 'unknown' },
+        lmstudio: { configured: true, hasEndpoint: !!savedLmstudioUrl, connection: 'unknown' }
       });
     };
+    updateStatus();
 
-    checkProviderStatus();
-    
-    // Listen for storage changes to update status
-    const handleStorageChange = () => checkProviderStatus();
+    const handleStorageChange = () => updateStatus();
     window.addEventListener('storage', handleStorageChange);
-    
     return () => window.removeEventListener('storage', handleStorageChange);
-  }, [showOpenAISettings, showGeminiSettings, showHFSettings]);
+  }, []);
 
   const handleProviderSelect = (provider: AIProvider) => {
-    const status = providerStatus[provider];
-    
-    if (provider === 'azure') {
-      // Azure is always ready
-      onProviderChange(provider);
-    } else if (status.configured) {
-      // Provider has API key configured
-      onProviderChange(provider);
-    } else {
-      // Provider needs configuration
-      if (provider === 'openai') {
-        setShowOpenAISettings(true);
-      } else if (provider === 'gemini') {
-        setShowGeminiSettings(true);
-      } else if (provider === 'huggingface') {
-        setShowHFSettings(true);
-      } else if (provider === 'uterpi') {
-        // No settings modal; credentials provided by app creator
-        onProviderChange(provider);
-      } else if (provider === 'lmstudio') {
-        // LM Studio generally works out of the box on localhost
-        onProviderChange(provider);
-      }
-    }
+    onProviderChange(provider);
   };
 
-  const handleSettingsComplete = (provider: AIProvider) => {
-    // Switch to the provider after settings are configured
-    onProviderChange(provider);
-    if (provider === 'openai') {
-      setShowOpenAISettings(false);
-    } else if (provider === 'gemini') {
-      setShowGeminiSettings(false);
-    } else if (provider === 'huggingface') {
-      setShowHFSettings(false);
-    }
+  // Persist helper
+  const persist = (key: string, value: string) => {
+    if (value) localStorage.setItem(key, value);
+    else localStorage.removeItem(key);
   };
+
+  // Debounced connection test
+  const [pendingTestProvider, setPendingTestProvider] = useState<AIProvider | null>(null);
+  useEffect(() => {
+    const timer = setTimeout(async () => {
+      if (!pendingTestProvider) return;
+      const p = pendingTestProvider;
+      setPendingTestProvider(null);
+      try {
+        if (p === 'openai' && openaiKey) {
+          setProviderStatus(prev => ({ ...prev, openai: { ...prev.openai, connection: 'unknown', connectionMessage: 'Testing…' } }));
+          const svc = new OpenAIService({ apiKey: openaiKey.trim(), modelName: 'gpt-4o-mini' });
+          await svc.sendChatCompletion([
+            { role: 'system', content: 'Connectivity test' },
+            { role: 'user', content: 'ping' }
+          ], { maxTokens: 5 });
+          setProviderStatus(prev => ({ ...prev, openai: { ...prev.openai, connection: 'ok', connectionMessage: 'Connected' } }));
+        }
+        if (p === 'gemini' && geminiKey) {
+          setProviderStatus(prev => ({ ...prev, gemini: { ...prev.gemini, connection: 'unknown', connectionMessage: 'Testing…' } }));
+          const svc = new GeminiService({ apiKey: geminiKey.trim(), modelName: 'gemini-2.5-flash' });
+          await svc.sendChatCompletion([
+            { role: 'system', content: 'Connectivity test' },
+            { role: 'user', content: 'ping' }
+          ], { maxTokens: 5 });
+          setProviderStatus(prev => ({ ...prev, gemini: { ...prev.gemini, connection: 'ok', connectionMessage: 'Connected' } }));
+        }
+        if (p === 'huggingface' && hfToken && hfUrl) {
+          setProviderStatus(prev => ({ ...prev, huggingface: { ...prev.huggingface, connection: 'unknown', connectionMessage: 'Testing…' } }));
+          const svc = new HuggingFaceService({ endpointUrl: hfUrl.trim(), apiToken: hfToken.trim(), modelName: 'hf-endpoint' });
+          await svc.sendChatCompletion([
+            { role: 'system', content: 'Connectivity test' },
+            { role: 'user', content: 'ping' }
+          ], { maxTokens: 5 });
+          setProviderStatus(prev => ({ ...prev, huggingface: { ...prev.huggingface, connection: 'ok', connectionMessage: 'Connected' } }));
+        }
+        if (p === 'lmstudio') {
+          setProviderStatus(prev => ({ ...prev, lmstudio: { ...prev.lmstudio, connection: 'unknown', connectionMessage: 'Testing…' } }));
+          const cfg = LMStudioService.createWithModel(LMStudioService.getAvailableModels()[0].id);
+          const baseUrl = (lmstudioUrl || cfg.baseUrl) as string | undefined;
+          const apiKey = (lmstudioApiKey || cfg.apiKey) as string;
+          const svc = new LMStudioService({ ...cfg, baseUrl, apiKey });
+          await svc.sendChatCompletion([
+            { role: 'system', content: 'Connectivity test' },
+            { role: 'user', content: 'ping' }
+          ], { maxTokens: 5 });
+          setProviderStatus(prev => ({ ...prev, lmstudio: { ...prev.lmstudio, connection: 'ok', connectionMessage: 'Connected' } }));
+        }
+      } catch (err: any) {
+        const msg = err?.message || 'Connection failed';
+        if (p === 'openai') setProviderStatus(prev => ({ ...prev, openai: { ...prev.openai, connection: 'fail', connectionMessage: msg } }));
+        if (p === 'gemini') setProviderStatus(prev => ({ ...prev, gemini: { ...prev.gemini, connection: 'fail', connectionMessage: msg } }));
+        if (p === 'huggingface') setProviderStatus(prev => ({ ...prev, huggingface: { ...prev.huggingface, connection: 'fail', connectionMessage: msg } }));
+        if (p === 'lmstudio') setProviderStatus(prev => ({ ...prev, lmstudio: { ...prev.lmstudio, connection: 'fail', connectionMessage: msg } }));
+      }
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [pendingTestProvider, openaiKey, geminiKey, hfToken, hfUrl, lmstudioUrl, lmstudioApiKey]);
 
   const StatusBadge: React.FC<{ status: ProviderStatus; isActive: boolean }> = ({ status, isActive }) => {
     if (isActive) {
@@ -116,6 +159,14 @@ const AIProviderSelector: React.FC<AIProviderSelectorProps> = ({
       return <Badge variant="secondary"><CheckCircle className="w-3 h-3 mr-1" />Ready</Badge>;
     }
     return <Badge variant="outline"><AlertCircle className="w-3 h-3 mr-1" />Setup Required</Badge>;
+  };
+
+  const ConnectionNote: React.FC<{ status?: ProviderStatus }> = ({ status }) => {
+    if (!status) return null;
+    if (status.connection === 'ok') return <p role="status" aria-live="polite" className="text-xs text-emerald-500">{status.connectionMessage || 'Connected'}</p>;
+    if (status.connection === 'fail') return <p role="status" aria-live="polite" className="text-xs text-red-500">{status.connectionMessage || 'Connection failed'}</p>;
+    if (status.connectionMessage) return <p role="status" aria-live="polite" className="text-xs text-slate-400">{status.connectionMessage}</p>;
+    return null;
   };
 
   const providers = [
@@ -130,7 +181,7 @@ const AIProviderSelector: React.FC<AIProviderSelectorProps> = ({
     {
       id: 'lmstudio' as AIProvider,
       name: 'Uterpi AI',
-      description: 'Uterpi AI via LM Studio provider',
+      description: 'Uterpi AI via LM Studio (Recommended)',
       icon: <Cloud className="w-6 h-6" />,
       features: ['Runs Locally', 'OpenAI-Compatible', 'No API Key Needed'],
       color: 'purple'
@@ -178,11 +229,11 @@ const AIProviderSelector: React.FC<AIProviderSelectorProps> = ({
             <CardTitle>AI Provider Selection</CardTitle>
           </div>
           <CardDescription>
-            Choose your preferred AI provider. Azure AI is ready to use; OpenAI and Gemini require API keys; Hugging Face requires both an API token and endpoint URL.
+            Choose your preferred AI provider. Uterpi via LM Studio is recommended and works out-of-the-box. OpenAI and Gemini require API keys; Hugging Face requires both an API token and endpoint URL.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div role="radiogroup" aria-label="AI providers" className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
             {providers.map((provider) => {
               const status = providerStatus[provider.id];
               const isActive = currentProvider === provider.id;
@@ -203,6 +254,15 @@ const AIProviderSelector: React.FC<AIProviderSelectorProps> = ({
                       ? 'ring-2 ring-blue-500 bg-blue-50 dark:bg-blue-950/20' 
                       : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'
                   }`}
+                  role="radio"
+                  aria-checked={isActive}
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      handleProviderSelect(provider.id);
+                    }
+                  }}
                   onClick={() => handleProviderSelect(provider.id)}
                 >
                   <CardContent className="p-6">
@@ -210,12 +270,25 @@ const AIProviderSelector: React.FC<AIProviderSelectorProps> = ({
                       <div className={`p-2 rounded-lg ${colorMap[provider.color]}`}>
                         {provider.icon}
                       </div>
-                      <StatusBadge status={status} isActive={isActive} />
+                      <div className="flex items-center gap-2">
+                        {provider.id === 'lmstudio' && (
+                          <Badge className="bg-amber-500 text-white">Recommended</Badge>
+                        )}
+                        <StatusBadge status={status} isActive={isActive} />
+                      </div>
                     </div>
                     
                     <h3 className="font-semibold text-lg mb-2">{provider.name}</h3>
-                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">
                       {provider.description}
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                      {provider.id === 'azure' && 'Ready to use.'}
+                      {provider.id === 'lmstudio' && 'Ready to use. Recommended.'}
+                      {provider.id === 'uterpi' && 'Ready to use. Managed.'}
+                      {provider.id === 'openai' && 'Enter API key to start.'}
+                      {provider.id === 'gemini' && 'Enter API key to start.'}
+                      {provider.id === 'huggingface' && 'Enter endpoint URL and API token.'}
                     </p>
                     
                     <div className="space-y-2">
@@ -255,65 +328,86 @@ const AIProviderSelector: React.FC<AIProviderSelectorProps> = ({
                       )}
                     </div>
                     
-                    <div className="mt-4 flex gap-2">
-                      {provider.id === 'azure' ? (
-                        <Button 
-                          variant={isActive ? "default" : "outline"} 
-                          size="sm" 
-                          className="w-full"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleProviderSelect(provider.id);
-                          }}
-                        >
-                          {isActive ? 'Active' : 'Select'}
-                        </Button>
-                      ) : (
-                        <>
-                          <Button 
-                            variant={isActive ? "default" : "outline"} 
-                            size="sm" 
-                            className="flex-1"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleProviderSelect(provider.id);
-                            }}
-                          >
-                            {isActive ? 'Active' : status.configured ? 'Select' : 'Setup'}
-                          </Button>
-                          {!status.configured && (
-                            <Button 
-                              variant="default" 
-                              size="sm"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (provider.id === 'openai') setShowOpenAISettings(true);
-                                if (provider.id === 'gemini') setShowGeminiSettings(true);
-                                if (provider.id === 'huggingface') setShowHFSettings(true);
-                              }}
-                            >
-                              Configure
-                            </Button>
+                    <div className="mt-4" aria-label={`${provider.name} configuration`}>
+                      {isActive && (
+                        <div className="space-y-3 p-3 rounded-md bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-slate-700/60">
+                          {provider.id === 'azure' && (
+                            <p className="text-sm text-slate-500">Azure AI is pre-configured. No setup needed.</p>
                           )}
-                          {status.configured && (
-                            <Button 
-                              variant="ghost" 
-                              size="sm"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (provider.id === 'openai') {
-                                  setShowOpenAISettings(true);
-                                } else if (provider.id === 'gemini') {
-                                  setShowGeminiSettings(true);
-                                } else if (provider.id === 'huggingface') {
-                                  setShowHFSettings(true);
-                                }
-                              }}
-                            >
-                              <Settings className="w-4 h-4" />
-                            </Button>
+                          {provider.id === 'openai' && (
+                            <div className="space-y-2">
+                              <Label htmlFor="openai-key" className="text-sm">OpenAI API Key</Label>
+                              <Input id="openai-key" type="password" placeholder="sk-..." value={openaiKey} onChange={(e) => setOpenaiKey(e.target.value)} onBlur={() => {
+                                const v = openaiKey.trim();
+                                persist('openai-api-key', v);
+                                setProviderStatus(prev => ({ ...prev, openai: { ...prev.openai, configured: !!v, hasApiKey: !!v } }));
+                                setPendingTestProvider('openai');
+                              }} />
+                              <ConnectionNote status={providerStatus.openai} />
+                            </div>
                           )}
-                        </>
+                          {provider.id === 'gemini' && (
+                            <div className="space-y-2">
+                              <Label htmlFor="gemini-key" className="text-sm">Gemini API Key</Label>
+                              <Input id="gemini-key" type="password" placeholder="AI..." value={geminiKey} onChange={(e) => setGeminiKey(e.target.value)} onBlur={() => {
+                                const v = geminiKey.trim();
+                                persist('gemini-api-key', v);
+                                setProviderStatus(prev => ({ ...prev, gemini: { ...prev.gemini, configured: !!v, hasApiKey: !!v } }));
+                                setPendingTestProvider('gemini');
+                              }} />
+                              <ConnectionNote status={providerStatus.gemini} />
+                            </div>
+                          )}
+                          {provider.id === 'huggingface' && (
+                            <div className="space-y-2">
+                              <div className="space-y-2">
+                                <Label htmlFor="hf-url" className="text-sm">Endpoint URL</Label>
+                                <Input id="hf-url" type="text" placeholder="https://..." value={hfUrl} onChange={(e) => setHfUrl(e.target.value)} onBlur={() => {
+                                  const v = hfUrl.trim();
+                                  persist('hf-endpoint-url', v);
+                                  setProviderStatus(prev => ({ ...prev, huggingface: { ...prev.huggingface, hasEndpoint: !!v, configured: !!v && !!hfToken.trim() } }));
+                                  setPendingTestProvider('huggingface');
+                                }} />
+                              </div>
+                              <div className="space-y-2">
+                                <Label htmlFor="hf-token" className="text-sm">API Token</Label>
+                                <Input id="hf-token" type="password" placeholder="hf_..." value={hfToken} onChange={(e) => setHfToken(e.target.value)} onBlur={() => {
+                                  const v = hfToken.trim();
+                                  persist('hf-api-token', v);
+                                  setProviderStatus(prev => ({ ...prev, huggingface: { ...prev.huggingface, hasApiKey: !!v, configured: !!v && !!hfUrl.trim() } }));
+                                  setPendingTestProvider('huggingface');
+                                }} />
+                              </div>
+                              <ConnectionNote status={providerStatus.huggingface} />
+                            </div>
+                          )}
+                          {provider.id === 'lmstudio' && (
+                            <div className="space-y-2">
+                              <div className="space-y-2">
+                                <Label htmlFor="lmstudio-url" className="text-sm">Base URL (optional)</Label>
+                                <Input id="lmstudio-url" type="text" placeholder="/lmstudio or https://lmstudio.uterpi.com" value={lmstudioUrl} onChange={(e) => setLmstudioUrl(e.target.value)} onBlur={() => {
+                                  const v = lmstudioUrl.trim();
+                                  persist('lmstudio-base-url', v);
+                                  setProviderStatus(prev => ({ ...prev, lmstudio: { ...prev.lmstudio, hasEndpoint: !!v } }));
+                                  setPendingTestProvider('lmstudio');
+                                }} />
+                              </div>
+                              <div className="space-y-2">
+                                <Label htmlFor="lmstudio-key" className="text-sm">API Key (optional)</Label>
+                                <Input id="lmstudio-key" type="password" placeholder="lm-studio" value={lmstudioApiKey} onChange={(e) => setLmstudioApiKey(e.target.value)} onBlur={() => {
+                                  const v = lmstudioApiKey.trim();
+                                  persist('lmstudio-api-key', v);
+                                  setPendingTestProvider('lmstudio');
+                                }} />
+                              </div>
+                              <ConnectionNote status={providerStatus.lmstudio} />
+                              <p className="text-xs text-slate-500">Uterpi AI runs locally via LM Studio. This is the default and recommended setup.</p>
+                            </div>
+                          )}
+                          {provider.id === 'uterpi' && (
+                            <p className="text-sm text-slate-500">Managed Uterpi endpoint. Credentials are provided by the app environment.</p>
+                          )}
+                        </div>
                       )}
                     </div>
                   </CardContent>
@@ -326,34 +420,13 @@ const AIProviderSelector: React.FC<AIProviderSelectorProps> = ({
             <h4 className="font-medium mb-2">Current Selection</h4>
             <p className="text-sm text-gray-600 dark:text-gray-400">
               You are currently using <strong>{providers.find(p => p.id === currentProvider)?.name}</strong>. 
-              {currentProvider === 'azure' 
-                ? ' Azure AI is pre-configured and ready to use.' 
-                : ' Make sure your API key is properly configured.'}
+              {currentProvider === 'lmstudio' 
+                ? ' Uterpi via LM Studio is recommended and ready to use.' 
+                : currentProvider === 'azure' ? ' Azure AI is pre-configured and ready to use.' : ' If required, configure credentials above.'}
             </p>
           </div>
         </CardContent>
       </Card>
-
-      {/* OpenAI Settings Modal */}
-      <OpenAISettingsModal
-        open={showOpenAISettings}
-        onOpenChange={setShowOpenAISettings}
-        onComplete={() => handleSettingsComplete('openai')}
-      />
-
-      {/* Gemini Settings Modal */}
-      <GeminiSettingsModal
-        open={showGeminiSettings}
-        onOpenChange={setShowGeminiSettings}
-        onComplete={() => handleSettingsComplete('gemini')}
-      />
-
-      {/* Hugging Face Settings Modal */}
-      <HuggingFaceSettingsModal
-        open={showHFSettings}
-        onOpenChange={setShowHFSettings}
-        onComplete={() => handleSettingsComplete('huggingface')}
-      />
     </>
   );
 };

@@ -319,7 +319,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return base;
       };
 
-      const lmBaseRaw = process.env.LMSTUDIO_BASE_URL || "http://localhost:1234";
+      const lmBaseRaw = process.env.LMSTUDIO_BASE_URL || "https://lmstudio.uterpi.com";
       const lmBase = sanitizeBaseUrl(lmBaseRaw);
       const targetUrl = `${lmBase}/v1/chat/completions`;
       const incomingAuth = req.get("authorization");

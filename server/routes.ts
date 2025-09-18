@@ -320,14 +320,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
 
       // Try multiple sources for LM Studio URL configuration
+      // In production (Replit), use the Cloudflare tunnel URL
+      // In development, use local IP or configured URL
+      const isProduction = process.env.NODE_ENV === 'production' || process.env.REPL_SLUG;
+      const defaultUrl = isProduction 
+        ? "https://lmstudio.uterpi.com"  // Cloudflare tunnel URL for production
+        : "http://192.168.86.44:1234";   // Local IP for development
+      
       const lmBaseRaw = process.env.LMSTUDIO_BASE_URL || 
                          process.env.VITE_LMSTUDIO_BASE_URL ||
-                         "http://192.168.86.44:1234"; // Fallback to local IP from LM Studio screenshot
+                         defaultUrl;
       const lmBase = sanitizeBaseUrl(lmBaseRaw);
       const targetUrl = `${lmBase}/v1/chat/completions`;
       const incomingAuth = req.get("authorization");
       const proxyAuth = incomingAuth || (process.env.LMSTUDIO_API_KEY ? `Bearer ${process.env.LMSTUDIO_API_KEY}` : "Bearer lm-studio");
 
+      console.log(`[LMStudio Proxy] Environment: ${isProduction ? 'production' : 'development'}`);
       console.log(`[LMStudio Proxy] Using base URL: ${lmBase}`);
       console.log(`[LMStudio Proxy] POST -> ${targetUrl}`);
 
@@ -381,7 +389,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     } catch (err: any) {
       console.error("LM Studio proxy error:", err?.stack || err);
-      res.status(502).json({ error: "LM Studio proxy failed", message: err?.message || String(err) });
+      const isNetworkError = err?.cause?.code === "ECONNREFUSED" || err?.message?.includes("fetch failed");
+      const statusCode = isNetworkError ? 502 : 500;
+      
+      // More detailed error message for debugging
+      const isProduction = process.env.NODE_ENV === 'production' || process.env.REPL_SLUG;
+      let message = "LM Studio proxy failed";
+      let details = err?.message || String(err);
+      
+      if (isNetworkError) {
+        if (isProduction) {
+          message = "Unable to connect to LM Studio via Cloudflare tunnel";
+          details = `Attempted to connect to: ${lmBase}. Ensure lmstudio.uterpi.com is configured in Cloudflare tunnel and LM Studio is running. Error: ${err?.message}`;
+        } else {
+          message = "Unable to connect to LM Studio locally";
+          details = `Check that LM Studio is running on ${lmBase}. Error: ${err?.message}`;
+        }
+      }
+      
+      console.error(`[LMStudio Proxy] ${message}: ${details}`);
+      res.status(statusCode).json({ error: message, message: details });
     }
   });
 
@@ -399,18 +426,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return base;
       };
       // Try multiple sources for LM Studio URL configuration
+      // In production (Replit), use the Cloudflare tunnel URL
+      // In development, use local IP or configured URL
+      const isProduction = process.env.NODE_ENV === 'production' || process.env.REPL_SLUG;
+      const defaultUrl = isProduction 
+        ? "https://lmstudio.uterpi.com"  // Cloudflare tunnel URL for production
+        : "http://192.168.86.44:1234";   // Local IP for development
+      
       const lmBaseRaw = process.env.LMSTUDIO_BASE_URL || 
                          process.env.VITE_LMSTUDIO_BASE_URL ||
-                         "http://192.168.86.44:1234"; // Fallback to local IP from LM Studio screenshot
+                         defaultUrl;
       const lmBase = sanitizeBaseUrl(lmBaseRaw);
       const targetUrl = `${lmBase}/v1/models`;
+      console.log(`[LMStudio Proxy] Environment: ${isProduction ? 'production' : 'development'}`);
       console.log(`[LMStudio Proxy] GET -> ${targetUrl}`);
       const response = await fetch(targetUrl, { headers: { "Content-Type": "application/json" } as any });
       const text = await response.text();
       res.status(response.status).type(response.headers.get("content-type") || "application/json").send(text);
     } catch (err: any) {
       console.error("LM Studio models proxy error:", err?.stack || err);
-      res.status(502).json({ error: "LM Studio proxy failed", message: err?.message || String(err) });
+      const isNetworkError = err?.cause?.code === "ECONNREFUSED" || err?.message?.includes("fetch failed");
+      const statusCode = isNetworkError ? 502 : 500;
+      
+      // More detailed error message for debugging
+      const isProduction = process.env.NODE_ENV === 'production' || process.env.REPL_SLUG;
+      let message = "LM Studio models proxy failed";
+      let details = err?.message || String(err);
+      
+      if (isNetworkError) {
+        if (isProduction) {
+          message = "Unable to fetch models from LM Studio via Cloudflare tunnel";
+          details = `Attempted to connect to: ${lmBase}. Ensure lmstudio.uterpi.com is configured in Cloudflare tunnel and LM Studio is running. Error: ${err?.message}`;
+        } else {
+          message = "Unable to fetch models from LM Studio locally";
+          details = `Check that LM Studio is running on ${lmBase}. Error: ${err?.message}`;
+        }
+      }
+      
+      console.error(`[LMStudio Models Proxy] ${message}: ${details}`);
+      res.status(statusCode).json({ error: message, message: details });
     }
   });
   

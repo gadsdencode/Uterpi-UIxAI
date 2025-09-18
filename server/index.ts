@@ -5,7 +5,13 @@ import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import passport from "./auth";
 import dotenv from "dotenv";
-dotenv.config();
+import fs from "fs";
+
+// Load environment variables from multiple sources
+if (fs.existsSync(".env.local")) {
+  dotenv.config({ path: ".env.local" });
+}
+dotenv.config(); // Also load from .env if it exists
 
 const app = express();
 app.use(express.json());

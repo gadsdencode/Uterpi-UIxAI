@@ -107,19 +107,19 @@ export const useSpeech = (options: UseSpeechOptions = {}): UseSpeechReturn => {
       orchestratorRef.current = new SpeechOrchestrator({
         aiProvider: currentProvider,
         onResult: (result) => {
+          // Always update transcript with the latest result
+          setTranscript(result.transcript);
           if (result.isFinal) {
-            setTranscript(result.transcript);
             setInterimTranscript('');
           } else {
             setInterimTranscript(result.transcript);
-            setTranscript(result.transcript);
           }
           if (options.onRecognitionResult) {
             options.onRecognitionResult(result);
           }
         },
-        progressTimeoutMs: 5000,
-        maxRestartsPerMinute: 5
+        progressTimeoutMs: 30000, // 30 seconds timeout for natural speech pauses
+        maxRestartsPerMinute: 10
       });
       await orchestratorRef.current.initialize(options);
       

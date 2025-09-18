@@ -28,8 +28,8 @@ export class SpeechOrchestrator {
   constructor(opts: OrchestratorOptions) {
     this.aiProvider = opts.aiProvider;
     this.onResult = opts.onResult;
-    this.progressTimeoutMs = opts.progressTimeoutMs ?? 6000;
-    this.maxRestartsPerMinute = opts.maxRestartsPerMinute ?? 6;
+    this.progressTimeoutMs = opts.progressTimeoutMs ?? 30000; // Increased to 30 seconds for natural speech pauses
+    this.maxRestartsPerMinute = opts.maxRestartsPerMinute ?? 10; // Allow more restarts for continuous mode
   }
 
   async initialize(config?: any): Promise<void> {

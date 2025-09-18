@@ -319,12 +319,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return base;
       };
 
-      const lmBaseRaw = process.env.LMSTUDIO_BASE_URL || "https://lmstudio.uterpi.com";
+      // Try multiple sources for LM Studio URL configuration
+      const lmBaseRaw = process.env.LMSTUDIO_BASE_URL || 
+                         process.env.VITE_LMSTUDIO_BASE_URL ||
+                         "http://192.168.86.44:1234"; // Fallback to local IP from LM Studio screenshot
       const lmBase = sanitizeBaseUrl(lmBaseRaw);
       const targetUrl = `${lmBase}/v1/chat/completions`;
       const incomingAuth = req.get("authorization");
       const proxyAuth = incomingAuth || (process.env.LMSTUDIO_API_KEY ? `Bearer ${process.env.LMSTUDIO_API_KEY}` : "Bearer lm-studio");
 
+      console.log(`[LMStudio Proxy] Using base URL: ${lmBase}`);
       console.log(`[LMStudio Proxy] POST -> ${targetUrl}`);
 
       const response = await fetch(targetUrl, {
@@ -394,7 +398,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         new URL(base);
         return base;
       };
-      const lmBaseRaw = process.env.LMSTUDIO_BASE_URL || "http://localhost:1234";
+      // Try multiple sources for LM Studio URL configuration
+      const lmBaseRaw = process.env.LMSTUDIO_BASE_URL || 
+                         process.env.VITE_LMSTUDIO_BASE_URL ||
+                         "http://192.168.86.44:1234"; // Fallback to local IP from LM Studio screenshot
       const lmBase = sanitizeBaseUrl(lmBaseRaw);
       const targetUrl = `${lmBase}/v1/models`;
       console.log(`[LMStudio Proxy] GET -> ${targetUrl}`);

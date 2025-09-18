@@ -296,6 +296,10 @@ const upload = multer({
 export async function registerRoutes(app: Express): Promise<Server> {
   // LM Studio proxy (OpenAI-compatible)
   app.post("/lmstudio/v1/chat/completions", async (req, res) => {
+    // Declare variables outside try block so they're accessible in catch block
+    let lmBase = "";
+    const isProduction = process.env.NODE_ENV === 'production' || process.env.REPL_SLUG;
+    
     try {
       const sanitizeBaseUrl = (raw: string): string => {
         let base = (raw || "").trim();
@@ -322,7 +326,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Try multiple sources for LM Studio URL configuration
       // In production (Replit), use the Cloudflare tunnel URL
       // In development, use local IP or configured URL
-      const isProduction = process.env.NODE_ENV === 'production' || process.env.REPL_SLUG;
       const defaultUrl = isProduction 
         ? "https://lmstudio.uterpi.com"  // Cloudflare tunnel URL for production
         : "http://192.168.86.44:1234";   // Local IP for development
@@ -330,7 +333,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const lmBaseRaw = process.env.LMSTUDIO_BASE_URL || 
                          process.env.VITE_LMSTUDIO_BASE_URL ||
                          defaultUrl;
-      const lmBase = sanitizeBaseUrl(lmBaseRaw);
+      lmBase = sanitizeBaseUrl(lmBaseRaw);
       const targetUrl = `${lmBase}/v1/chat/completions`;
       const incomingAuth = req.get("authorization");
       const proxyAuth = incomingAuth || (process.env.LMSTUDIO_API_KEY ? `Bearer ${process.env.LMSTUDIO_API_KEY}` : "Bearer lm-studio");
@@ -393,7 +396,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const statusCode = isNetworkError ? 502 : 500;
       
       // More detailed error message for debugging
-      const isProduction = process.env.NODE_ENV === 'production' || process.env.REPL_SLUG;
       let message = "LM Studio proxy failed";
       let details = err?.message || String(err);
       
@@ -414,6 +416,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Simple passthrough to check upstream reachability and list models
   app.get("/lmstudio/v1/models", async (_req, res) => {
+    // Declare variables outside try block so they're accessible in catch block
+    let lmBase = "";
+    const isProduction = process.env.NODE_ENV === 'production' || process.env.REPL_SLUG;
+    
     try {
       const sanitizeBaseUrl = (raw: string): string => {
         let base = (raw || "").trim();
@@ -428,7 +434,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Try multiple sources for LM Studio URL configuration
       // In production (Replit), use the Cloudflare tunnel URL
       // In development, use local IP or configured URL
-      const isProduction = process.env.NODE_ENV === 'production' || process.env.REPL_SLUG;
       const defaultUrl = isProduction 
         ? "https://lmstudio.uterpi.com"  // Cloudflare tunnel URL for production
         : "http://192.168.86.44:1234";   // Local IP for development
@@ -436,7 +441,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const lmBaseRaw = process.env.LMSTUDIO_BASE_URL || 
                          process.env.VITE_LMSTUDIO_BASE_URL ||
                          defaultUrl;
-      const lmBase = sanitizeBaseUrl(lmBaseRaw);
+      lmBase = sanitizeBaseUrl(lmBaseRaw);
       const targetUrl = `${lmBase}/v1/models`;
       console.log(`[LMStudio Proxy] Environment: ${isProduction ? 'production' : 'development'}`);
       console.log(`[LMStudio Proxy] GET -> ${targetUrl}`);
@@ -449,7 +454,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const statusCode = isNetworkError ? 502 : 500;
       
       // More detailed error message for debugging
-      const isProduction = process.env.NODE_ENV === 'production' || process.env.REPL_SLUG;
       let message = "LM Studio models proxy failed";
       let details = err?.message || String(err);
       

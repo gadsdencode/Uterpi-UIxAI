@@ -294,72 +294,97 @@ const upload = multer({
 });
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // LM Studio proxy (OpenAI-compatible)
-  app.post("/lmstudio/v1/chat/completions", async (req, res) => {
-    // Declare variables outside try block so they're accessible in catch block
+  // Helper function to get LM Studio base URL
+  const getLMStudioBaseUrl = (): { url: string; isProduction: boolean } => {
+    const isProduction = process.env.NODE_ENV === 'production' || !!process.env.REPL_SLUG;
+    
+    const sanitizeBaseUrl = (raw: string): string => {
+      let base = (raw || "").trim();
+      // Fix accidental duplicate port patterns like :1234:1234
+      base = base.replace(/:(\d+):(\d+)/, ":$1");
+      // Remove any trailing slash
+      base = base.replace(/\/$/, "");
+      // Strip accidental API path suffixes
+      base = base.replace(/\/(v1|openai|api)(\/.*)?$/i, "");
+      // Ensure protocol
+      if (!/^https?:\/\//i.test(base)) {
+        base = `http://${base}`;
+      }
+      // Validate URL
+      try {
+        // eslint-disable-next-line no-new
+        new URL(base);
+      } catch {
+        throw new Error(`Invalid LMSTUDIO_BASE_URL provided: ${raw}`);
+      }
+      return base;
+    };
+
+    // Try multiple sources for LM Studio URL configuration
+    // In production (Replit), use the Cloudflare tunnel URL with HTTPS
+    // In development, use local IP or configured URL
+    const defaultUrl = isProduction 
+      ? "https://lmstudio.uterpi.com"  // Cloudflare tunnel URL for production (MUST be HTTPS)
+      : "http://192.168.86.44:1234";   // Local IP for development
+    
+    const lmBaseRaw = process.env.LMSTUDIO_BASE_URL || 
+                       process.env.VITE_LMSTUDIO_BASE_URL ||
+                       defaultUrl;
+    let lmBase = sanitizeBaseUrl(lmBaseRaw);
+    
+    // CRITICAL FIX: Ensure Cloudflare tunnel uses HTTPS in production
+    if (isProduction && lmBase.includes('uterpi.com') && lmBase.startsWith('http://')) {
+      lmBase = lmBase.replace('http://', 'https://');
+      console.log(`[LMStudio] Corrected protocol to HTTPS for Cloudflare tunnel`);
+    }
+    
+    return { url: lmBase, isProduction };
+  };
+
+  // Generic LM Studio proxy handler
+  const proxyLMStudioRequest = async (req: Request, res: any, endpoint: string) => {
     let lmBase = "";
-    const isProduction = process.env.NODE_ENV === 'production' || process.env.REPL_SLUG;
+    let isProduction = false;
     
     try {
-      const sanitizeBaseUrl = (raw: string): string => {
-        let base = (raw || "").trim();
-        // Fix accidental duplicate port patterns like :1234:1234
-        base = base.replace(/:(\d+):(\d+)/, ":$1");
-        // Remove any trailing slash
-        base = base.replace(/\/$/, "");
-        // Strip accidental API path suffixes
-        base = base.replace(/\/(v1|openai|api)(\/.*)?$/i, "");
-        // Ensure protocol
-        if (!/^https?:\/\//i.test(base)) {
-          base = `http://${base}`;
-        }
-        // Validate URL
-        try {
-          // eslint-disable-next-line no-new
-          new URL(base);
-        } catch {
-          throw new Error(`Invalid LMSTUDIO_BASE_URL provided: ${raw}`);
-        }
-        return base;
-      };
-
-      // Try multiple sources for LM Studio URL configuration
-      // In production (Replit), use the Cloudflare tunnel URL
-      // In development, use local IP or configured URL
-      const defaultUrl = isProduction 
-        ? "https://lmstudio.uterpi.com"  // Cloudflare tunnel URL for production
-        : "http://192.168.86.44:1234";   // Local IP for development
+      const baseInfo = getLMStudioBaseUrl();
+      lmBase = baseInfo.url;
+      isProduction = baseInfo.isProduction;
       
-      const lmBaseRaw = process.env.LMSTUDIO_BASE_URL || 
-                         process.env.VITE_LMSTUDIO_BASE_URL ||
-                         defaultUrl;
-      lmBase = sanitizeBaseUrl(lmBaseRaw);
-      const targetUrl = `${lmBase}/v1/chat/completions`;
+      const targetUrl = `${lmBase}${endpoint}`;
       const incomingAuth = req.get("authorization");
       const proxyAuth = incomingAuth || (process.env.LMSTUDIO_API_KEY ? `Bearer ${process.env.LMSTUDIO_API_KEY}` : "Bearer lm-studio");
 
-      console.log(`[LMStudio Proxy] Environment: ${isProduction ? 'production' : 'development'}`);
-      console.log(`[LMStudio Proxy] Using base URL: ${lmBase}`);
-      console.log(`[LMStudio Proxy] POST -> ${targetUrl}`);
+      console.log(`[LMStudio Proxy] ${req.method} ${endpoint}`);
+      console.log(`[LMStudio Proxy] Target: ${targetUrl}`);
 
-      const response = await fetch(targetUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": proxyAuth,
-          // Hint upstream for SSE; some tunnels need explicit accept
-          "Accept": "text/event-stream, application/json"
-        } as any,
-        body: JSON.stringify(req.body),
-      });
+      const headers: any = {
+        "Content-Type": "application/json",
+        "Authorization": proxyAuth,
+        // Support for SSE streaming through Cloudflare tunnel
+        "Accept": "text/event-stream, application/json"
+      };
 
+      const fetchOptions: any = {
+        method: req.method,
+        headers
+      };
+
+      // Add body for POST requests
+      if (req.method === 'POST' && req.body) {
+        fetchOptions.body = JSON.stringify(req.body);
+      }
+
+      const response = await fetch(targetUrl, fetchOptions);
       const contentType = response.headers.get("content-type") || "";
       const isEventStream = contentType.includes("text/event-stream");
 
+      // Handle Server-Sent Events for streaming
       if (isEventStream) {
         res.setHeader("Content-Type", "text/event-stream");
         res.setHeader("Cache-Control", "no-cache");
         res.setHeader("Connection", "keep-alive");
+        res.setHeader("X-Accel-Buffering", "no"); // Disable proxy buffering for nginx/Cloudflare
 
         const reader = (response as any).body?.getReader?.();
         if (!reader) {
@@ -385,13 +410,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const text = await response.text();
       console.log(`[LMStudio Proxy] Response ${response.status} ${contentType}`);
       res.status(response.status);
+      
       if (contentType.includes("application/json")) {
         res.type("application/json").send(text);
       } else {
         res.send(text);
       }
     } catch (err: any) {
-      console.error("LM Studio proxy error:", err?.stack || err);
+      console.error(`LM Studio proxy error (${endpoint}):`, err?.stack || err);
       const isNetworkError = err?.cause?.code === "ECONNREFUSED" || err?.message?.includes("fetch failed");
       const statusCode = isNetworkError ? 502 : 500;
       
@@ -412,64 +438,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error(`[LMStudio Proxy] ${message}: ${details}`);
       res.status(statusCode).json({ error: message, message: details });
     }
+  };
+
+  // LM Studio proxy endpoints (OpenAI-compatible)
+  
+  // Chat completions endpoint (with streaming support)
+  app.post("/lmstudio/v1/chat/completions", async (req, res) => {
+    await proxyLMStudioRequest(req, res, "/v1/chat/completions");
   });
 
-  // Simple passthrough to check upstream reachability and list models
-  app.get("/lmstudio/v1/models", async (_req, res) => {
-    // Declare variables outside try block so they're accessible in catch block
-    let lmBase = "";
-    const isProduction = process.env.NODE_ENV === 'production' || process.env.REPL_SLUG;
-    
-    try {
-      const sanitizeBaseUrl = (raw: string): string => {
-        let base = (raw || "").trim();
-        base = base.replace(/:(\d+):(\d+)/, ":$1");
-        base = base.replace(/\/$/, "");
-        base = base.replace(/\/(v1|openai|api)(\/.*)?$/i, "");
-        if (!/^https?:\/\//i.test(base)) base = `http://${base}`;
-        // eslint-disable-next-line no-new
-        new URL(base);
-        return base;
-      };
-      // Try multiple sources for LM Studio URL configuration
-      // In production (Replit), use the Cloudflare tunnel URL
-      // In development, use local IP or configured URL
-      const defaultUrl = isProduction 
-        ? "https://lmstudio.uterpi.com"  // Cloudflare tunnel URL for production
-        : "http://192.168.86.44:1234";   // Local IP for development
-      
-      const lmBaseRaw = process.env.LMSTUDIO_BASE_URL || 
-                         process.env.VITE_LMSTUDIO_BASE_URL ||
-                         defaultUrl;
-      lmBase = sanitizeBaseUrl(lmBaseRaw);
-      const targetUrl = `${lmBase}/v1/models`;
-      console.log(`[LMStudio Proxy] Environment: ${isProduction ? 'production' : 'development'}`);
-      console.log(`[LMStudio Proxy] GET -> ${targetUrl}`);
-      const response = await fetch(targetUrl, { headers: { "Content-Type": "application/json" } as any });
-      const text = await response.text();
-      res.status(response.status).type(response.headers.get("content-type") || "application/json").send(text);
-    } catch (err: any) {
-      console.error("LM Studio models proxy error:", err?.stack || err);
-      const isNetworkError = err?.cause?.code === "ECONNREFUSED" || err?.message?.includes("fetch failed");
-      const statusCode = isNetworkError ? 502 : 500;
-      
-      // More detailed error message for debugging
-      let message = "LM Studio models proxy failed";
-      let details = err?.message || String(err);
-      
-      if (isNetworkError) {
-        if (isProduction) {
-          message = "Unable to fetch models from LM Studio via Cloudflare tunnel";
-          details = `Attempted to connect to: ${lmBase}. Ensure lmstudio.uterpi.com is configured in Cloudflare tunnel and LM Studio is running. Error: ${err?.message}`;
-        } else {
-          message = "Unable to fetch models from LM Studio locally";
-          details = `Check that LM Studio is running on ${lmBase}. Error: ${err?.message}`;
-        }
-      }
-      
-      console.error(`[LMStudio Models Proxy] ${message}: ${details}`);
-      res.status(statusCode).json({ error: message, message: details });
-    }
+  // Text completions endpoint (non-chat)
+  app.post("/lmstudio/v1/completions", async (req, res) => {
+    await proxyLMStudioRequest(req, res, "/v1/completions");
+  });
+
+  // Embeddings endpoint
+  app.post("/lmstudio/v1/embeddings", async (req, res) => {
+    await proxyLMStudioRequest(req, res, "/v1/embeddings");
+  });
+
+  // Models endpoint
+  app.get("/lmstudio/v1/models", async (req, res) => {
+    await proxyLMStudioRequest(req, res, "/v1/models");
   });
   
   // =============================================================================

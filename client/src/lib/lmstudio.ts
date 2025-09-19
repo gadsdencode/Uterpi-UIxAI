@@ -1,6 +1,23 @@
 import { OpenAIMessage, OpenAIConfig, AzureAIMessage, ChatCompletionOptions, LLMModel } from "../types";
 import { getModelConfiguration, validateModelParameters } from "./modelConfigurations";
 
+// Tool/Function definition types for LM Studio (OpenAI-compatible)
+export interface LMStudioTool {
+  type: "function";
+  function: {
+    name: string;
+    description?: string;
+    parameters?: Record<string, any>;
+  };
+}
+
+export interface LMStudioToolChoice {
+  type: "function";
+  function: {
+    name: string;
+  };
+}
+
 // LM Studio uses an OpenAI-compatible API (proxied via /lmstudio by default)
 export class LMStudioService {
   private config: OpenAIConfig;
@@ -48,10 +65,23 @@ export class LMStudioService {
   }
 
   static getAvailableModels(): LLMModel[] {
-    // Only the Uterpi AI model is exposed via LM Studio in this app
+    // Models available through LM Studio - matches server configuration
     return [
       {
-        id: "Pragmanic0/Nomadic-ICDU-v8",
+        id: "nomadai-lcdu-v8", // Model ID as shown in LM Studio
+        name: "Nomadic ICDU v8 (Uterpi AI)",
+        provider: "Uterpi AI via LM Studio",
+        performance: 99,
+        cost: 0,
+        latency: 250,
+        contextLength: 128000,
+        description: "Uterpi AI served through LM Studio (OpenAI-compatible endpoint)",
+        category: "text",
+        tier: "free",
+        isFavorite: true
+      },
+      {
+        id: "Pragmanic0/Nomadic-ICDU-v8", // Legacy ID for compatibility
         name: "Uterpi AI",
         provider: "Uterpi AI",
         performance: 99,
@@ -61,7 +91,7 @@ export class LMStudioService {
         description: "Uterpi AI served through LM Studio (OpenAI-compatible)",
         category: "text",
         tier: "free",
-        isFavorite: true
+        isFavorite: false
       }
     ];
   }
@@ -75,13 +105,13 @@ export class LMStudioService {
 
   async sendChatCompletion(
     messages: AzureAIMessage[],
-    options: ChatCompletionOptions = {}
+    options: ChatCompletionOptions & { tools?: LMStudioTool[]; toolChoice?: string | LMStudioToolChoice } = {}
   ): Promise<string> {
     const openAIMessages = this.convertToOpenAIMessages(messages);
     const modelConfig = getModelConfiguration(this.config.modelName);
 
     const estimatedTokens = this.estimateTokenCount(openAIMessages);
-    const maxContextTokens = modelConfig.contextLength || 4096;
+    const maxContextTokens = modelConfig.contextLength || 128000;
     const reserveTokensForResponse = options.maxTokens || 1024;
 
     let processedMessages = openAIMessages;
@@ -106,6 +136,14 @@ export class LMStudioService {
       stream: false
     };
 
+    // Add tool/function calling support if provided
+    if (options.tools && options.tools.length > 0) {
+      requestBody.tools = options.tools;
+      if (options.toolChoice) {
+        requestBody.tool_choice = options.toolChoice;
+      }
+    }
+
     if (modelConfig.capabilities.supportsFrequencyPenalty && validatedParams.frequencyPenalty !== undefined) {
       requestBody.frequency_penalty = validatedParams.frequencyPenalty;
     }
@@ -120,24 +158,34 @@ export class LMStudioService {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.config.apiKey || "lm-studio"}`
+        'Authorization': `Bearer ${this.config.apiKey || "lm-studio"}`,
+        'Accept': 'application/json'
       },
       body: JSON.stringify(requestBody)
     });
 
     if (!response.ok) {
       const errorText = await response.text();
+      console.error("LM Studio API error:", errorText);
       throw new Error(`LM Studio API error (${response.status}): ${errorText}`);
     }
 
     const data = await response.json();
+    
+    // Handle tool calls if present
+    if (data.choices?.[0]?.message?.tool_calls) {
+      console.log("Tool calls detected:", data.choices[0].message.tool_calls);
+      // Return the tool calls as JSON string for processing
+      return JSON.stringify(data.choices[0].message.tool_calls);
+    }
+    
     return data.choices?.[0]?.message?.content || "";
   }
 
   async sendStreamingChatCompletion(
     messages: AzureAIMessage[],
     onChunk: (chunk: string) => void,
-    options: ChatCompletionOptions = {}
+    options: ChatCompletionOptions & { tools?: LMStudioTool[]; toolChoice?: string | LMStudioToolChoice } = {}
   ): Promise<void> {
     const openAIMessages = this.convertToOpenAIMessages(messages);
     const modelConfig = getModelConfiguration(this.config.modelName);
@@ -158,6 +206,14 @@ export class LMStudioService {
       stream: true
     };
 
+    // Add tool/function calling support for streaming
+    if (options.tools && options.tools.length > 0) {
+      requestBody.tools = options.tools;
+      if (options.toolChoice) {
+        requestBody.tool_choice = options.toolChoice;
+      }
+    }
+
     if (modelConfig.capabilities.supportsFrequencyPenalty && validatedParams.frequencyPenalty !== undefined) {
       requestBody.frequency_penalty = validatedParams.frequencyPenalty;
     }
@@ -172,7 +228,8 @@ export class LMStudioService {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.config.apiKey || "lm-studio"}`
+        'Authorization': `Bearer ${this.config.apiKey || "lm-studio"}`,
+        'Accept': 'text/event-stream'
       },
       body: JSON.stringify(requestBody)
     });
@@ -218,10 +275,31 @@ export class LMStudioService {
 
   static createFromEnv(): OpenAIConfig {
     const apiKey = import.meta.env.VITE_LMSTUDIO_API_KEY || "lm-studio";
-    const modelName = import.meta.env.VITE_LMSTUDIO_MODEL_NAME || "Pragmanic0/Nomadic-ICDU-v8";
+    const modelName = import.meta.env.VITE_LMSTUDIO_MODEL_NAME || "nomadai-lcdu-v8";
     // Default to backend proxy path
     const baseUrl = import.meta.env.VITE_LMSTUDIO_BASE_URL || "/lmstudio";
     return { apiKey, modelName, baseUrl };
+  }
+
+  // Helper method to list available models from LM Studio
+  async listModels(): Promise<any> {
+    try {
+      const response = await fetch(`${this.config.baseUrl || "/lmstudio"}/v1/models`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${this.config.apiKey || "lm-studio"}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to list models: ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error("Failed to list LM Studio models:", error);
+      return { data: [], error: error instanceof Error ? error.message : "Unknown error" };
+    }
   }
 
   static createWithModel(modelName: string): OpenAIConfig {

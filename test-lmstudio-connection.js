@@ -6,9 +6,9 @@
  */
 
 const urls = {
-  local: "http://192.168.86.44:1234",
-  cloudflare: "https://lmstudio.uterpi.com",
-  localhost: "http://localhost:1234"
+  cloudflare: "https://lmstudio.uterpi.com",  // Production via Cloudflare tunnel
+  local: "http://192.168.86.44:1234",        // Direct local connection
+  localhost: "http://localhost:1234"          // Local development
 };
 
 async function testConnection(name, baseUrl) {

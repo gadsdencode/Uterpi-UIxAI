@@ -491,7 +491,7 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin, onS
               Join the Journey
             </h1>
             <p className="text-slate-300">
-              Create your account to start exploring Uterpi with NomadAI
+              Create your account to start exploring Uterpi!
             </p>
           </div>
           

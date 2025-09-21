@@ -489,7 +489,7 @@ const RippleButton: React.FC<{
     if (onClick && typeof onClick === 'function') {
       try {
         // Forward the original event so upstream handlers can access defaultPrevented, etc.
-        onClick(e);
+        onClick();
       } catch (error) {
         console.error('Error in onClick handler:', error);
         console.error('onClick handler failed:', error);
@@ -575,11 +575,11 @@ const FuturisticAIChat: React.FC = () => {
   // Create personalized welcome message
   const getPersonalizedWelcome = useCallback(() => {
     if (!user) {
-      return "Hello! I'm NomadAI. What would you like to accomplish today?";
+      return "Hello! I'm Uterpi's AI. What would you like to accomplish today?";
     }
 
     const name = user.firstName || user.username || "there";
-    const greeting = `Hello ${name}! I'm NomadAI.`;
+    const greeting = `Hello ${name}! I'm Uterpi's AI.`;
     
     const personalizations = [];
     
@@ -1852,7 +1852,7 @@ const FuturisticAIChat: React.FC = () => {
       <OrigamiModal
         isOpen={showEditModal}
         onClose={() => setShowEditModal(false)}
-        title="NomadAI Settings & Status"
+        title="Uterpi Settings & Status"
       >
         <div className="space-y-4">
           <div>
@@ -1917,16 +1917,16 @@ const FuturisticAIChat: React.FC = () => {
 
           <div>
             <label className="block text-sm font-medium text-slate-300 mb-2">
-              NomadAI Terms & Conditions
+            Uterpi Terms & Conditions
             </label>
             <div className="text-xs text-slate-400 space-y-1 max-h-32 overflow-y-auto">
-              <p className="text-sm font-thin text-slate-300 mb-2 text-center">By using NomadAI, you agree to the following terms & conditions:</p>
-              <p>1. NomadAI is an ongoing project; always check AI responses for accuracy.</p>
-              <p>2. NomadAI is not responsible for any damage caused by the use of NomadAI.</p>
-              <p>3. NomadAI is not responsible for any data loss or corruption caused by the use of NomadAI.</p>
-              <p>4. NomadAI is not responsible for any legal issues caused by the use of NomadAI.</p>
-              <p>5. NomadAI is not responsible for any ethical issues caused by the use of NomadAI.</p>
-              <p>6. NomadAI is not responsible for any issues caused by the use of NomadAI.</p>
+              <p className="text-sm font-thin text-slate-300 mb-2 text-center">By using Uterpi, you agree to the following terms & conditions:</p>
+              <p>1. Uterpi is an ongoing project; always check AI responses for accuracy.</p>
+              <p>2. Uterpi is not responsible for any damage caused by the use of Uterpi.</p>
+              <p>3. Uterpi is not responsible for any data loss or corruption caused by the use of Uterpi.</p>
+              <p>4. Uterpi is not responsible for any legal issues caused by the use of Uterpi.</p>
+              <p>5. Uterpi is not responsible for any ethical issues caused by the use of Uterpi.</p>
+              <p>6. Uterpi is not responsible for any issues caused by the use of Uterpi.</p>
             </div>
           </div>
         </div>

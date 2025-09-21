@@ -333,7 +333,7 @@ export async function sendWelcomeEmail(options: EngagementEmailOptions): Promise
       text: `
 Welcome to Uterpi${displayName}!
 
-Thank you for joining Uterpi! We're excited to help you unlock the power of NomadAI for your daily tasks.
+Thank you for joining Uterpi! We're excited to help you unlock the power of Uterpi for your daily tasks.
 
 Get started with these features:
 - Start your first chat with our AI assistant
@@ -375,7 +375,7 @@ export async function sendReengagementEmail(options: EngagementEmailOptions): Pr
     const emailData = {
       from: FROM_EMAIL,
       to: [to],
-      subject: `We miss you${displayName}! Your NomadAI assistant is waiting ⏰`,
+      subject: `We miss you${displayName}! Your Uterpi assistant is waiting ⏰`,
       html: `
         <!DOCTYPE html>
         <html>
@@ -397,7 +397,7 @@ export async function sendReengagementEmail(options: EngagementEmailOptions): Pr
           <div class="container">
             <div class="header">
               <h1>🤖 We miss you${displayName}!</h1>
-              <p style="margin: 0; opacity: 0.9;">Your NomadAI assistant has been waiting for you</p>
+              <p style="margin: 0; opacity: 0.9;">Your Uterpi assistant has been waiting for you</p>
             </div>
             <div class="content">
               <h2>It's been ${daysSinceLastLogin} days since your last visit</h2>
@@ -440,7 +440,7 @@ We miss you${displayName}!
 It's been ${daysSinceLastLogin} days since your last visit to Uterpi. We'd love to have you back!
 
 What's new since you've been away:
-- Improved NomadAI response accuracy and speed
+- Improved Uterpi response accuracy and speed
 - New file upload & analysis capabilities  
 - Enhanced chat experience with better memory
 
@@ -482,14 +482,14 @@ export async function sendFeatureDiscoveryEmail(options: EngagementEmailOptions)
     const emailData = {
       from: FROM_EMAIL,
       to: [to],
-      subject: `${displayName}, discover hidden NomadAI features! 🔍`,
+      subject: `${displayName}, discover hidden Uterpi features! 🔍`,
       html: `
         <!DOCTYPE html>
         <html>
         <head>
           <meta charset="utf-8">
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <title>Discover NomadAI Features</title>
+          <title>Discover Uterpi Features</title>
           <style>
             body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 0; background-color: #f8f9fa; }
             .container { max-width: 600px; margin: 0 auto; background-color: white; }
@@ -504,10 +504,10 @@ export async function sendFeatureDiscoveryEmail(options: EngagementEmailOptions)
           <div class="container">
             <div class="header">
               <h1>🔍 Hidden Features Await${displayName}!</h1>
-              <p style="margin: 0; opacity: 0.9;">Unlock the full power of Uterpi & NomadAI</p>
+              <p style="margin: 0; opacity: 0.9;">Unlock the full power of Uterpi & Uterpi</p>
             </div>
             <div class="content">
-              <h2>You're only using a fraction of Uterpi & NomadAI's capabilities!</h2>
+              <h2>You're only using a fraction of Uterpi's capabilities!</h2>
               <p>We noticed you haven't explored some of our most powerful features yet. Here's what you're missing out on:</p>
               
                              ${unusedFeatures.map((feature: string) => {
@@ -543,7 +543,7 @@ export async function sendFeatureDiscoveryEmail(options: EngagementEmailOptions)
               
               <div class="cta-box">
                 <h3>🚀 Ready to Level Up?</h3>
-                <p style="margin: 10px 0;">Take the full tour and discover all the ways Uterpi & NomadAI can boost your productivity.</p>
+                <p style="margin: 10px 0;">Take the full tour and discover all the ways Uterpi can boost your productivity.</p>
                 <a href="${FRONTEND_URL}/tour?utm_source=email&utm_campaign=feature_discovery&utm_content=full_tour" style="display: inline-block; background: white; color: #667eea; text-decoration: none; padding: 12px 24px; border-radius: 6px; font-weight: 600; margin: 10px 0;">Take the Full Tour</a>
               </div>
               
@@ -558,9 +558,9 @@ export async function sendFeatureDiscoveryEmail(options: EngagementEmailOptions)
         </html>
       `,
       text: `
-Discover Hidden NomadAI Features${displayName}!
+Discover Hidden Uterpi Features${displayName}!
 
-You're only using a fraction of NomadAI's capabilities! Here's what you're missing:
+You're only using a fraction of Uterpi's capabilities! Here's what you're missing:
 
  ${unusedFeatures.map((feature: string) => `- ${feature}`).join('\n')}
 
@@ -600,14 +600,14 @@ export async function sendUsageInsightsEmail(options: EngagementEmailOptions): P
     const emailData = {
       from: FROM_EMAIL,
       to: [to],
-      subject: `Your ${period}ly NomadAI insights are here${displayName}! 📊`,
+      subject: `Your ${period}ly Uterpi insights are here${displayName}! 📊`,
       html: `
         <!DOCTYPE html>
         <html>
         <head>
           <meta charset="utf-8">
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <title>Your NomadAI Insights</title>
+          <title>Your Uterpi Insights</title>
           <style>
             body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 0; background-color: #f8f9fa; }
             .container { max-width: 600px; margin: 0 auto; background-color: white; }
@@ -628,7 +628,7 @@ export async function sendUsageInsightsEmail(options: EngagementEmailOptions): P
             </div>
             <div class="content">
               <h2>Your productivity this ${period}</h2>
-              <p>Here's a summary of your amazing progress with Uterpi & NomadAI:</p>
+              <p>Here's a summary of your amazing progress with Uterpi:</p>
               
               <div class="stat-grid">
                 <div class="stat-card">
@@ -676,7 +676,7 @@ export async function sendUsageInsightsEmail(options: EngagementEmailOptions): P
         </html>
       `,
       text: `
-Your ${period}ly NomadAI insights${displayName}!
+Your ${period}ly Uterpi insights${displayName}!
 
 Your productivity this ${period}:
 - ${stats.sessions || 0} sessions
@@ -725,7 +725,7 @@ export async function sendProductTipsEmail(options: EngagementEmailOptions): Pro
         { title: "Provide Context", description: "Share relevant background information to get more tailored and accurate responses", icon: "📝" }
       ],
       files: [
-        { title: "Upload Multiple File Types", description: "NomadAI can analyze PDFs, spreadsheets, images, and text files for comprehensive insights", icon: "📁" },
+        { title: "Upload Multiple File Types", description: "Uterpi can analyze PDFs, spreadsheets, images, and text files for comprehensive insights", icon: "📁" },
         { title: "Ask Specific Analysis Questions", description: "Instead of 'analyze this', ask 'what are the key trends in this data?' or 'summarize the main points'", icon: "🔍" },
         { title: "Use File Analysis for Comparisons", description: "Upload similar documents and ask AI to compare differences or similarities", icon: "⚖️" }
       ],
@@ -768,7 +768,7 @@ export async function sendProductTipsEmail(options: EngagementEmailOptions): Pro
             </div>
             <div class="content">
               <h2>Level up your AI game with these Uterpi pro tips</h2>
-              <p>Ready to become an AI productivity master? Here are some expert techniques to get better results from Uterpi & NomadAI:</p>
+              <p>Ready to become an AI productivity master? Here are some expert techniques to get better results from Uterpi:</p>
               
               ${selectedTips.map(tip => `
                 <div class="tip">
@@ -780,11 +780,11 @@ export async function sendProductTipsEmail(options: EngagementEmailOptions): Pro
               
               <div class="quote">
                 <p>"The key to great AI results is asking the right questions. The more context and specificity you provide, the more valuable the AI's response will be."</p>
-                <p><strong>- NomadAI Pro User</strong></p>
+                <p><strong>- Uterpi Pro User</strong></p>
               </div>
               
               <h3>🚀 Ready to apply these tips?</h3>
-              <p>Jump back into NomadAI and try out these techniques. You'll be amazed at the difference they make!</p>
+              <p>Jump back into Uterpi and try out these techniques. You'll be amazed at the difference they make!</p>
               
               <div style="text-align: center; margin: 30px 0;">
                 <a href="${FRONTEND_URL}/?utm_source=email&utm_campaign=product_tips&utm_content=apply_tips" class="button">Apply These Tips Now</a>

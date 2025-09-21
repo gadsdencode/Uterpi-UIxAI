@@ -11,7 +11,7 @@ export function generateTranscript(
   excludeWelcomeMessage: boolean = true
 ): string {
   const exportTime = new Date();
-  const header = `NomadAI Chat Transcript
+  const header = `Uterpi Chat Transcript
 Generated: ${exportTime.toLocaleString()}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -154,7 +154,7 @@ export async function shareTranscript(
     // Check if Web Share API is available and supports text sharing
     if (navigator.share && navigator.canShare) {
       const shareData = {
-        title: 'NomadAI Chat Transcript',
+        title: 'Uterpi Chat Transcript',
         text: transcriptText,
         url: undefined // Don't include URL to focus on text content
       };

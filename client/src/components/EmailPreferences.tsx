@@ -414,7 +414,7 @@ export function EmailPreferences() {
               Recent Activity
             </CardTitle>
             <CardDescription>
-              Your recent interactions with NomadAI
+              Your recent interactions with Uterpi
             </CardDescription>
           </CardHeader>
           <CardContent>

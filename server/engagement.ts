@@ -410,7 +410,7 @@ export class EngagementService {
         },
       });
 
-      await this.logEmailSent(userId, 'reengagement', `We miss you! Your NomadAI assistant is waiting ⏰`, trackingTokens);
+      await this.logEmailSent(userId, 'reengagement', `We miss you! Your Uterpi assistant is waiting ⏰`, trackingTokens);
       return true;
     } catch (error) {
       console.error('Error sending reengagement email:', error);
@@ -441,7 +441,7 @@ export class EngagementService {
         personalData: { unusedFeatures },
       });
 
-      await this.logEmailSent(userId, 'feature_discovery', 'Discover hidden NomadAI features! 🔍', trackingTokens);
+      await this.logEmailSent(userId, 'feature_discovery', 'Discover hidden Uterpi features! 🔍', trackingTokens);
       return true;
     } catch (error) {
       console.error('Error sending feature discovery email:', error);
@@ -472,7 +472,7 @@ export class EngagementService {
         personalData: { period, stats },
       });
 
-      await this.logEmailSent(userId, 'usage_insights', `Your ${period}ly NomadAI insights are here! 📊`, trackingTokens);
+      await this.logEmailSent(userId, 'usage_insights', `Your ${period}ly Uterpi insights are here! 📊`, trackingTokens);
       return true;
     } catch (error) {
       console.error('Error sending usage insights email:', error);

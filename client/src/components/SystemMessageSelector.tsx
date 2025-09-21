@@ -40,10 +40,10 @@ export const SystemMessageSelector: React.FC<SystemMessageSelectorProps> = ({
     <div className="w-full space-y-4">
       <div className="text-center space-y-2">
         <div className="flex items-center justify-center gap-2">
-          <h3 className="text-lg font-semibold text-white">Make NomadAI your own</h3>
+          <h3 className="text-lg font-semibold text-white">Make Uterpi your own</h3>
         </div>
         <p className="text-sm text-slate-300">
-          Choose how NomadAI should respond and communicate with you
+          Choose how Uterpi's AI should respond and communicate with you
         </p>
       </div>
 

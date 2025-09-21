@@ -486,8 +486,8 @@ const AuthenticatedApp: React.FC = () => {
                     🚀 <span className="font-bold">Universal Interface for AI</span> - Just <span className="text-violet-400 font-bold">$5/month</span>
                   </p>
                   <div className="text-xs text-slate-300 mt-2 space-y-1">
-                    <p>• Use any AI model + Uterpi's proprietary model NomadAI</p>
-                    <p>• Custom templates & personas to make NomadAI your own</p>
+                    <p>• Use any AI model + Uterpi's proprietary LLM</p>
+                    <p>• Custom templates & personas to make Uterpi your own</p>
                     <p>• AI analyzes and suggests optimizations to your workflow</p>
                     <p>• Ongoing feature updates & versioning of evolving AI models</p>
                   </div>

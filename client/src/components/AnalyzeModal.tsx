@@ -228,7 +228,7 @@ const AnalyzeModal: React.FC<AnalyzeModalProps> = ({ isOpen, onClose }) => {
                       <BarChart3 className="w-16 h-16 text-purple-400 mx-auto mb-4" />
                       <h3 className="text-lg font-semibold text-white mb-2">Performance Analysis</h3>
                       <p className="text-slate-400 mb-6">
-                        Analyze NomadAI performance metrics including load time, bundle size, and render performance.
+                        Analyze Uterpi performance metrics including load time, bundle size, and render performance.
                       </p>
                       <motion.button
                         onClick={analyzePerformance}
@@ -377,7 +377,7 @@ const AnalyzeModal: React.FC<AnalyzeModalProps> = ({ isOpen, onClose }) => {
                   <div className="text-center space-y-6">
                     <div className="p-8 bg-slate-800/50 rounded-xl border border-slate-700/50">
                       <Target className="w-16 h-16 text-purple-400 mx-auto mb-4" />
-                      <h3 className="text-lg font-semibold text-white mb-2">NomadAI System Status</h3>
+                      <h3 className="text-lg font-semibold text-white mb-2">Uterpi System Status</h3>
                       <p className="text-slate-400 mb-6">
                         Run for a full system status report.
                       </p>

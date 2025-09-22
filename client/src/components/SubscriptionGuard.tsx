@@ -330,13 +330,13 @@ export const SubscriptionGuard: React.FC<SubscriptionGuardProps> = ({
                 </div>
               </motion.div>
               <h2 className="text-2xl font-bold text-white mb-2">
-                Unlock {feature}
+                Unlock Uterpi
               </h2>
               <p className="text-slate-300 mb-3">
                 Starting at <span className="text-violet-400 font-bold text-lg">$19/month</span>
               </p>
               <p className="text-slate-400 text-sm">
-                {feature} requires a {requiredTier} subscription or higher
+                Uterpi requires a {requiredTier} subscription or higher
               </p>
             </div>
             

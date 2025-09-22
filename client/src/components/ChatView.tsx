@@ -1923,7 +1923,7 @@ const FuturisticAIChat: React.FC = () => {
             </AnimatePresence>
 
             {/* Error Display */}
-            {error && (
+            {error && !error.includes('Subscription error:') && (
               <motion.div
                 className="mb-4 p-4 bg-red-900/20 backdrop-blur-xl rounded-xl border border-red-500/30"
                 initial={{ opacity: 0, height: 0 }}

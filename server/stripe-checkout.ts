@@ -88,8 +88,7 @@ export async function createSubscriptionCheckoutSession(params: {
     success_url: params.successUrl + '?session_id={CHECKOUT_SESSION_ID}',
     cancel_url: params.cancelUrl,
     
-    // Subscription-specific settings
-    payment_method_collection: 'always',
+    // Subscription-specific settings  
     billing_address_collection: 'auto',
     
     // Allow coupon codes
@@ -173,7 +172,6 @@ export async function createCreditsCheckoutSession(params: {
     cancel_url: params.cancelUrl,
     
     // One-time payment settings
-    payment_method_collection: 'always',
     billing_address_collection: 'auto',
     
     // Allow coupon codes

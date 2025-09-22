@@ -1,0 +1,172 @@
+2025-09-22 14:54:30.02
+85fcfe44
+User
+requestId: 'req_e1ARrp9APKKDQm'
+2025-09-22 14:54:30.02
+85fcfe44
+User
+},
+2025-09-22 14:54:30.02
+85fcfe44
+User
+rawType: 'invalid_request_error',
+2025-09-22 14:54:30.02
+85fcfe44
+User
+code: undefined,
+2025-09-22 14:54:30.02
+85fcfe44
+User
+doc_url: undefined,
+2025-09-22 14:54:30.02
+85fcfe44
+User
+param: undefined,
+2025-09-22 14:54:30.02
+85fcfe44
+User
+detail: undefined,
+2025-09-22 14:54:30.02
+85fcfe44
+User
+headers: {
+2025-09-22 14:54:30.02
+85fcfe44
+User
+server: 'nginx',
+2025-09-22 14:54:30.02
+85fcfe44
+User
+date: 'Mon, 22 Sep 2025 18:54:30 GMT',
+2025-09-22 14:54:30.02
+85fcfe44
+User
+'content-type': 'application/json',
+2025-09-22 14:54:30.02
+85fcfe44
+User
+'content-length': '243',
+2025-09-22 14:54:30.02
+85fcfe44
+User
+connection: 'keep-alive',
+2025-09-22 14:54:30.02
+85fcfe44
+User
+'access-control-allow-credentials': 'true',
+2025-09-22 14:54:30.02
+85fcfe44
+User
+'access-control-allow-methods': 'GET, HEAD, PUT, PATCH, POST, DELETE',
+2025-09-22 14:54:30.02
+85fcfe44
+User
+'access-control-allow-origin': '*',
+2025-09-22 14:54:30.02
+85fcfe44
+User
+'access-control-expose-headers': 'Request-Id, Stripe-Manage-Version, Stripe-Should-Retry, X-Stripe-External-Auth-Required, X-Stripe-Privileged-Session-Required',
+2025-09-22 14:54:30.02
+85fcfe44
+User
+'access-control-max-age': '300',
+2025-09-22 14:54:30.02
+85fcfe44
+User
+'cache-control': 'no-cache, no-store',
+2025-09-22 14:54:30.02
+85fcfe44
+User
+'content-security-policy': "base-uri 'none'; default-src 'none'; form-action 'none'; frame-ancestors 'none'; img-src 'self'; script-src 'self' 'report-sample'; style-src 'self'; worker-src 'none'; upgrade-insecure-requests; report-uri https://q.stripe.com/csp-violation?q=nHduyUTzfIketdzDtP5u0Vl8CK0BRx5o0uUlN1QEp0U9Fx0SOOPY8EGkwQHKl0Ovi9xvkfmnHoC6ghOf",
+2025-09-22 14:54:30.02
+85fcfe44
+User
+'idempotency-key': 'stripe-node-retry-120f4878-a580-4d7f-837e-96a721f11339',
+2025-09-22 14:54:30.02
+85fcfe44
+User
+'original-request': 'req_e1ARrp9APKKDQm',
+2025-09-22 14:54:30.02
+85fcfe44
+User
+'request-id': 'req_e1ARrp9APKKDQm',
+2025-09-22 14:54:30.02
+85fcfe44
+User
+'stripe-should-retry': 'false',
+2025-09-22 14:54:30.02
+85fcfe44
+User
+'stripe-version': '2025-06-30.basil',
+2025-09-22 14:54:30.02
+85fcfe44
+User
+vary: 'Origin',
+2025-09-22 14:54:30.02
+85fcfe44
+User
+'x-stripe-priority-routing-enabled': 'true',
+2025-09-22 14:54:30.02
+85fcfe44
+User
+'x-stripe-routing-context-priority-tier': 'livemode-critical',
+2025-09-22 14:54:30.02
+85fcfe44
+User
+'x-wc': 'ABGHIJ',
+2025-09-22 14:54:30.02
+85fcfe44
+User
+'strict-transport-security': 'max-age=63072000; includeSubDomains; preload'
+2025-09-22 14:54:30.02
+85fcfe44
+User
+},
+2025-09-22 14:54:30.02
+85fcfe44
+User
+requestId: 'req_e1ARrp9APKKDQm',
+2025-09-22 14:54:30.02
+85fcfe44
+User
+statusCode: 400,
+2025-09-22 14:54:30.02
+85fcfe44
+User
+userMessage: undefined,
+2025-09-22 14:54:30.02
+85fcfe44
+User
+charge: undefined,
+2025-09-22 14:54:30.02
+85fcfe44
+User
+decline_code: undefined,
+2025-09-22 14:54:30.02
+85fcfe44
+User
+payment_intent: undefined,
+2025-09-22 14:54:30.02
+85fcfe44
+User
+payment_method: undefined,
+2025-09-22 14:54:30.02
+85fcfe44
+User
+payment_method_type: undefined,
+2025-09-22 14:54:30.02
+85fcfe44
+User
+setup_intent: undefined,
+2025-09-22 14:54:30.02
+85fcfe44
+User
+source: undefined
+2025-09-22 14:54:30.02
+85fcfe44
+User
+}
+2025-09-22 14:54:30.05
+85fcfe44
+User
+6:54:30 PM [express] POST /api/checkout/credits 500 in 195ms :: {"error":"You can only set `payment_…

@@ -169,8 +169,31 @@ const PricingPage: React.FC = () => {
 
     setLoading(true);
     try {
-      // Navigate to checkout with selected plan
-      navigateTo(`/checkout?plan=${planId}&interval=${billingInterval}`);
+      // Create checkout session
+      const response = await fetch('/api/checkout', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          plan: planId,
+          interval: billingInterval,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to create checkout session');
+      }
+
+      const data = await response.json();
+      
+      if (data.success && data.checkoutUrl) {
+        // Redirect to Stripe checkout
+        window.location.href = data.checkoutUrl;
+      } else {
+        throw new Error('Invalid checkout response');
+      }
     } catch (error) {
       console.error('Error selecting plan:', error);
       toast({

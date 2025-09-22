@@ -153,6 +153,38 @@ export async function createBillingPortalSession(customerId: string, returnUrl: 
 }
 
 /**
+ * Create Stripe checkout session for subscription
+ */
+export async function createCheckoutSession(data: {
+  customerId: string;
+  priceId: string;
+  successUrl: string;
+  cancelUrl: string;
+}): Promise<Stripe.Checkout.Session> {
+  try {
+    const session = await stripe.checkout.sessions.create({
+      customer: data.customerId,
+      payment_method_types: ['card'],
+      line_items: [
+        {
+          price: data.priceId,
+          quantity: 1,
+        },
+      ],
+      mode: 'subscription',
+      success_url: data.successUrl,
+      cancel_url: data.cancelUrl,
+      allow_promotion_codes: true,
+    });
+    
+    return session;
+  } catch (error) {
+    console.error('Error creating checkout session:', error);
+    throw new Error('Failed to create checkout session');
+  }
+}
+
+/**
  * Sync subscription data from Stripe to database
  */
 export async function syncSubscriptionFromStripe(stripeSubscriptionId: string, userId: number): Promise<void> {

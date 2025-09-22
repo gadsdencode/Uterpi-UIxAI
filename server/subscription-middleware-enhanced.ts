@@ -463,12 +463,4 @@ async function getMonthlyUsage(userId: number, operationType: string): Promise<n
   return result[0]?.count || 0;
 }
 
-export {
-  requireFeature,
-  checkFreemiumLimit,
-  requireCredits,
-  requireTeamRole,
-  requireAIProvider,
-  tierBasedRateLimit,
-  getEnhancedSubscriptionDetails,
-};
+// Functions are already exported individually above

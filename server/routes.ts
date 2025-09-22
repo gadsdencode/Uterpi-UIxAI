@@ -12,6 +12,7 @@ import { createStripeCustomer, createSetupIntent, createSubscription, cancelSubs
 import { requireActiveSubscription, enhanceWithSubscription } from "./subscription-middleware";
 import { handleStripeWebhook, rawBodyParser } from "./webhooks";
 import { fileStorage } from "./file-storage";
+import subscriptionRoutes from "./subscription-routes";
 import multer from 'multer';
 import ModelClient from "@azure-rest/ai-inference";
 import { AzureKeyCredential } from "@azure/core-auth";
@@ -646,6 +647,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       user: req.isAuthenticated() ? req.user : null
     });
   });
+
+  // Register subscription routes
+  app.use("/api", subscriptionRoutes);
 
   // Google OAuth routes
   app.get("/api/auth/google", 

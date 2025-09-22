@@ -8,7 +8,7 @@ import { users, subscriptions, subscriptionPlans, aiCreditsTransactions, teams }
 import { eq, and } from 'drizzle-orm';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2024-06-20',
+  // Using default API version to avoid type conflicts
 });
 
 // Stripe Product/Price IDs (replace with actual IDs from Stripe Dashboard)
@@ -144,8 +144,8 @@ export async function createTeamSubscription(data: {
       stripeSubscriptionId: subscription.id,
       stripePriceId: priceId,
       status: subscription.status,
-      currentPeriodStart: new Date(subscription.current_period_start * 1000),
-      currentPeriodEnd: new Date(subscription.current_period_end * 1000),
+      currentPeriodStart: new Date((subscription as any).current_period_start * 1000),
+      currentPeriodEnd: new Date((subscription as any).current_period_end * 1000),
     });
 
     // Send invitations to team members
@@ -361,7 +361,7 @@ export async function trackAIUsage(data: {
     if (user.teamId) {
       // Use team pooled credits
       const [team] = await tx.select().from(teams).where(eq(teams.id, user.teamId));
-      currentBalance = team.pooled_ai_credits || 0;
+      currentBalance = team.pooledAiCredits || 0;
       
       if (currentBalance < creditsToDeduct) {
         throw new Error('Insufficient AI credits');
@@ -371,8 +371,8 @@ export async function trackAIUsage(data: {
       
       await tx.update(teams)
         .set({
-          pooled_ai_credits: newBalance,
-          pooled_credits_used_this_month: (team.pooled_credits_used_this_month || 0) + creditsToDeduct,
+          pooledAiCredits: newBalance,
+          pooledCreditsUsedThisMonth: (team.pooledCreditsUsedThisMonth || 0) + creditsToDeduct,
         })
         .where(eq(teams.id, user.teamId));
 
@@ -429,7 +429,7 @@ export async function checkCreditBalance(
 
   if (user.teamId) {
     const [team] = await db.select().from(teams).where(eq(teams.id, user.teamId));
-    const balance = team?.pooled_ai_credits || 0;
+    const balance = team?.pooledAiCredits || 0;
     return {
       hasCredits: balance >= requiredCredits,
       currentBalance: balance,

@@ -549,12 +549,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // =============================================================================
 
   // Universal AI chat completions endpoint with credit checking for all providers
-  app.post("/ai/v1/chat/completions", requireAuth, async (req, res) => {
+  app.post("/ai/v1/chat/completions", requireAuth, checkFreemiumLimit(), requireCredits(1, 'chat'), async (req, res) => {
     console.log('🚀 Chat endpoint called for user:', req.user?.id);
-    
-    // Temporarily bypass subscription checks for debugging
-    // TODO: Re-enable after fixing subscription issues
-    // checkFreemiumLimit(), requireCredits(1, 'chat'),
     try {
       const { provider, messages, model, max_tokens, temperature, top_p, stream, ...otherParams } = req.body;
       

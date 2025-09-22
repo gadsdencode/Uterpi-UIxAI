@@ -256,7 +256,7 @@ export async function verifyGrandfatherStatus(userId: number): Promise<{
 }
 
 // Run migration if this file is executed directly
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (require.main === module) {
   grandfatherExistingUsers()
     .then(result => {
       console.log('\n✨ Migration completed!');

@@ -19,7 +19,6 @@ import {
   CREDIT_PACKAGES,
   STRIPE_PRODUCTS
 } from './stripe-enhanced';
-import { createCheckoutSession } from './stripe';
 import { db } from './db';
 import { 
   users, 
@@ -84,55 +83,6 @@ router.get('/subscription/plans', async (req, res) => {
   } catch (error) {
     console.error('Error fetching subscription plans:', error);
     res.status(500).json({ error: 'Failed to fetch subscription plans' });
-  }
-});
-
-/**
- * Create checkout session for subscription
- */
-router.post('/checkout', requireAuth, async (req, res) => {
-  try {
-    const { plan, interval = 'month' } = req.body;
-    
-    if (!plan) {
-      return res.status(400).json({ error: 'Plan is required' });
-    }
-
-    // Get plan details
-    const [planData] = await db.select()
-      .from(subscriptionPlans)
-      .where(eq(subscriptionPlans.name, plan))
-      .limit(1);
-
-    if (!planData) {
-      return res.status(404).json({ error: 'Plan not found' });
-    }
-
-    // Get user's Stripe customer ID
-    const [user] = await db.select()
-      .from(users)
-      .where(eq(users.id, req.user.id))
-      .limit(1);
-
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    // Create Stripe checkout session
-    const checkoutSession = await createCheckoutSession({
-      customerId: user.stripeCustomerId,
-      priceId: planData.stripePriceId,
-      successUrl: `${req.headers.origin}/pricing?success=true`,
-      cancelUrl: `${req.headers.origin}/pricing?canceled=true`,
-    });
-
-    res.json({ 
-      success: true, 
-      checkoutUrl: checkoutSession.url 
-    });
-  } catch (error) {
-    console.error('Error creating checkout session:', error);
-    res.status(500).json({ error: 'Failed to create checkout session' });
   }
 });
 

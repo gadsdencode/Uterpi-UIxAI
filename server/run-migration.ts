@@ -63,7 +63,7 @@ async function runMigration() {
 }
 
 // Execute if run directly
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (require.main === module) {
   runMigration();
 }
 

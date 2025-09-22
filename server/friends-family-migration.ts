@@ -248,7 +248,7 @@ export async function rollbackFriendsFamilyMigration(): Promise<MigrationResult>
 }
 
 // CLI interface for running the migration
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (require.main === module) {
   const action = process.argv[2];
   
   if (action === 'rollback') {

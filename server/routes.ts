@@ -14,10 +14,11 @@ import { handleStripeWebhook, rawBodyParser } from "./webhooks";
 import { fileStorage } from "./file-storage";
 import subscriptionRoutes from "./subscription-routes";
 import multer from 'multer';
-import ModelClient from "@azure-rest/ai-inference";
-import { AzureKeyCredential } from "@azure/core-auth";
-import { GoogleGenerativeAI } from "@google/generative-ai";
-import OpenAI from "openai";
+// Temporarily commented out to fix startup issues
+// import ModelClient from "@azure-rest/ai-inference";
+// import { AzureKeyCredential } from "@azure/core-auth";
+// import { GoogleGenerativeAI } from "@google/generative-ai";
+// import OpenAI from "openai";
 import dotenv from "dotenv";
 dotenv.config();
 

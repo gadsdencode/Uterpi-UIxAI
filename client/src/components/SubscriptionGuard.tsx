@@ -7,6 +7,7 @@ import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Alert, AlertDescription } from './ui/alert';
 import { Lock, Crown, ArrowRight, CheckCircle, Loader2 } from 'lucide-react';
+import { navigateTo } from './Router';
 
 interface ParticlesProps {
   className?: string;
@@ -367,7 +368,7 @@ export const SubscriptionGuard: React.FC<SubscriptionGuardProps> = ({
                 transition={{ delay: 0.4 }}
               >
                 <h3 className="font-medium mb-3 text-white">Choose your plan:</h3>
-                <ul className="space-y-2">
+                <div className="space-y-2">
                   {[
                     'Free: 100 AI Credits/month',
                     'Pro ($19/mo): 1,000 Credits + All AI providers',
@@ -376,7 +377,7 @@ export const SubscriptionGuard: React.FC<SubscriptionGuardProps> = ({
                     'AI code reviews & optimizations',
                     'Priority support for paid plans'
                   ].map((featureItem, index) => (
-                    <motion.li 
+                    <motion.div 
                       key={featureItem}
                       initial={{ opacity: 0, x: -10 }}
                       animate={{ opacity: 1, x: 0 }}
@@ -385,9 +386,9 @@ export const SubscriptionGuard: React.FC<SubscriptionGuardProps> = ({
                     >
                       <CheckCircle className="h-4 w-4 text-violet-400 flex-shrink-0" />
                       <span className="text-sm text-slate-300">{featureItem}</span>
-                    </motion.li>
+                    </motion.div>
                   ))}
-                </ul>
+                </div>
               </motion.div>
 
               {/* Action Buttons */}
@@ -398,7 +399,7 @@ export const SubscriptionGuard: React.FC<SubscriptionGuardProps> = ({
                 className="space-y-3"
               >
                 <button
-                  onClick={() => window.location.href = '/pricing'}
+                  onClick={() => navigateTo('/pricing')}
                   className="w-full py-3 bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700 rounded-xl text-white font-medium transition-all duration-200 flex items-center justify-center gap-2"
                 >
                   View Pricing Plans

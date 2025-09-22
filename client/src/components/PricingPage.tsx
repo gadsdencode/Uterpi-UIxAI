@@ -3,14 +3,14 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Check, X, Sparkles, Users, Building2, CreditCard } from 'lucide-react';
+import { Check, X, Sparkles, Users, Building2, CreditCard, ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
+import { navigateTo } from './Router';
 
 interface PlanFeature {
   name: string;
@@ -36,7 +36,6 @@ interface SubscriptionPlan {
 }
 
 const PricingPage: React.FC = () => {
-  const navigate = useNavigate();
   const { user } = useAuth();
   const { toast } = useToast();
   const [billingInterval, setBillingInterval] = useState<'month' | 'year'>('month');
@@ -158,7 +157,7 @@ const PricingPage: React.FC = () => {
 
   const handleSelectPlan = async (planId: string) => {
     if (!user) {
-      navigate('/login');
+      navigateTo('/');
       return;
     }
 
@@ -171,7 +170,7 @@ const PricingPage: React.FC = () => {
     setLoading(true);
     try {
       // Navigate to checkout with selected plan
-      navigate(`/checkout?plan=${planId}&interval=${billingInterval}`);
+      navigateTo(`/checkout?plan=${planId}&interval=${billingInterval}`);
     } catch (error) {
       console.error('Error selecting plan:', error);
       toast({
@@ -186,6 +185,18 @@ const PricingPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-muted/20 py-12">
       <div className="container mx-auto px-4">
+        {/* Back Button */}
+        <div className="mb-6">
+          <Button
+            variant="ghost"
+            onClick={() => navigateTo('/')}
+            className="flex items-center gap-2 text-muted-foreground hover:text-foreground"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to NomadAI
+          </Button>
+        </div>
+
         {/* Header */}
         <div className="text-center mb-12">
           <h1 className="text-4xl font-bold mb-4">Choose Your Plan</h1>
@@ -322,16 +333,16 @@ const PricingPage: React.FC = () => {
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <Button variant="outline" onClick={() => navigate('/settings/billing/credits')}>
+              <Button variant="outline" onClick={() => navigateTo('/settings/billing/credits')}>
                 100 Credits - $1.99
               </Button>
-              <Button variant="outline" onClick={() => navigate('/settings/billing/credits')}>
+              <Button variant="outline" onClick={() => navigateTo('/settings/billing/credits')}>
                 500 Credits - $8.99
               </Button>
-              <Button variant="outline" onClick={() => navigate('/settings/billing/credits')}>
+              <Button variant="outline" onClick={() => navigateTo('/settings/billing/credits')}>
                 1,000 Credits - $15.99
               </Button>
-              <Button variant="outline" onClick={() => navigate('/settings/billing/credits')}>
+              <Button variant="outline" onClick={() => navigateTo('/settings/billing/credits')}>
                 5,000 Credits - $69.99
               </Button>
             </div>

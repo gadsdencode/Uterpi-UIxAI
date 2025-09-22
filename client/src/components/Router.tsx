@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import App from '../App';
 import { ResetPasswordForm } from './auth/ResetPasswordForm';
+import PricingPage from './PricingPage';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { AlertCircle } from 'lucide-react';
@@ -9,6 +10,13 @@ interface RouteState {
   path: string;
   token?: string;
 }
+
+// Navigation utility function
+export const navigateTo = (path: string) => {
+  window.history.pushState({}, '', path);
+  // Trigger a popstate event to update the route
+  window.dispatchEvent(new PopStateEvent('popstate'));
+};
 
 export function Router() {
   const [route, setRoute] = useState<RouteState>({ path: '/' });
@@ -41,6 +49,11 @@ export function Router() {
     window.history.pushState({}, '', '/');
     setRoute({ path: '/' });
   };
+
+  // Handle pricing page
+  if (route.path === '/pricing') {
+    return <PricingPage />;
+  }
 
   // Handle reset password page
   if (route.path === '/reset-password') {

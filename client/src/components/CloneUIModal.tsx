@@ -23,10 +23,28 @@ interface CloneUIModalProps {
 }
 
 interface AnalysisResult {
-  components: Array<{ type: string; description: string }>;
-  colorPalette: string[];
-  layout: string;
+  components: Array<{ type: string; description: string; complexity?: string }>;
+  colorPalette: string[] | {
+    primary?: string;
+    secondary?: string;
+    accent?: string;
+    background?: string;
+    text?: string;
+    additional?: string[];
+    [key: string]: string | string[] | undefined;
+  };
+  layout: string | {
+    system?: string;
+    structure?: string;
+    responsive?: string;
+  };
   estimatedComplexity: string;
+  typography?: {
+    primary?: string;
+    secondary?: string;
+    sizes?: string[];
+  };
+  implementationNotes?: string[];
 }
 
 interface GenerationResult {
@@ -211,6 +229,19 @@ const CloneUIModal: React.FC<CloneUIModalProps> = ({ isOpen, onClose }) => {
 
     const formData = new FormData();
     formData.append('image', selectedFile);
+    
+    // Get the current AI provider from localStorage
+    const provider = localStorage.getItem('current-ai-provider') || 'gemini';
+    formData.append('provider', provider);
+    
+    // Add API keys if needed
+    if (provider === 'gemini') {
+      const apiKey = localStorage.getItem('gemini-api-key');
+      if (apiKey) formData.append('apiKey', apiKey);
+    } else if (provider === 'openai') {
+      const apiKey = localStorage.getItem('openai-api-key');
+      if (apiKey) formData.append('apiKey', apiKey);
+    }
 
     try {
       const response = await fetch('/api/clone-ui/analyze', {
@@ -485,22 +516,68 @@ const CloneUIModal: React.FC<CloneUIModalProps> = ({ isOpen, onClose }) => {
 
                       <div className="p-4 bg-slate-800/50 rounded-lg">
                         <h4 className="font-medium text-white mb-2">Color Palette</h4>
-                        <div className="flex gap-2">
-                          {analysisResult.analysis.colorPalette.map((color, index) => (
-                            <div
-                              key={index}
-                              className="w-8 h-8 rounded-full border border-slate-600"
-                              style={{ backgroundColor: color }}
-                              title={color}
-                            />
-                          ))}
+                        <div className="flex gap-2 flex-wrap">
+                          {(() => {
+                            const palette = analysisResult.analysis.colorPalette;
+                            // Handle both array format and object format
+                            if (Array.isArray(palette)) {
+                              return palette.map((color, index) => (
+                                <div
+                                  key={index}
+                                  className="w-8 h-8 rounded-full border border-slate-600"
+                                  style={{ backgroundColor: color }}
+                                  title={color}
+                                />
+                              ));
+                            } else if (palette && typeof palette === 'object') {
+                              // Handle object format with properties like primary, secondary, etc.
+                              return Object.entries(palette).map(([name, color]) => {
+                                if (Array.isArray(color)) {
+                                  // Handle additional colors array
+                                  return color.map((c, i) => (
+                                    <div
+                                      key={`${name}-${i}`}
+                                      className="w-8 h-8 rounded-full border border-slate-600"
+                                      style={{ backgroundColor: c }}
+                                      title={`${name}: ${c}`}
+                                    />
+                                  ));
+                                }
+                                return (
+                                  <div
+                                    key={name}
+                                    className="w-8 h-8 rounded-full border border-slate-600"
+                                    style={{ backgroundColor: color as string }}
+                                    title={`${name}: ${color}`}
+                                  />
+                                );
+                              }).flat();
+                            }
+                            return null;
+                          })()}
                         </div>
                       </div>
 
                       <div className="p-4 bg-slate-800/50 rounded-lg">
                         <h4 className="font-medium text-white mb-2">Layout & Complexity</h4>
                         <div className="text-sm text-slate-300 space-y-1">
-                          <div><span className="text-violet-400">Layout:</span> {analysisResult.analysis.layout}</div>
+                          <div>
+                            <span className="text-violet-400">Layout:</span> {
+                              typeof analysisResult.analysis.layout === 'object' 
+                                ? analysisResult.analysis.layout.system || 'Unknown'
+                                : analysisResult.analysis.layout
+                            }
+                          </div>
+                          {typeof analysisResult.analysis.layout === 'object' && analysisResult.analysis.layout.structure && (
+                            <div>
+                              <span className="text-violet-400">Structure:</span> {analysisResult.analysis.layout.structure}
+                            </div>
+                          )}
+                          {typeof analysisResult.analysis.layout === 'object' && analysisResult.analysis.layout.responsive && (
+                            <div>
+                              <span className="text-violet-400">Responsive:</span> {analysisResult.analysis.layout.responsive}
+                            </div>
+                          )}
                           <div><span className="text-violet-400">Complexity:</span> {analysisResult.analysis.estimatedComplexity}</div>
                         </div>
                       </div>

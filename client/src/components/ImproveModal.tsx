@@ -197,6 +197,19 @@ const ImproveModal: React.FC<ImproveModalProps> = ({ isOpen, onClose }) => {
       } else {
         formData.append('code', code);
       }
+      
+      // Get the current AI provider from localStorage
+      const provider = localStorage.getItem('current-ai-provider') || 'gemini';
+      formData.append('provider', provider);
+      
+      // Add API keys if needed
+      if (provider === 'gemini') {
+        const apiKey = localStorage.getItem('gemini-api-key');
+        if (apiKey) formData.append('apiKey', apiKey);
+      } else if (provider === 'openai') {
+        const apiKey = localStorage.getItem('openai-api-key');
+        if (apiKey) formData.append('apiKey', apiKey);
+      }
 
       const response = await fetch('/api/improve/analyze', {
         method: 'POST',

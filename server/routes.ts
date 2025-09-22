@@ -15,6 +15,8 @@ import { fileStorage } from "./file-storage";
 import multer from 'multer';
 import ModelClient from "@azure-rest/ai-inference";
 import { AzureKeyCredential } from "@azure/core-auth";
+import { GoogleGenerativeAI } from "@google/generative-ai";
+import OpenAI from "openai";
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -248,7 +250,71 @@ function setCachedResponse(cacheKey: string, response: any, ttlMinutes: number =
   }
 }
 
-// Initialize Azure AI client
+// Create AI client based on provider
+export function createAIClient(provider: string = 'gemini', userApiKey?: string): { client: any; config: any } {
+  switch (provider.toLowerCase()) {
+    case 'gemini': {
+      const apiKey = userApiKey || process.env.VITE_GEMINI_API_KEY;
+      if (!apiKey) {
+        throw new Error("Gemini API key missing. Please provide an API key or set VITE_GEMINI_API_KEY environment variable.");
+      }
+      const genAI = new GoogleGenerativeAI(apiKey);
+      return {
+        client: genAI,
+        config: { 
+          modelName: 'gemini-1.5-flash',
+          apiKey 
+        }
+      };
+    }
+    
+    case 'openai': {
+      const apiKey = userApiKey || process.env.VITE_OPENAI_API_KEY;
+      if (!apiKey) {
+        throw new Error("OpenAI API key missing. Please provide an API key or set VITE_OPENAI_API_KEY environment variable.");
+      }
+      const openai = new OpenAI({ apiKey });
+      return {
+        client: openai,
+        config: {
+          modelName: 'gpt-4-turbo-preview',
+          apiKey
+        }
+      };
+    }
+    
+    case 'azure':
+    case 'azureai': {
+      const endpoint = process.env.VITE_AZURE_AI_ENDPOINT;
+      const apiKey = userApiKey || process.env.VITE_AZURE_AI_API_KEY;
+      const modelName = process.env.VITE_AZURE_AI_MODEL_NAME || "ministral-3b";
+      
+      if (!endpoint || !apiKey) {
+        throw new Error("Azure AI configuration missing. Please set VITE_AZURE_AI_ENDPOINT and VITE_AZURE_AI_API_KEY environment variables.");
+      }
+      
+      const credential = new AzureKeyCredential(apiKey);
+      const client = ModelClient(endpoint, credential);
+      
+      return {
+        client,
+        config: {
+          endpoint,
+          apiKey,
+          modelName,
+          maxRetries: 3,
+          retryDelay: 1000,
+          cacheEnabled: true
+        }
+      };
+    }
+    
+    default:
+      throw new Error(`Unsupported AI provider: ${provider}`);
+  }
+}
+
+// Initialize Azure AI client (kept for backwards compatibility)
 export function createAzureAIClient(): { client: any; config: AzureAIConfig } {
   const endpoint = process.env.VITE_AZURE_AI_ENDPOINT;
   const apiKey = process.env.VITE_AZURE_AI_API_KEY;
@@ -1587,8 +1653,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "No image file provided" });
       }
 
-      console.log("🖼️ Starting enhanced UI clone analysis...");
-      const { client, config } = createAzureAIClient();
+      // Get provider and API key from request
+      const provider = req.body.provider || 'gemini';
+      const userApiKey = req.body.apiKey;
+      
+      console.log(`🖼️ Starting enhanced UI clone analysis with ${provider}...`);
+      const { client, config } = createAIClient(provider, userApiKey);
       
       // Convert image to base64 for Azure AI Vision
       const imageBase64 = req.file.buffer.toString('base64');
@@ -1642,51 +1712,107 @@ You MUST respond with ONLY valid JSON in this exact structure. No markdown, no e
   ]
 }`;
 
-      // Use enhanced retry logic for vision analysis
-      const response = await retryWithBackoff(async () => {
-        return await client.path("/chat/completions").post({
-          body: {
-            messages: [
-              {
-                role: "system",
-                content: "You are an expert UI/UX designer and frontend developer specializing in React/TypeScript. Provide detailed, accurate, and actionable analysis of web interfaces. Always respond with valid JSON only."
-              },
-              {
-                role: "user",
-                content: [
-                  { type: "text", text: analysisPrompt },
-                  { 
-                    type: "image_url", 
-                    image_url: { 
-                      url: `data:${imageMimeType};base64,${imageBase64}` 
-                    } 
-                  }
-                ]
-              }
-            ],
-            max_tokens: 3072,
+      // Use provider-specific AI call
+      let analysisResult;
+      
+      if (provider.toLowerCase() === 'gemini') {
+        const model = client.getGenerativeModel({ 
+          model: config.modelName,
+          generationConfig: {
             temperature: 0.2,
-            model: config.modelName,
-            stream: false,
-            response_format: { type: "json_object" }
-          },
+            maxOutputTokens: 3072,
+            responseMimeType: "application/json"
+          }
         });
-      }, config.maxRetries, config.retryDelay);
-
-      if (response.status !== "200") {
-        const errorDetail = extractAzureAIError(response.body?.error || response.body);
-        throw new Error(`Azure AI API error (${response.status}): ${errorDetail}`);
+        
+        const imagePart = {
+          inlineData: {
+            data: imageBase64,
+            mimeType: imageMimeType
+          }
+        };
+        
+        const result = await model.generateContent([analysisPrompt, imagePart]);
+        const response = await result.response;
+        const text = response.text();
+        
+        try {
+          analysisResult = JSON.parse(text);
+        } catch (e) {
+          console.error("Failed to parse Gemini response:", text);
+          throw new Error("Invalid JSON response from Gemini");
+        }
+      } else if (provider.toLowerCase() === 'openai') {
+        const response = await client.chat.completions.create({
+          model: config.modelName,
+          messages: [
+            {
+              role: "system",
+              content: "You are an expert UI/UX designer and frontend developer specializing in React/TypeScript. Provide detailed, accurate, and actionable analysis of web interfaces. Always respond with valid JSON only."
+            },
+            {
+              role: "user",
+              content: [
+                { type: "text", text: analysisPrompt },
+                { 
+                  type: "image_url", 
+                  image_url: { 
+                    url: `data:${imageMimeType};base64,${imageBase64}` 
+                  } 
+                }
+              ]
+            }
+          ],
+          max_tokens: 3072,
+          temperature: 0.2,
+          response_format: { type: "json_object" }
+        });
+        
+        analysisResult = JSON.parse(response.choices[0].message.content || "{}");
+      } else if (provider.toLowerCase() === 'azure' || provider.toLowerCase() === 'azureai') {
+        const response = await retryWithBackoff(async () => {
+          return await client.path("/chat/completions").post({
+            body: {
+              messages: [
+                {
+                  role: "system",
+                  content: "You are an expert UI/UX designer and frontend developer specializing in React/TypeScript. Provide detailed, accurate, and actionable analysis of web interfaces. Always respond with valid JSON only."
+                },
+                {
+                  role: "user",
+                  content: [
+                    { type: "text", text: analysisPrompt },
+                    { 
+                      type: "image_url", 
+                      image_url: { 
+                        url: `data:${imageMimeType};base64,${imageBase64}` 
+                      } 
+                    }
+                  ]
+                }
+              ],
+              max_tokens: 3072,
+              temperature: 0.2,
+              model: config.modelName,
+              stream: false,
+              response_format: { type: "json_object" }
+            },
+          });
+        }, config.maxRetries, config.retryDelay);
+        
+        if (!response.body?.choices?.[0]?.message?.content) {
+          throw new Error("Invalid response from Azure AI");
+        }
+        
+        analysisResult = JSON.parse(response.body.choices[0].message.content);
+      } else {
+        throw new Error(`Unsupported provider: ${provider}`);
       }
-
-      const aiResponse = response.body.choices[0]?.message?.content || "";
-      console.log("🎯 UI Analysis AI Response received, length:", aiResponse.length);
       
-      // Parse AI response with robust JSON parsing
-      const analysisResult = parseAzureAIJSON(aiResponse);
-      
+      // Validate the analysis result
       if (!analysisResult) {
-        console.warn("❌ Failed to parse AI analysis, using intelligent fallback");
-        throw new Error("Invalid analysis response from Azure AI");
+        console.warn("❌ Failed to parse AI analysis");
+        throw new Error(`Invalid analysis response from ${provider}`);
       }
 
       console.log("✅ UI Analysis successful:", {
@@ -1705,8 +1831,8 @@ You MUST respond with ONLY valid JSON in this exact structure. No markdown, no e
       let generatedCode = config.cacheEnabled ? getCachedResponse(cacheKey) : null;
       
       if (!generatedCode) {
-        generatedCode = await generateUICodeWithAI(client, config, analysisResult);
-        if (config.cacheEnabled && generatedCode) {
+        generatedCode = await generateUICodeWithAI(client, config, analysisResult, provider);
+        if (config.cacheEnabled !== false && generatedCode) {
           setCachedResponse(cacheKey, generatedCode, 60); // Cache for 1 hour
         }
       }
@@ -1843,7 +1969,7 @@ You MUST respond with ONLY valid JSON in this exact structure. No markdown, no e
     customMessage: "AI-powered code analysis requires a paid subscription"
   }), upload.single('codeFile'), async (req: MulterRequest, res) => {
     try {
-      const { code, component } = req.body;
+      const { code, component, provider, apiKey } = req.body;
       let codeToAnalyze = code;
 
       if (req.file) {
@@ -1854,10 +1980,14 @@ You MUST respond with ONLY valid JSON in this exact structure. No markdown, no e
         return res.status(400).json({ error: "No code provided for analysis" });
       }
 
-      const { client, config } = createAzureAIClient();
+      // Get provider from request or use default
+      const aiProvider = provider || 'gemini';
+      console.log(`📝 Starting code analysis with ${aiProvider}...`);
       
-      // Use Azure AI to analyze and improve the code
-      const result = await analyzeAndImproveCodeWithAI(client, config, codeToAnalyze);
+      const { client, config } = createAIClient(aiProvider, apiKey);
+      
+      // Use AI to analyze and improve the code based on provider
+      const result = await analyzeAndImproveCodeWithAI(client, config, codeToAnalyze, aiProvider);
 
       res.json({
         success: true,
@@ -2416,7 +2546,7 @@ You MUST respond with ONLY valid JSON in this exact structure. No markdown, no e
 }
 
 // Enhanced UI code generation with Azure AI
-async function generateUICodeWithAI(client: any, config: AzureAIConfig, analysis: any): Promise<string> {
+async function generateUICodeWithAI(client: any, config: any, analysis: any, provider: string = 'azure'): Promise<string> {
   try {
     console.log("🚀 Starting enhanced UI code generation...");
     
@@ -2465,33 +2595,72 @@ ${JSON.stringify(analysis, null, 2)}
 
 **COMPONENT NAME:** GeneratedUIComponent`;
 
-    const response = await retryWithBackoff(async () => {
-      return await client.path("/chat/completions").post({
-        body: {
-          messages: [
-            {
-              role: "system",
-              content: "You are a senior React/TypeScript developer specializing in creating production-ready components. Generate clean, accessible, and modern code that follows industry best practices. Focus on code quality, performance, and maintainability."
-            },
-            {
-              role: "user",
-              content: codePrompt
-            }
-          ],
-          max_tokens: 4096,
+    let generatedCode;
+    
+    if (provider.toLowerCase() === 'gemini') {
+      const model = client.getGenerativeModel({ 
+        model: config.modelName,
+        generationConfig: {
           temperature: 0.1,
-          model: config.modelName,
-          stream: false,
-        },
+          maxOutputTokens: 4096
+        }
       });
-    }, config.maxRetries, config.retryDelay);
+      
+      const systemPrompt = "You are a senior React/TypeScript developer specializing in creating production-ready components. Generate clean, accessible, and modern code that follows industry best practices. Focus on code quality, performance, and maintainability.";
+      const fullPrompt = `${systemPrompt}\n\n${codePrompt}`;
+      
+      const result = await model.generateContent(fullPrompt);
+      const response = await result.response;
+      generatedCode = response.text();
+    } else if (provider.toLowerCase() === 'openai') {
+      const response = await client.chat.completions.create({
+        model: config.modelName,
+        messages: [
+          {
+            role: "system",
+            content: "You are a senior React/TypeScript developer specializing in creating production-ready components. Generate clean, accessible, and modern code that follows industry best practices. Focus on code quality, performance, and maintainability."
+          },
+          {
+            role: "user",
+            content: codePrompt
+          }
+        ],
+        max_tokens: 4096,
+        temperature: 0.1
+      });
+      
+      generatedCode = response.choices[0].message.content;
+    } else if (provider.toLowerCase() === 'azure' || provider.toLowerCase() === 'azureai') {
+      const response = await retryWithBackoff(async () => {
+        return await client.path("/chat/completions").post({
+          body: {
+            messages: [
+              {
+                role: "system",
+                content: "You are a senior React/TypeScript developer specializing in creating production-ready components. Generate clean, accessible, and modern code that follows industry best practices. Focus on code quality, performance, and maintainability."
+              },
+              {
+                role: "user",
+                content: codePrompt
+              }
+            ],
+            max_tokens: 4096,
+            temperature: 0.1,
+            model: config.modelName,
+            stream: false,
+          },
+        });
+      }, config.maxRetries, config.retryDelay);
 
-    if (response.status !== "200") {
-      const errorDetail = extractAzureAIError(response.body?.error || response.body);
-      throw new Error(`Azure AI API error (${response.status}): ${errorDetail}`);
+      if (response.status !== "200") {
+        const errorDetail = extractAzureAIError(response.body?.error || response.body);
+        throw new Error(`Azure AI API error (${response.status}): ${errorDetail}`);
+      }
+
+      generatedCode = response.body.choices[0]?.message?.content;
+    } else {
+      throw new Error(`Unsupported provider: ${provider}`);
     }
-
-    const generatedCode = response.body.choices[0]?.message?.content;
     
          if (!generatedCode || generatedCode.trim().length < 100) {
        console.warn("⚠️ Generated code seems too short, using enhanced fallback");
@@ -3821,7 +3990,7 @@ function generateFallbackPatternAnalysis(): any {
 }
 
 // Enhanced Azure AI-powered code analysis and improvement
-async function analyzeAndImproveCodeWithAI(client: any, config: AzureAIConfig, code: string): Promise<any> {
+async function analyzeAndImproveCodeWithAI(client: any, config: any, code: string, provider: string = 'azure'): Promise<any> {
   try {
     console.log("🔍 Starting enhanced code analysis...");
     
@@ -3909,37 +4078,85 @@ Respond with ONLY valid JSON in this exact structure:
       return cachedResult;
     }
 
-    const response = await retryWithBackoff(async () => {
-      return await client.path("/chat/completions").post({
-        body: {
-          messages: [
-            {
-              role: "system",
-              content: "You are a senior software architect and code reviewer specializing in React/TypeScript. Provide comprehensive, actionable code analysis with specific improvements. Focus on practical, implementable suggestions that deliver measurable benefits."
-            },
-            {
-              role: "user",
-              content: analysisPrompt
-            }
-          ],
-          max_tokens: 4096,
-          temperature: 0.1,
-          model: config.modelName,
-          stream: false,
-          response_format: { type: "json_object" }
-        },
-      });
-    }, config.maxRetries, config.retryDelay);
-
-    if (response.status !== "200") {
-      const errorDetail = extractAzureAIError(response.body?.error || response.body);
-      throw new Error(`Azure AI API error (${response.status}): ${errorDetail}`);
-    }
-
-    const aiResponse = response.body.choices[0]?.message?.content || "";
-    console.log("🎯 Code analysis AI response received, length:", aiResponse.length);
+    let parsed;
     
-    const parsed = parseAzureAIJSON(aiResponse);
+    if (provider.toLowerCase() === 'gemini') {
+      const model = client.getGenerativeModel({ 
+        model: config.modelName,
+        generationConfig: {
+          temperature: 0.1,
+          maxOutputTokens: 4096,
+          responseMimeType: "application/json"
+        }
+      });
+      
+      const systemPrompt = "You are a senior software architect and code reviewer specializing in React/TypeScript. Provide comprehensive, actionable code analysis with specific improvements. Focus on practical, implementable suggestions that deliver measurable benefits.";
+      const fullPrompt = `${systemPrompt}\n\n${analysisPrompt}`;
+      
+      const result = await model.generateContent(fullPrompt);
+      const response = await result.response;
+      const text = response.text();
+      
+      try {
+        parsed = JSON.parse(text);
+      } catch (e) {
+        console.error("Failed to parse Gemini response:", text);
+        throw new Error("Invalid JSON response from Gemini");
+      }
+    } else if (provider.toLowerCase() === 'openai') {
+      const response = await client.chat.completions.create({
+        model: config.modelName,
+        messages: [
+          {
+            role: "system",
+            content: "You are a senior software architect and code reviewer specializing in React/TypeScript. Provide comprehensive, actionable code analysis with specific improvements. Focus on practical, implementable suggestions that deliver measurable benefits."
+          },
+          {
+            role: "user",
+            content: analysisPrompt
+          }
+        ],
+        max_tokens: 4096,
+        temperature: 0.1,
+        response_format: { type: "json_object" }
+      });
+      
+      parsed = JSON.parse(response.choices[0].message.content || "{}");
+    } else if (provider.toLowerCase() === 'azure' || provider.toLowerCase() === 'azureai') {
+      const response = await retryWithBackoff(async () => {
+        return await client.path("/chat/completions").post({
+          body: {
+            messages: [
+              {
+                role: "system",
+                content: "You are a senior software architect and code reviewer specializing in React/TypeScript. Provide comprehensive, actionable code analysis with specific improvements. Focus on practical, implementable suggestions that deliver measurable benefits."
+              },
+              {
+                role: "user",
+                content: analysisPrompt
+              }
+            ],
+            max_tokens: 4096,
+            temperature: 0.1,
+            model: config.modelName,
+            stream: false,
+            response_format: { type: "json_object" }
+          },
+        });
+      }, config.maxRetries, config.retryDelay);
+
+      if (response.status !== "200") {
+        const errorDetail = extractAzureAIError(response.body?.error || response.body);
+        throw new Error(`Azure AI API error (${response.status}): ${errorDetail}`);
+      }
+
+      const aiResponse = response.body.choices[0]?.message?.content || "";
+      console.log("🎯 Code analysis AI response received, length:", aiResponse.length);
+      
+      parsed = parseAzureAIJSON(aiResponse);
+    } else {
+      throw new Error(`Unsupported provider: ${provider}`);
+    }
     if (parsed && parsed.improvements) {
       const result = {
         improvements: parsed.improvements || [],

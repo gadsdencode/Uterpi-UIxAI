@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import Stripe from 'stripe';
 import { verifyWebhookSignature, syncSubscriptionFromStripe } from './stripe';
+import { handleSubscriptionCheckoutSuccess, handleCreditsCheckoutSuccess } from './stripe-checkout';
 import { db } from './db';
 import { users } from '@shared/schema';
 import { eq } from 'drizzle-orm';
@@ -59,6 +60,10 @@ export async function handleStripeWebhook(req: Request, res: Response): Promise<
 
       case 'customer.updated':
         await handleCustomerUpdated(event.data.object as Stripe.Customer);
+        break;
+
+      case 'checkout.session.completed':
+        await handleCheckoutSessionCompleted(event.data.object as Stripe.Checkout.Session);
         break;
 
       default:
@@ -254,6 +259,36 @@ async function getUserIdFromCustomer(customerId: string): Promise<number | null>
   } catch (error) {
     console.error('Error getting user from customer ID:', error);
     return null;
+  }
+}
+
+/**
+ * Handle checkout session completed event (for Checkout Sessions)
+ */
+async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session): Promise<void> {
+  console.log(`Checkout session completed: ${session.id}, mode: ${session.mode}`);
+  
+  try {
+    // Check if this is a subscription or one-time payment
+    if (session.mode === 'subscription') {
+      // Handle subscription checkout completion
+      await handleSubscriptionCheckoutSuccess(session);
+      console.log(`Processed subscription checkout for session ${session.id}`);
+    } else if (session.mode === 'payment') {
+      // Handle AI credits checkout completion
+      const isCreditsPayment = session.metadata?.type === 'ai_credits';
+      if (isCreditsPayment) {
+        await handleCreditsCheckoutSuccess(session);
+        console.log(`Processed AI credits checkout for session ${session.id}`);
+      } else {
+        console.log(`One-time payment completed but not recognized: ${session.id}`);
+      }
+    } else {
+      console.log(`Unknown checkout session mode: ${session.mode} for session ${session.id}`);
+    }
+  } catch (error) {
+    console.error('Error handling checkout session completed:', error);
+    throw error;
   }
 }
 

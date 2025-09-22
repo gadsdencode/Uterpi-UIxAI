@@ -186,15 +186,48 @@ const PricingPage: React.FC = () => {
       return;
     }
 
+    if (planId === 'free') {
+      // Free tier - no payment needed
+      toast({
+        title: 'Already on Free Plan',
+        description: 'You are currently on the free plan. Upgrade to Pro or Team for more features.',
+      });
+      return;
+    }
+
     setLoading(true);
     try {
-      // Navigate to checkout with selected plan
-      navigateTo(`/checkout?plan=${planId}&interval=${billingInterval}`);
+      // Create Stripe Checkout Session
+      const response = await fetch('/api/checkout/subscription', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          tier: planId,
+          interval: billingInterval,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to create checkout session');
+      }
+
+      const data = await response.json();
+      
+      // Redirect to Stripe Checkout
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        throw new Error('No checkout URL returned');
+      }
     } catch (error) {
       console.error('Error selecting plan:', error);
       toast({
-        title: 'Error',
-        description: 'Failed to process plan selection. Please try again.',
+        title: 'Checkout Error',
+        description: error instanceof Error ? error.message : 'Failed to start checkout. Please try again.',
       });
     } finally {
       setLoading(false);

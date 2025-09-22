@@ -101,11 +101,44 @@ export const AICreditsQuickPurchase: React.FC<AICreditsQuickPurchaseProps> = ({
     setIsLoading(true);
     
     try {
-      // Navigate to Stripe checkout
-      navigate(`/checkout/credits?package=${pkg.priceId}&amount=${pkg.credits}`);
+      // Map priceId to packageId for the API
+      const packageMap: { [key: string]: string } = {
+        'price_credits_100': 'credits_100',
+        'price_credits_500': 'credits_500',
+        'price_credits_1000': 'credits_1000',
+        'price_credits_5000': 'credits_5000',
+      };
+      
+      const packageId = packageMap[pkg.priceId] || 'credits_500';
+      
+      // Create Stripe Checkout Session
+      const response = await fetch('/api/checkout/credits', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          packageId,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to create checkout session');
+      }
+
+      const data = await response.json();
+      
+      // Redirect to Stripe Checkout
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        throw new Error('No checkout URL returned');
+      }
     } catch (error) {
       console.error('Error initiating purchase:', error);
-      toast.error('Failed to start purchase. Please try again.');
+      toast.error(error instanceof Error ? error.message : 'Failed to start purchase. Please try again.');
     } finally {
       setIsLoading(false);
       setPurchasingPackage(null);

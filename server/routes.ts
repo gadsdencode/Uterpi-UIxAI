@@ -9,6 +9,7 @@ import { aiCoachService } from "./ai-coach";
 import { db } from "./db";
 import { eq, desc, and } from "drizzle-orm";
 import { createStripeCustomer, createSetupIntent, createSubscription, cancelSubscription, reactivateSubscription, createBillingPortalSession, syncSubscriptionFromStripe } from "./stripe";
+import { createSubscriptionCheckoutSession, createCreditsCheckoutSession, getCheckoutSession } from "./stripe-checkout";
 import { requireActiveSubscription, enhanceWithSubscription } from "./subscription-middleware";
 import { handleStripeWebhook, rawBodyParser } from "./webhooks";
 import { fileStorage } from "./file-storage";
@@ -1573,6 +1574,130 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Create billing portal session error:", error);
       res.status(500).json({ error: "Failed to create billing portal session" });
+    }
+  });
+
+  // ===== NEW CHECKOUT SESSIONS ENDPOINTS =====
+
+  // Create Stripe Checkout Session for Subscription
+  app.post("/api/checkout/subscription", requireAuth, async (req, res) => {
+    try {
+      const { tier, interval, teamName, memberEmails } = req.body;
+      
+      if (!tier || !interval) {
+        return res.status(400).json({ error: "Tier and interval are required" });
+      }
+
+      if (!['pro', 'team', 'enterprise'].includes(tier)) {
+        return res.status(400).json({ error: "Invalid subscription tier" });
+      }
+
+      if (!['month', 'year'].includes(interval)) {
+        return res.status(400).json({ error: "Invalid billing interval" });
+      }
+
+      // Enterprise requires custom pricing
+      if (tier === 'enterprise') {
+        return res.status(400).json({ 
+          error: "Enterprise plans require custom pricing. Please contact sales.",
+          contactSales: true 
+        });
+      }
+
+      const baseUrl = `${req.protocol}://${req.get('host')}`;
+      const session = await createSubscriptionCheckoutSession({
+        userId: req.user!.id,
+        tier,
+        interval,
+        successUrl: `${baseUrl}/checkout/success`,
+        cancelUrl: `${baseUrl}/checkout/cancel`,
+        teamName,
+        memberEmails,
+      });
+
+      res.json({ 
+        success: true, 
+        sessionId: session.id,
+        url: session.url 
+      });
+    } catch (error) {
+      console.error("Create subscription checkout error:", error);
+      res.status(500).json({ 
+        error: error instanceof Error ? error.message : "Failed to create checkout session" 
+      });
+    }
+  });
+
+  // Create Stripe Checkout Session for AI Credits
+  app.post("/api/checkout/credits", requireAuth, async (req, res) => {
+    try {
+      const { packageId } = req.body;
+      
+      if (!packageId) {
+        return res.status(400).json({ error: "Package ID is required" });
+      }
+
+      const validPackages = ['credits_100', 'credits_500', 'credits_1000', 'credits_5000'];
+      if (!validPackages.includes(packageId)) {
+        return res.status(400).json({ error: "Invalid credit package" });
+      }
+
+      const baseUrl = `${req.protocol}://${req.get('host')}`;
+      const session = await createCreditsCheckoutSession({
+        userId: req.user!.id,
+        packageId,
+        successUrl: `${baseUrl}/checkout/success`,
+        cancelUrl: `${baseUrl}/checkout/cancel`,
+      });
+
+      res.json({ 
+        success: true, 
+        sessionId: session.id,
+        url: session.url 
+      });
+    } catch (error) {
+      console.error("Create credits checkout error:", error);
+      res.status(500).json({ 
+        error: error instanceof Error ? error.message : "Failed to create checkout session" 
+      });
+    }
+  });
+
+  // Handle Checkout Success (retrieve session details)
+  app.get("/api/checkout/session/:sessionId", requireAuth, async (req, res) => {
+    try {
+      const { sessionId } = req.params;
+      
+      if (!sessionId) {
+        return res.status(400).json({ error: "Session ID is required" });
+      }
+
+      const session = await getCheckoutSession(sessionId);
+      
+      // Verify this session belongs to the authenticated user
+      const sessionUserId = parseInt(session.metadata?.userId || '0');
+      if (sessionUserId !== req.user!.id) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      res.json({
+        success: true,
+        session: {
+          id: session.id,
+          status: session.status,
+          mode: session.mode,
+          amountTotal: session.amount_total,
+          currency: session.currency,
+          customerEmail: session.customer_details?.email,
+          paymentStatus: session.payment_status,
+          metadata: session.metadata,
+        }
+      });
+    } catch (error) {
+      console.error("Get checkout session error:", error);
+      res.status(500).json({ 
+        error: error instanceof Error ? error.message : "Failed to retrieve checkout session" 
+      });
     }
   });
 

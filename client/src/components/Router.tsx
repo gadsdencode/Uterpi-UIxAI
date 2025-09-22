@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import App from '../App';
 import { ResetPasswordForm } from './auth/ResetPasswordForm';
 import PricingPage from './PricingPage';
+import { CheckoutSuccessPage, CheckoutCancelPage } from './CheckoutPages';
 import { AuthProvider } from '../hooks/useAuth';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
@@ -56,6 +57,12 @@ export function Router() {
     <AuthProvider>
       {/* Handle pricing page */}
       {route.path === '/pricing' && <PricingPage />}
+
+      {/* Handle checkout success page */}
+      {route.path === '/checkout/success' && <CheckoutSuccessPage />}
+
+      {/* Handle checkout cancel page */}
+      {route.path === '/checkout/cancel' && <CheckoutCancelPage />}
 
       {/* Handle reset password page */}
       {route.path === '/reset-password' && (

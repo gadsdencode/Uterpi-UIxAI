@@ -85,9 +85,8 @@ export const subscriptionPlans = pgTable("subscription_plans", {
 export const subscriptions = pgTable("subscriptions", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").references(() => users.id).notNull(),
-  teamId: integer("team_id"), // Team association for subscription
+  teamId: integer("team_id").references(() => teams.id), // Team association for subscription
   planId: integer("plan_id").references(() => subscriptionPlans.id),
-  teamId: integer("team_id").references(() => teams.id),
   stripeSubscriptionId: text("stripe_subscription_id").unique(),
   stripePriceId: text("stripe_price_id"),
   status: text("status").notNull(), // active, past_due, canceled, etc.

@@ -1311,6 +1311,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get detailed subscription information (for upgrade flows)
+  app.get("/api/subscription/details", requireAuth, async (req, res) => {
+    try {
+      const user = await storage.getUser(req.user!.id);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      // Get user's current subscription with enhanced details
+      const tier = user.subscriptionTier || 'freemium';
+      
+      res.json({
+        hasAccess: ['active', 'trialing', 'freemium'].includes(user.subscriptionStatus || tier),
+        tier,
+        features: {
+          unlimitedChat: tier !== 'freemium',
+          monthlyMessageAllowance: tier === 'freemium' ? 50 : 0,
+          aiProvidersAccess: tier === 'freemium' ? ['claude', 'gpt-4o-mini'] : ['all'],
+          monthlyAiCredits: tier === 'pro' ? 1000 : tier === 'team' ? 2000 : 0,
+          currentCreditsBalance: user.ai_credits_balance || 0,
+          maxProjects: tier === 'freemium' ? 3 : tier === 'pro' ? 10 : 999999,
+          fullCodebaseContext: tier !== 'freemium',
+          gitIntegration: tier !== 'freemium',
+          aiCodeReviewsPerMonth: tier === 'freemium' ? 0 : tier === 'pro' ? 15 : tier === 'team' ? 50 : 999999,
+          aiCodeReviewsUsed: 0,
+          teamFeaturesEnabled: tier === 'team' || tier === 'enterprise',
+          sharedWorkspaces: tier === 'team' || tier === 'enterprise',
+          ssoEnabled: tier === 'enterprise',
+          auditLogs: tier === 'enterprise',
+          supportLevel: tier === 'freemium' ? 'email' : tier === 'enterprise' ? 'dedicated' : 'priority_email'
+        },
+        isGrandfathered: user.is_grandfathered || false,
+        grandfatheredFrom: user.grandfathered_from_tier
+      });
+    } catch (error) {
+      console.error("Get subscription details error:", error);
+      res.status(500).json({ error: "Failed to get subscription details" });
+    }
+  });
+
   // Create setup intent for payment method collection
   app.post("/api/subscription/setup-intent", requireAuth, async (req, res) => {
     try {

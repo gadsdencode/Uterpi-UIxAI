@@ -103,6 +103,18 @@ export class DatabaseStorage implements IStorage {
         age: null,
         dateOfBirth: null,
         bio: null,
+        // New team and credits fields with defaults
+        teamId: null,
+        teamRole: null,
+        ai_credits_balance: 0,
+        ai_credits_used_this_month: 0,
+        credits_reset_at: new Date(),
+        messages_used_this_month: 0,
+        messages_reset_at: new Date(),
+        is_grandfathered: false,
+        grandfathered_from_tier: null,
+        grandfathered_at: null,
+        deletedAt: null,
       };
       
       const result = await db.insert(users).values(newUser).returning();
@@ -152,6 +164,18 @@ export class DatabaseStorage implements IStorage {
         age: null,
         dateOfBirth: null,
         bio: null,
+        // New team and credits fields with defaults
+        teamId: null,
+        teamRole: null,
+        ai_credits_balance: 0,
+        ai_credits_used_this_month: 0,
+        credits_reset_at: new Date(),
+        messages_used_this_month: 0,
+        messages_reset_at: new Date(),
+        is_grandfathered: false,
+        grandfathered_from_tier: null,
+        grandfathered_at: null,
+        deletedAt: null,
       };
       
       const result = await db.insert(users).values(newUser).returning();
@@ -398,6 +422,18 @@ export class MemStorage implements IStorage {
       overrideGrantedAt: null,
       resetToken: null,
       resetTokenExpiry: null,
+      // New team and credits fields
+      deletedAt: null,
+      ai_credits_balance: 0,
+      ai_credits_used_this_month: 0,
+      credits_reset_at: new Date(),
+      messages_used_this_month: 0,
+      messages_reset_at: new Date(),
+      teamId: null,
+      teamRole: null,
+      is_grandfathered: false,
+      grandfathered_from_tier: null,
+      grandfathered_at: null,
     };
     
     this.users.set(id, user);
@@ -435,6 +471,18 @@ export class MemStorage implements IStorage {
       overrideGrantedAt: null,
       resetToken: null,
       resetTokenExpiry: null,
+      // New team and credits fields
+      deletedAt: null,
+      ai_credits_balance: 0,
+      ai_credits_used_this_month: 0,
+      credits_reset_at: new Date(),
+      messages_used_this_month: 0,
+      messages_reset_at: new Date(),
+      teamId: null,
+      teamRole: null,
+      is_grandfathered: false,
+      grandfathered_from_tier: null,
+      grandfathered_at: null,
     };
     
     this.users.set(id, user);

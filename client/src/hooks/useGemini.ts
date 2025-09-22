@@ -135,7 +135,7 @@ export const useGemini = (options: GeminiOptions = {}): UseGeminiReturn => {
       contextLength: 1000000,
       description: "Fast and efficient Gemini model for general tasks",
       category: "text",
-      tier: "free",
+      tier: "freemium",
       isFavorite: false,
       capabilities: {
         supportsVision: false,
@@ -248,11 +248,16 @@ export const useGemini = (options: GeminiOptions = {}): UseGeminiReturn => {
       const azureMessages = convertToAzureAIMessages(messages);
       const response = await aiService.sendChatCompletion(azureMessages, options.chatOptions);
       console.log('✅ Gemini hook: Response received:', response ? `${response.substring(0, 100)}...` : 'EMPTY');
+      console.log('🔍 Gemini hook: Full response:', response);
+      console.log('🔍 Gemini hook: Response type:', typeof response);
+      console.log('🔍 Gemini hook: Response length:', response?.length);
       
       if (!response) {
+        console.error('❌ Gemini hook: Empty response received');
         throw new Error('Gemini returned empty response');
       }
       
+      console.log('✅ Gemini hook: Returning response to ChatView');
       return response;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Failed to send message";

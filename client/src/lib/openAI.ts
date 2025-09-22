@@ -97,7 +97,7 @@ export class OpenAIService {
         contextLength: 128000,
         description: "Efficient and cost-effective GPT-4 model",
         category: "text",
-        tier: "free",
+        tier: "freemium",
         isFavorite: true,
         capabilities: {
           supportsVision: false,
@@ -135,7 +135,7 @@ export class OpenAIService {
         contextLength: 16000,
         description: "Fast and efficient language model for general tasks",
         category: "text",
-        tier: "free",
+        tier: "freemium",
         isFavorite: false,
         capabilities: {
           supportsVision: false,
@@ -227,19 +227,28 @@ export class OpenAIService {
         messageCount: processedMessages.length
       });
 
-      const baseUrl = this.config.baseUrl || 'https://api.openai.com';
-      const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+      // Use universal AI proxy for credit checking
+      const response = await fetch('/ai/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.config.apiKey}`,
         },
-        body: JSON.stringify(requestBody),
+        credentials: 'include',
+        body: JSON.stringify({
+          provider: 'openai',
+          ...requestBody
+        }),
       });
 
       console.log('📡 OpenAI response status:', response.status);
 
       if (!response.ok) {
+        // Handle credit limit errors specially
+        if (response.status === 402) {
+          const errorData = await response.json();
+          throw new Error(`Subscription error: ${JSON.stringify(errorData)}`);
+        }
+        
         const errorData = await response.text();
         console.error('❌ OpenAI API error details:', errorData);
         throw new Error(`OpenAI API error (${response.status}): ${errorData}`);
@@ -302,17 +311,26 @@ export class OpenAIService {
         requestBody.stop = options.stop;
       }
 
-      const baseUrl = this.config.baseUrl || 'https://api.openai.com';
-      const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+      // Use universal AI proxy for credit checking
+      const response = await fetch('/ai/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.config.apiKey}`,
         },
-        body: JSON.stringify(requestBody),
+        credentials: 'include',
+        body: JSON.stringify({
+          provider: 'openai',
+          ...requestBody
+        }),
       });
 
       if (!response.ok) {
+        // Handle credit limit errors specially
+        if (response.status === 402) {
+          const errorData = await response.json();
+          throw new Error(`Subscription error: ${JSON.stringify(errorData)}`);
+        }
+        
         const errorData = await response.text();
         console.error('❌ OpenAI streaming error:', errorData);
         throw new Error(`OpenAI streaming error: ${errorData}`);

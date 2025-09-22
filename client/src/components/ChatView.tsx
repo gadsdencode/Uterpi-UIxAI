@@ -26,7 +26,8 @@ import {
   Volume2,
   VolumeX,
   Mic,
-  MicOff
+  MicOff,
+  CreditCard
 } from "lucide-react";
 import { Message, CommandSuggestion, LLMModel, ModelCapabilities } from "../types";
 import { useAIProvider } from "../hooks/useAIProvider";
@@ -50,6 +51,9 @@ import {
   shareTranscript, 
   isWebShareSupported 
 } from '../lib/transcriptUtils';
+import { CreditLimitMessage } from './CreditLimitMessage';
+import { AICreditsQuickPurchase } from './AICreditsQuickPurchase';
+import { navigateTo } from './Router';
 
 interface ParticlesProps {
   className?: string;
@@ -579,6 +583,37 @@ const OrigamiModal: React.FC<{
 
 const FuturisticAIChat: React.FC = () => {
   const { user } = useAuth(); // Get user context for AI personalization
+  
+  // Credit status state
+  const [creditBalance, setCreditBalance] = useState<number | null>(null);
+  const [isFreemium, setIsFreemium] = useState(false);
+  const [messagesRemaining, setMessagesRemaining] = useState<number | null>(null);
+
+  // Fetch credit status on component mount
+  useEffect(() => {
+    if (user) {
+      fetchCreditStatus();
+    }
+  }, [user]);
+
+  const fetchCreditStatus = async () => {
+    try {
+      const response = await fetch('/api/subscription/details', {
+        credentials: 'include',
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setCreditBalance(data.features.currentCreditsBalance);
+        setIsFreemium(data.tier === 'freemium');
+        if (data.tier === 'freemium') {
+          setMessagesRemaining(data.features.messagesRemaining);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching credit status:', error);
+    }
+  };
   
   // Create personalized welcome message
   const getPersonalizedWelcome = useCallback(() => {
@@ -1164,9 +1199,20 @@ const FuturisticAIChat: React.FC = () => {
   }, [input]);
 
   const handleSend = async () => {
-    if (!input.trim() && attachments.length === 0) return;
-    if (isLoading) return; // Prevent multiple requests
+    console.log('🚀 handleSend called with input:', input.trim());
+    console.log('🚀 handleSend - isLoading:', isLoading);
+    console.log('🚀 handleSend - attachments.length:', attachments.length);
+    
+    if (!input.trim() && attachments.length === 0) {
+      console.log('❌ handleSend - No input, returning');
+      return;
+    }
+    if (isLoading) {
+      console.log('❌ handleSend - Already loading, returning');
+      return; // Prevent multiple requests
+    }
 
+    console.log('✅ handleSend - Proceeding with message send');
     // Set chat as active to prevent interference from intelligent toasts
     setIsChatActive(true);
     const startTime = Date.now();
@@ -1186,12 +1232,14 @@ const FuturisticAIChat: React.FC = () => {
       console.log(`  [${index}] ${msg.role} (${msg.id}): ${msg.content.substring(0, 60)}...`);
     });
     
+    console.log('📝 Adding user message to chat:', userMessage);
     setMessages(updatedMessages);
     setInput("");
     setAttachments([]);
     setIsTyping(true);
     setActiveMessage(userMessage.id);
     clearError(); // Clear any previous errors
+    console.log('📝 User message added, proceeding to AI call');
 
     try {
       if (enableStreaming) {
@@ -1240,6 +1288,9 @@ const FuturisticAIChat: React.FC = () => {
         console.log('📤 Sending message to AI provider:', currentProvider);
         const response = await sendMessage(updatedMessages);
         console.log('📥 Received response:', response ? `${response.substring(0, 100)}...` : 'EMPTY/UNDEFINED');
+        console.log('🔍 ChatView: Full response:', response);
+        console.log('🔍 ChatView: Response type:', typeof response);
+        console.log('🔍 ChatView: Response length:', response?.length);
         
         if (!response) {
           console.error('❌ Empty response received from AI provider');
@@ -1253,7 +1304,12 @@ const FuturisticAIChat: React.FC = () => {
           timestamp: new Date(),
         };
         console.log('💬 Adding AI message to chat:', aiMessage);
-        setMessages(prev => [...prev, aiMessage]);
+        console.log('🔍 ChatView: Current messages before adding:', messages.length);
+        setMessages(prev => {
+          const newMessages = [...prev, aiMessage];
+          console.log('🔍 ChatView: New messages after adding:', newMessages.length);
+          return newMessages;
+        });
         
         // Auto-speak AI response if TTS is available and enabled
         if (speechAvailable && !isSpeaking && response) {
@@ -1269,6 +1325,9 @@ const FuturisticAIChat: React.FC = () => {
       const estimatedTokens = userMessage.content.length * 1.3; // Rough estimate
       
       console.log(`📊 Message sent. Total messages: ${updatedMessages.length}, Response time: ${responseTime}ms, Estimated tokens: ${estimatedTokens}`);
+      
+      // Refresh credit status after successful message
+      fetchCreditStatus();
       
       // Track message sending and analyze conversation - reduced threshold for earlier analysis
       if (updatedMessages.length >= 2) { // Temporarily reduced to 2 for immediate testing
@@ -1305,10 +1364,39 @@ const FuturisticAIChat: React.FC = () => {
       // Track error occurrence
       trackAction('error_occurred');
       
-      // Error handling - show error message in chat
+      // Check if this is a credit limit error (402 status)
+      if (err instanceof Error && err.message.includes('Subscription error:')) {
+        try {
+          // Try to parse the error response for credit limit data
+          const errorData = JSON.parse(err.message.replace('Subscription error: ', ''));
+          
+          if (errorData.code === 'MESSAGE_LIMIT_EXCEEDED' || 
+              errorData.code === 'INSUFFICIENT_CREDITS' || 
+              errorData.code === 'NO_CREDITS_AVAILABLE') {
+            
+            // Show credit limit message instead of generic error
+            const creditLimitMessage: Message = {
+              id: (Date.now() + 1).toString(),
+              content: '',
+              role: "assistant",
+              timestamp: new Date(),
+              isCreditLimit: true,
+              metadata: errorData,
+            };
+            
+            setMessages(prev => [...prev, creditLimitMessage]);
+            return; // Don't show generic error
+          }
+        } catch (parseError) {
+          // If parsing fails, fall through to generic error
+          console.error('Failed to parse credit limit error:', parseError);
+        }
+      }
+      
+      // Generic error handling
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
-        content: `Sorry, I encountered an error: ${err instanceof Error ? err.message : 'Unknown error'}. Please check your Azure AI configuration and try again.`,
+        content: `Sorry, I encountered an error: ${err instanceof Error ? err.message : 'Unknown error'}. Please check your configuration and try again.`,
         role: "assistant",
         timestamp: new Date(),
       };
@@ -1478,6 +1566,34 @@ const FuturisticAIChat: React.FC = () => {
             </div>
             
             <div className="flex items-center gap-2">
+              {/* Credit Status Indicator */}
+              {user && (
+                <div className="flex items-center gap-2 px-3 py-2 bg-slate-800/50 rounded-lg border border-slate-700/50">
+                  {isFreemium ? (
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="text-slate-300">Free Plan:</span>
+                      <span className={`font-medium ${(messagesRemaining || 0) <= 2 ? 'text-amber-400' : 'text-green-400'}`}>
+                        {messagesRemaining || 0} messages left
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="text-slate-300">Credits:</span>
+                      <span className={`font-medium ${(creditBalance || 0) === 0 ? 'text-red-400' : (creditBalance || 0) < 50 ? 'text-yellow-400' : 'text-green-400'}`}>
+                        {creditBalance || 0}
+                      </span>
+                    </div>
+                  )}
+                  <AICreditsQuickPurchase 
+                    currentBalance={creditBalance || 0}
+                    isCompact={true}
+                    onPurchaseComplete={() => {
+                      fetchCreditStatus(); // Refresh credit status after purchase
+                    }}
+                  />
+                </div>
+              )}
+              
               {/* New Chat */}
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -1553,6 +1669,45 @@ const FuturisticAIChat: React.FC = () => {
                   <p>AI provider settings</p>
                 </TooltipContent>
               </Tooltip>
+              
+              {/* DEV: Test Credit Purchase Button */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <RippleButton
+                    onClick={() => {
+                      // Create a test credit limit message to trigger the popup
+                      const testCreditMessage: Message = {
+                        id: (Date.now() + 1).toString(),
+                        content: "You've reached your credit limit. Purchase more credits to continue chatting.",
+                        role: "assistant",
+                        timestamp: new Date(),
+                        isCreditLimit: true,
+                        metadata: {
+                          code: 'INSUFFICIENT_CREDITS',
+                          currentBalance: 0,
+                          messagesUsed: 10,
+                          monthlyAllowance: 10,
+                          isFreemium: true,
+                          creditsRequired: 1,
+                          isTeamPooled: false,
+                          purchaseUrl: '/settings/billing/credits',
+                          upgradeUrl: '/pricing',
+                          message: 'You have used all your free messages for this month.'
+                        }
+                      };
+                      setMessages(prev => [...prev, testCreditMessage]);
+                      toast.info("Test credit limit message added to chat");
+                    }}
+                    className="p-2 bg-amber-600/20 hover:bg-amber-600/30 rounded-lg border border-amber-500/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                    aria-label="Test credit purchase popup"
+                  >
+                    <CreditCard className="w-4 h-4 text-amber-400" />
+                  </RippleButton>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Test credit purchase popup (DEV)</p>
+                </TooltipContent>
+              </Tooltip>
             </div>
           </div>
         </motion.header>
@@ -1568,48 +1723,56 @@ const FuturisticAIChat: React.FC = () => {
                   className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
                 >
                   <div className="relative max-w-[80%]">
-                    <HolographicBubble isUser={message.role === 'user'}>
-                      <div className="space-y-2">
-                        <p className="text-sm leading-relaxed">{message.content}</p>
-                        {message.attachments && (
-                          <div className="flex flex-wrap gap-2">
-                            {message.attachments.map((file, index) => (
-                              <div
-                                key={index}
-                                className="flex items-center gap-2 px-2 py-1 bg-slate-700/50 rounded text-xs"
-                              >
-                                <FileUp className="w-3 h-3" />
-                                {file}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        <div className="flex items-center justify-between text-xs text-slate-400">
-                          <span>{message.timestamp.toLocaleTimeString()}</span>
-                          {message.role === 'assistant' && (
-                            <div className="flex items-center gap-2">
-                              {speechAvailable && message.content && (
-                                <button
-                                  onClick={() => handleSpeak(message.id, message.content)}
-                                  className="p-1 hover:bg-slate-600/50 rounded transition-colors"
-                                  title={speakingMessageId === message.id ? "Stop speaking" : "Read aloud"}
+                    {message.isCreditLimit ? (
+                      <CreditLimitMessage 
+                        message={message}
+                        onUpgrade={() => navigateTo('/pricing')}
+                        onPurchaseCredits={() => navigateTo('/settings/billing/credits')}
+                      />
+                    ) : (
+                      <HolographicBubble isUser={message.role === 'user'}>
+                        <div className="space-y-2">
+                          <p className="text-sm leading-relaxed">{message.content}</p>
+                          {message.attachments && (
+                            <div className="flex flex-wrap gap-2">
+                              {message.attachments.map((file, index) => (
+                                <div
+                                  key={index}
+                                  className="flex items-center gap-2 px-2 py-1 bg-slate-700/50 rounded text-xs"
                                 >
-                                  {speakingMessageId === message.id ? (
-                                    <VolumeX className="w-3 h-3 text-blue-400" />
-                                  ) : (
-                                    <Volume2 className="w-3 h-3" />
-                                  )}
-                                </button>
-                              )}
-                              <div className="flex items-center gap-1">
-                                <Cpu className="w-3 h-3" />
-                                <span>AI</span>
-                              </div>
+                                  <FileUp className="w-3 h-3" />
+                                  {file}
+                                </div>
+                              ))}
                             </div>
                           )}
+                          <div className="flex items-center justify-between text-xs text-slate-400">
+                            <span>{message.timestamp.toLocaleTimeString()}</span>
+                            {message.role === 'assistant' && (
+                              <div className="flex items-center gap-2">
+                                {speechAvailable && message.content && (
+                                  <button
+                                    onClick={() => handleSpeak(message.id, message.content)}
+                                    className="p-1 hover:bg-slate-600/50 rounded transition-colors"
+                                    title={speakingMessageId === message.id ? "Stop speaking" : "Read aloud"}
+                                  >
+                                    {speakingMessageId === message.id ? (
+                                      <VolumeX className="w-3 h-3 text-blue-400" />
+                                    ) : (
+                                      <Volume2 className="w-3 h-3" />
+                                    )}
+                                  </button>
+                                )}
+                                <div className="flex items-center gap-1">
+                                  <Cpu className="w-3 h-3" />
+                                  <span>AI</span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    </HolographicBubble>
+                      </HolographicBubble>
+                    )}
                     
                     {activeMessage === message.id && (
                       <NeuralNetworkPulse isActive />

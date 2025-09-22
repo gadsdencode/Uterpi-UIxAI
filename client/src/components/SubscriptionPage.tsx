@@ -358,7 +358,7 @@ const PlanCard: React.FC<{
   onSelect: (plan: SubscriptionPlan) => void;
 }> = ({ plan, isCurrentPlan, isPopular, onSelect }) => {
   const features = Array.isArray(plan.features) ? plan.features : [];
-  const isFree = plan.price === '0.00' || plan.price === '0';
+  const isFreemium = plan.price === '0.00' || plan.price === '0';
 
   return (
     <motion.div
@@ -398,9 +398,9 @@ const PlanCard: React.FC<{
           <div className="mt-4">
             <div className="flex items-baseline">
               <span className="text-3xl font-bold text-foreground">
-                {isFree ? 'Free' : `$${plan.price}`}
+                {isFreemium ? 'Freemium' : `$${plan.price}`}
               </span>
-              {!isFree && (
+              {!isFreemium && (
                 <span className="text-muted-foreground ml-1">/{plan.interval}</span>
               )}
             </div>
@@ -433,8 +433,8 @@ const PlanCard: React.FC<{
             }`}
             variant={isCurrentPlan ? "secondary" : "default"}
           >
-            {isCurrentPlan ? 'Current Plan' : isFree ? 'Get Started' : 'Subscribe'}
-            {!isCurrentPlan && !isFree && <Sparkles className="h-4 w-4 ml-2" />}
+            {isCurrentPlan ? 'Current Plan' : isFreemium ? 'Get Started' : 'Subscribe'}
+            {!isCurrentPlan && !isFreemium && <Sparkles className="h-4 w-4 ml-2" />}
           </Button>
         </CardContent>
       </Card>

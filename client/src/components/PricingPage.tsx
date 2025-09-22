@@ -85,16 +85,16 @@ const PricingPage: React.FC = () => {
 
   const plans: SubscriptionPlan[] = [
     {
-      id: 'free',
-      name: 'Free',
+      id: 'freemium',
+      name: 'Freemium',
       description: 'Get started with basic AI assistance',
       price: 0,
       interval: billingInterval,
       aiCredits: 100,
       maxProjects: 1,
       supportLevel: 'Community',
-      ctaText: currentPlan === 'free' ? 'Current Plan' : 'Downgrade',
-      disabled: currentPlan === 'free',
+      ctaText: currentPlan === 'freemium' ? 'Current Plan' : 'Downgrade',
+      disabled: currentPlan === 'freemium',
       features: [
         { name: 'Basic Chat Access', included: true },
         { name: 'AI Credits per Month', included: true, value: '100' },
@@ -187,8 +187,8 @@ const PricingPage: React.FC = () => {
       return;
     }
 
-    if (planId === 'free') {
-      // Free tier - no payment needed
+    if (planId === 'freemium') {
+      // Freemium tier - no payment needed
       toast({
         title: 'Already on Free Plan',
         description: 'You are currently on the free plan. Upgrade to Pro or Team for more features.',

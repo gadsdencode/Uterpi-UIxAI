@@ -483,11 +483,11 @@ const AuthenticatedApp: React.FC = () => {
                 </p>
                 <div className="mt-4 p-3 bg-violet-500/10 rounded-lg border border-violet-400/20">
                   <p className="text-sm text-white mb-2">
-                    🚀 <span className="font-bold">Universal Interface for AI</span>
+                    🚀 <span className="font-bold">Your Interface for AI</span>
                   </p>
                   <div className="flex flex-col gap-3 mb-3">
                     <div className="p-2 bg-gradient-to-r from-green-500/10 to-emerald-500/10 rounded-lg border border-green-400/20">
-                      <p className="text-green-400 font-bold text-sm">Start Free</p>
+                      <p className="text-green-400 font-bold text-sm">Start Today</p>
                       <p className="text-xs text-slate-300">10 messages/month to try Uterpi</p>
                     </div>
                     <div className="flex flex-col sm:flex-row gap-2">

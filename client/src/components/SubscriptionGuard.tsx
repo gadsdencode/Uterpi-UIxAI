@@ -352,11 +352,11 @@ export const SubscriptionGuard: React.FC<SubscriptionGuardProps> = ({
                   <div>
                     <p className="font-medium text-white">Current Plan</p>
                     <p className="text-sm text-slate-300">
-                      {subscription?.tier || 'free'}
+                      {subscription?.tier || 'freemium'}
                     </p>
                   </div>
                   <span className="px-2 py-1 bg-violet-400/10 text-violet-400 border border-violet-400/20 rounded text-sm">
-                    {subscription?.status || 'free'}
+                    {subscription?.status || 'freemium'}
                   </span>
                 </div>
               </motion.div>

@@ -59,15 +59,16 @@ export async function getEnhancedSubscriptionDetails(
       throw new Error('User not found');
     }
 
-    const tier = user.subscriptionTier || 'free';
+    const tier = user.subscriptionTier || 'freemium';
     
     // Get feature configuration for the tier
+    const tierToQuery = tier;
     const [features] = await db.select()
       .from(subscriptionFeatures)
-      .where(eq(subscriptionFeatures.tierName, tier));
+      .where(eq(subscriptionFeatures.tierName, tierToQuery));
 
     if (!features) {
-      throw new Error(`No features defined for tier: ${tier}`);
+      throw new Error(`No features defined for tier: ${tierToQuery}`);
     }
 
     // Get current credits balance
@@ -99,7 +100,7 @@ export async function getEnhancedSubscriptionDetails(
 
     return {
       hasAccess: ['active', 'trialing', 'freemium'].includes(user.subscriptionStatus || tier),
-      tier,
+      tier, // Return the original tier, not the fallback
       features: {
         unlimitedChat: features.unlimitedChat || false,
         monthlyMessageAllowance,
@@ -199,7 +200,7 @@ export function checkFreemiumLimit() {
 
       const subscriptionDetails = await getEnhancedSubscriptionDetails(req.user.id);
       
-      // Only check for freemium users
+      // Check for freemium users
       if (subscriptionDetails.tier === 'freemium') {
         if (subscriptionDetails.features.messagesRemaining <= 0) {
           return res.status(402).json({
@@ -382,7 +383,7 @@ export function requireAIProvider(provider: string) {
  */
 export function tierBasedRateLimit() {
   const limits: Record<string, { requests: number; window: number }> = {
-    free: { requests: 10, window: 60 * 1000 }, // 10 requests per minute
+    freemium: { requests: 10, window: 60 * 1000 }, // 10 requests per minute
     pro: { requests: 60, window: 60 * 1000 }, // 60 requests per minute
     team: { requests: 120, window: 60 * 1000 }, // 120 requests per minute
     enterprise: { requests: 999999, window: 60 * 1000 }, // Effectively unlimited
@@ -397,8 +398,8 @@ export function tierBasedRateLimit() {
 
     try {
       const [user] = await db.select().from(users).where(eq(users.id, req.user.id));
-      const tier = user.subscriptionTier || 'free';
-      const limit = limits[tier] || limits.free;
+      const tier = user.subscriptionTier || 'freemium';
+      const limit = limits[tier] || limits.freemium;
 
       const key = `${req.user.id}-${req.path}`;
       const now = Date.now();
@@ -463,12 +464,3 @@ async function getMonthlyUsage(userId: number, operationType: string): Promise<n
   return result[0]?.count || 0;
 }
 
-export {
-  requireFeature,
-  checkFreemiumLimit,
-  requireCredits,
-  requireTeamRole,
-  requireAIProvider,
-  tierBasedRateLimit,
-  getEnhancedSubscriptionDetails,
-};

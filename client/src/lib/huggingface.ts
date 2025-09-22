@@ -76,6 +76,46 @@ export class HuggingFaceService {
       topP: options.topP,
     });
 
+    // Check if this is Uterpi LLM (uses backend proxy for credit checking)
+    const isUterpi = (this.config as any).isUterpi;
+    
+    if (isUterpi) {
+      // Use backend proxy for Uterpi LLM with credit checking
+      const requestBody = {
+        provider: 'uterpi',
+        messages,
+        model: this.config.modelName || 'uterpi-llm',
+        max_tokens: validated.maxTokens,
+        temperature: validated.temperature,
+        top_p: validated.topP,
+        stream: false
+      };
+
+      const response = await fetch('/ai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify(requestBody),
+      });
+
+      if (!response.ok) {
+        // Handle credit limit errors specially
+        if (response.status === 402) {
+          const errorData = await response.json();
+          throw new Error(`Subscription error: ${JSON.stringify(errorData)}`);
+        }
+        
+        const errText = await response.text();
+        throw new Error(`Uterpi LLM error (${response.status}): ${errText}`);
+      }
+
+      const data = await response.json();
+      return data.choices[0]?.message?.content || "";
+    }
+
+    // Original HuggingFace direct API call for non-Uterpi endpoints
     const prompt = this.convertToPrompt(messages);
 
     const body: any = {
@@ -133,6 +173,58 @@ export class HuggingFaceService {
     options: ChatCompletionOptions = {}
   ): Promise<void> {
     try {
+      // Check if this is Uterpi LLM (uses backend proxy for credit checking)
+      const isUterpi = (this.config as any).isUterpi;
+      
+      if (isUterpi) {
+        // Use backend proxy for Uterpi LLM with credit checking
+        const modelId = this.getCurrentModel();
+        const validated = validateModelParameters(modelId, {
+          maxTokens: options.maxTokens,
+          temperature: options.temperature,
+          topP: options.topP,
+        });
+
+        const requestBody = {
+          provider: 'uterpi',
+          messages,
+          model: this.config.modelName || 'uterpi-llm',
+          max_tokens: validated.maxTokens,
+          temperature: validated.temperature,
+          top_p: validated.topP,
+          stream: true
+        };
+
+        const response = await fetch('/ai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          credentials: 'include',
+          body: JSON.stringify(requestBody),
+        });
+
+        if (!response.ok) {
+          // Handle credit limit errors specially
+          if (response.status === 402) {
+            const errorData = await response.json();
+            throw new Error(`Subscription error: ${JSON.stringify(errorData)}`);
+          }
+          
+          const errText = await response.text();
+          throw new Error(`Uterpi LLM streaming error (${response.status}): ${errText}`);
+        }
+
+        // For now, fall back to non-streaming for Uterpi LLM
+        // TODO: Implement proper streaming support in the backend
+        const data = await response.json();
+        const content = data.choices[0]?.message?.content || "";
+        if (content) {
+          onChunk(content);
+        }
+        return;
+      }
+
       // Try non-streaming and emit as one chunk to keep UX consistent
       const full = await this.sendChatCompletion(messages, options);
       if (full) {

@@ -123,7 +123,7 @@ export const SimpleModelSelector: React.FC<SimpleModelSelectorProps> = ({
                     variant="outline" 
                     className={cn(
                       "text-[10px] h-4 px-1 ml-2",
-                      model.tier === 'free' && "border-emerald-500/30 text-emerald-400",
+                      model.tier === 'freemium' && "border-emerald-500/30 text-emerald-400",
                       model.tier === 'pro' && "border-violet-500/30 text-violet-400",
                       model.tier === 'enterprise' && "border-amber-500/30 text-amber-400"
                     )}

@@ -124,13 +124,13 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription): Pro
       await db.update(users)
         .set({
           subscriptionStatus: 'canceled',
-          subscriptionTier: 'free',
+          subscriptionTier: 'freemium',
           subscriptionEndsAt: null,
           updatedAt: new Date()
         })
         .where(eq(users.id, userId));
 
-      console.log(`Updated user ${userId} to free tier after subscription deletion`);
+      console.log(`Updated user ${userId} to freemium tier after subscription deletion`);
     }
   } catch (error) {
     console.error('Error handling subscription deleted:', error);

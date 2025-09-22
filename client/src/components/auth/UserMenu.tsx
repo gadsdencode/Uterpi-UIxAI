@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from '../ui/button';
 import {
@@ -16,7 +16,9 @@ import { ProfileModal } from '../ProfileModal';
 
 export const UserMenu: React.FC = () => {
   const { user, logout } = useAuth();
-  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  
+  // Use React.useState directly to avoid import issues
+  const [isProfileModalOpen, setIsProfileModalOpen] = React.useState(false);
 
   if (!user) {
     return null;

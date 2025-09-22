@@ -10,7 +10,10 @@
     "check": "tsc",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:push": "drizzle-kit push"
+    "db:push": "drizzle-kit push",
+    "fix:freemium": "node run-comprehensive-fix.js",
+    "reset:monthly": "tsx server/cron-monthly-reset.ts",
+    "verify:subscription": "node -e \"require('./server/subscription-middleware-fixed.ts').resetMonthlyMessageCounters().then(() => console.log('✅ Verification complete'))\""
   },
   "dependencies": {
     "@azure-rest/ai-inference": "^1.0.0-beta.6",

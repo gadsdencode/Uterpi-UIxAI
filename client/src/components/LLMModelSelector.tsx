@@ -270,7 +270,7 @@ const FilterControls: React.FC<FilterControlsProps> = ({
           </SelectTrigger>
           <SelectContent className="bg-slate-800 border-slate-700">
             <SelectItem value="all">All</SelectItem>
-            <SelectItem value="free">Free</SelectItem>
+            <SelectItem value="freemium">Freemium</SelectItem>
             <SelectItem value="pro">Pro</SelectItem>
             <SelectItem value="enterprise">Enterprise</SelectItem>
           </SelectContent>

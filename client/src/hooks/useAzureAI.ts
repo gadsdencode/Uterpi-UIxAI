@@ -266,7 +266,7 @@ export const useAzureAI = (options: AzureAIOptions = {}): UseAzureAIReturn => {
       contextLength: 131072,
       description: "Compact and efficient Mistral model",
       category: "text",
-      tier: "free",
+      tier: "freemium",
       isFavorite: false,
       capabilities: {
         supportsVision: false,

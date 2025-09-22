@@ -364,7 +364,7 @@ export const AIProviderQuickSelector: React.FC = () => {
                           className={cn(
                             "text-[10px] h-4 px-1.5 font-medium",
                             model.tier === 'standard' && "bg-slate-700/50 text-slate-300 border-slate-600",
-                            model.tier === 'free' && "bg-emerald-900/30 text-emerald-400 border-emerald-600",
+                            model.tier === 'freemium' && "bg-emerald-900/30 text-emerald-400 border-emerald-600",
                             model.tier === 'pro' && "bg-violet-900/30 text-violet-400 border-violet-600",
                             model.tier === 'enterprise' && "bg-amber-900/30 text-amber-400 border-amber-600"
                           )}

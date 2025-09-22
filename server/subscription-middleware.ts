@@ -225,7 +225,7 @@ export function enhanceWithSubscription() {
       req.user = {
         ...req.user,
         subscriptionStatus: accessCheck.hasAccess ? accessCheck.reason : 'none',
-        subscriptionTier: accessCheck.tier || 'free',
+        subscriptionTier: accessCheck.tier || 'freemium',
       };
       
       next();

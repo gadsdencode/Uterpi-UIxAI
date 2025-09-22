@@ -194,7 +194,7 @@ export async function syncSubscriptionFromStripe(stripeSubscriptionId: string, u
     }
 
     // Update user subscription status
-    const tier = plan[0]?.name.toLowerCase() || 'free';
+    const tier = plan[0]?.name.toLowerCase() || 'freemium';
     await db.update(users)
       .set({
         subscriptionStatus: stripeSubscription.status,

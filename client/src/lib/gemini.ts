@@ -248,22 +248,33 @@ export class GeminiService {
         apiKeyPrefix: this.config.apiKey?.substring(0, 10) + '...'
       });
 
-      const baseUrl = this.config.baseUrl || 'https://generativelanguage.googleapis.com';
-      const fullUrl = `${baseUrl}/v1beta/models/${this.config.modelName}:generateContent`;
-      console.log('📍 Gemini API URL:', fullUrl);
-      
-      const response = await fetch(fullUrl, {
+      // Use universal AI proxy for credit checking
+      const response = await fetch('/ai/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-goog-api-key': this.config.apiKey,
         },
-        body: JSON.stringify(requestBody),
+        credentials: 'include',
+        body: JSON.stringify({
+          provider: 'gemini',
+          model: this.config.modelName,
+          messages: messages, // Convert back to Azure AI format for the proxy
+          max_tokens: validatedParams.maxTokens,
+          temperature: validatedParams.temperature,
+          top_p: validatedParams.topP,
+          stream: false
+        }),
       });
 
       console.log('📡 Gemini response status:', response.status);
 
       if (!response.ok) {
+        // Handle credit limit errors specially
+        if (response.status === 402) {
+          const errorData = await response.json();
+          throw new Error(`Subscription error: ${JSON.stringify(errorData)}`);
+        }
+        
         const errorData = await response.text();
         console.error('❌ Gemini API error details:', errorData);
         
@@ -286,8 +297,11 @@ export class GeminiService {
       console.log('📡 Gemini API response structure:', {
         hasCandidates: !!data.candidates,
         candidatesLength: data.candidates?.length,
+        hasChoices: !!data.choices,
+        choicesLength: data.choices?.length,
         error: data.error
       });
+      console.log('🔍 FULL RESPONSE DATA:', JSON.stringify(data, null, 2));
       
       // Check for error in response
       if (data.error) {
@@ -295,14 +309,24 @@ export class GeminiService {
         throw new Error(`Gemini API error: ${data.error.message || JSON.stringify(data.error)}`);
       }
       
-      // Check if candidates exist and have content
-      if (!data.candidates || !Array.isArray(data.candidates) || data.candidates.length === 0) {
-        console.error('❌ Gemini API response missing candidates:', data);
-        throw new Error('Gemini API returned no response candidates. Please check your API key and model.');
+      // Handle both Gemini format (candidates) and OpenAI format (choices)
+      let candidate;
+      if (data.candidates && Array.isArray(data.candidates) && data.candidates.length > 0) {
+        // Native Gemini format
+        candidate = data.candidates[0];
+      } else if (data.choices && Array.isArray(data.choices) && data.choices.length > 0) {
+        // OpenAI-compatible format (from proxy)
+        const choice = data.choices[0];
+        candidate = {
+          content: {
+            parts: [{ text: choice.message?.content || '' }]
+          },
+          finishReason: choice.finish_reason || 'STOP'
+        };
+      } else {
+        console.error('❌ Gemini API response missing candidates or choices:', data);
+        throw new Error('Gemini API returned no response candidates or choices. Please check your API key and model.');
       }
-      
-      // Safely extract content
-      const candidate = data.candidates[0];
       
       // Check if response was truncated due to token limit
       if (candidate.finishReason === 'MAX_TOKENS') {
@@ -321,6 +345,7 @@ export class GeminiService {
         throw new Error('Gemini API returned empty response content.');
       }
       
+      // Extract content from parts array
       const content = candidate.content.parts[0]?.text || "";
       if (!content && candidate.finishReason === 'MAX_TOKENS') {
         console.error('❌ Gemini hit MAX_TOKENS limit with empty content');
@@ -330,6 +355,9 @@ export class GeminiService {
       }
       
       console.log('✅ Gemini response received:', content.substring(0, 100) + '...');
+      console.log('🔍 Full Gemini response content:', content);
+      console.log('🔍 Response length:', content.length);
+      console.log('🔍 Response type:', typeof content);
       return content;
     } catch (error: any) {
       console.error("Gemini Service Error:", error);
@@ -396,19 +424,31 @@ export class GeminiService {
         requestBody.generationConfig.stopSequences = Array.isArray(options.stop) ? options.stop : [options.stop];
       }
 
-      const baseUrl = this.config.baseUrl || 'https://generativelanguage.googleapis.com';
-      const url = `${baseUrl}/v1beta/models/${this.config.modelName}:streamGenerateContent?alt=sse`;
-      
-      const response = await fetch(url, {
+      // Use universal AI proxy for credit checking
+      const response = await fetch('/ai/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-goog-api-key': this.config.apiKey,
         },
-        body: JSON.stringify(requestBody),
+        credentials: 'include',
+        body: JSON.stringify({
+          provider: 'gemini',
+          model: this.config.modelName,
+          messages: messages, // Convert back to Azure AI format for the proxy
+          max_tokens: validatedParams.maxTokens,
+          temperature: validatedParams.temperature,
+          top_p: validatedParams.topP,
+          stream: true
+        }),
       });
       
       if (!response.ok) {
+        // Handle credit limit errors specially
+        if (response.status === 402) {
+          const errorData = await response.json();
+          throw new Error(`Subscription error: ${JSON.stringify(errorData)}`);
+        }
+        
         const errorData = await response.text();
         console.error('❌ Gemini streaming error:', errorData);
         throw new Error(`Gemini streaming error: ${errorData}`);

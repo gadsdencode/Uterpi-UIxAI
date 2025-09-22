@@ -114,6 +114,9 @@ export class DatabaseStorage implements IStorage {
         is_grandfathered: false,
         grandfathered_from_tier: null,
         grandfathered_at: null,
+        // Set default subscription tier to freemium
+        subscription_tier: 'freemium',
+        subscription_status: 'freemium',
         deletedAt: null,
       };
       
@@ -412,8 +415,8 @@ export class MemStorage implements IStorage {
       createdAt: new Date(),
       updatedAt: new Date(),
       stripeCustomerId: null,
-      subscriptionStatus: null,
-      subscriptionTier: null,
+      subscriptionStatus: 'freemium',
+      subscriptionTier: 'freemium',
       subscriptionEndsAt: null,
       overrideExpiresAt: null,
       accessOverride: null,
@@ -461,8 +464,8 @@ export class MemStorage implements IStorage {
       createdAt: new Date(),
       updatedAt: new Date(),
       stripeCustomerId: null,
-      subscriptionStatus: null,
-      subscriptionTier: null,
+      subscriptionStatus: 'freemium',
+      subscriptionTier: 'freemium',
       subscriptionEndsAt: null,
       overrideExpiresAt: null,
       accessOverride: null,

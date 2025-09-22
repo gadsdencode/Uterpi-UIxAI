@@ -135,7 +135,7 @@ export const useOpenAI = (options: OpenAIOptions = {}): UseOpenAIReturn => {
       contextLength: 128000,
       description: "Efficient and cost-effective GPT-4 model",
       category: "text",
-      tier: "free",
+      tier: "freemium",
       isFavorite: true,
       capabilities: {
         supportsVision: false,

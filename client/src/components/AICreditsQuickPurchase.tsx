@@ -17,7 +17,7 @@ import {
 import { Badge } from './ui/badge';
 import { toast } from 'sonner';
 import { cn } from '../lib/utils';
-import { useNavigate } from 'react-router-dom';
+import { navigateTo } from './Router';
 import { useAuth } from '@/hooks/useAuth';
 
 interface CreditPackage {
@@ -46,7 +46,6 @@ export const AICreditsQuickPurchase: React.FC<AICreditsQuickPurchaseProps> = ({
   onPurchaseComplete,
 }) => {
   const { user } = useAuth();
-  const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
   const [balance, setBalance] = useState(currentBalance);
   const [isLoading, setIsLoading] = useState(false);
@@ -66,27 +65,19 @@ export const AICreditsQuickPurchase: React.FC<AICreditsQuickPurchaseProps> = ({
     }
 
     try {
-      const response = await fetch('/api/credits/balance', {
+      // Get subscription details which includes credit balance
+      const response = await fetch('/api/subscription/details', {
         credentials: 'include',
       });
       
       if (response.ok) {
         const data = await response.json();
-        setBalance(data.balance || 0);
-      }
-
-      // Check if user is on freemium tier
-      const subResponse = await fetch('/api/subscription/details', {
-        credentials: 'include',
-      });
-      
-      if (subResponse.ok) {
-        const subData = await subResponse.json();
-        setIsFreemium(subData.tier === 'freemium');
-        if (subData.tier === 'freemium') {
-          setMessagesRemaining(subData.features.monthlyMessageAllowance - (subData.messagesUsed || 0));
+        setBalance(data.features?.currentCreditsBalance || 0);
+        setIsFreemium(data.tier === 'freemium');
+        if (data.tier === 'freemium') {
+          setMessagesRemaining(data.features?.messagesRemaining || 0);
         }
-      } else if (subResponse.status === 401) {
+      } else if (response.status === 401) {
         // User not authenticated, just return without error
         console.log('User not authenticated for subscription details');
         return;
@@ -148,7 +139,7 @@ export const AICreditsQuickPurchase: React.FC<AICreditsQuickPurchaseProps> = ({
 
   const getBalanceColor = () => {
     if (balance === 0) return 'text-red-500';
-    if (balance < 100) return 'text-orange-500';
+    if (balance < 50) return 'text-yellow-500';
     return 'text-green-500';
   };
 
@@ -170,19 +161,13 @@ export const AICreditsQuickPurchase: React.FC<AICreditsQuickPurchaseProps> = ({
             size="sm"
             className={cn(
               "h-8 px-2 gap-1.5",
-              "hover:bg-slate-800/50 transition-all duration-200",
-              balance === 0 && "animate-pulse"
+              "hover:bg-slate-800/50 transition-all duration-200"
             )}
           >
             <Coins className={cn("w-4 h-4", getBalanceColor())} />
             <span className={cn("text-sm font-medium", getBalanceColor())}>
               {balance}
             </span>
-            {balance === 0 && (
-              <Badge variant="destructive" className="ml-1 h-4 px-1 text-[10px]">
-                Empty
-              </Badge>
-            )}
           </Button>
         </DropdownMenuTrigger>
         
@@ -206,8 +191,7 @@ export const AICreditsQuickPurchase: React.FC<AICreditsQuickPurchaseProps> = ({
           className={cn(
             "h-9 px-3 gap-2 border-slate-600",
             "bg-slate-800/50 hover:bg-slate-700/50",
-            "text-white transition-all duration-200",
-            balance === 0 && "border-red-500/50 animate-pulse"
+            "text-white transition-all duration-200"
           )}
         >
           <Coins className={cn("w-4 h-4", getBalanceColor())} />
@@ -348,10 +332,10 @@ export const AICreditsQuickPurchase: React.FC<AICreditsQuickPurchaseProps> = ({
           <Button
             variant="outline"
             size="sm"
-            className="w-full h-8 text-xs"
+            className="w-full h-8 text-xs bg-slate-700/50 hover:bg-slate-600/50 border-slate-600 text-white hover:text-white"
             onClick={() => {
               setIsOpen(false);
-              navigate('/pricing');
+              navigateTo('/pricing');
             }}
           >
             View Subscription Plans
@@ -363,7 +347,7 @@ export const AICreditsQuickPurchase: React.FC<AICreditsQuickPurchaseProps> = ({
               className="w-full h-8 text-xs bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700"
               onClick={() => {
                 setIsOpen(false);
-                navigate('/checkout?plan=pro');
+                navigateTo('/checkout?plan=pro');
               }}
             >
               Upgrade to Pro - $19/month

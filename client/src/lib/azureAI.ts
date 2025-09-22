@@ -133,7 +133,7 @@ export class AzureAIService {
         contextLength: 128000,
         description: "Efficient and cost-effective GPT-4 model",
         category: "text",
-        tier: "free",
+        tier: "freemium",
         isFavorite: true,
         capabilities: {
           supportsVision: false,
@@ -171,7 +171,7 @@ export class AzureAIService {
         contextLength: 16000,
         description: "Fast and efficient language model for general tasks",
         category: "text",
-        tier: "free",
+        tier: "freemium",
         isFavorite: false,
         capabilities: {
           supportsVision: false,
@@ -211,7 +211,7 @@ export class AzureAIService {
         contextLength: 16384,
         description: "Microsoft's efficient small language model",
         category: "text",
-        tier: "free",
+        tier: "freemium",
         isFavorite: false,
         capabilities: {
           supportsVision: false,
@@ -231,7 +231,7 @@ export class AzureAIService {
         contextLength: 131072,
         description: "Compact and efficient Mistral model",
         category: "text",
-        tier: "free",
+        tier: "freemium",
         isFavorite: false,
         capabilities: {
           supportsVision: false,
@@ -270,7 +270,7 @@ export class AzureAIService {
         contextLength: 128000,
         description: "Meta's latest instruction-tuned model",
         category: "text",
-        tier: "free",
+        tier: "freemium",
         isFavorite: false,
         capabilities: {
           supportsVision: false,
@@ -289,7 +289,7 @@ export class AzureAIService {
         contextLength: 128000,
         description: "Vision-capable Llama model for multimodal tasks",
         category: "multimodal",
-        tier: "free",
+        tier: "freemium",
         isFavorite: false,
         capabilities: {
           supportsVision: true,
@@ -402,21 +402,33 @@ export class AzureAIService {
         console.log(`  [${index}] ${msg.role}: ${msg.content.substring(0, 100)}${msg.content.length > 100 ? '...' : ''}`);
       });
 
-      const apiPath = this.getApiPath();
-      const response = await this.client.path(apiPath).post({
-        body: requestBody,
+      // Use backend proxy for credit checking
+      const response = await fetch('/azure/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify(requestBody),
       });
 
       console.log('📡 Azure AI response status:', response.status);
 
-      if (response.status !== "200") {
+      if (!response.ok) {
+        // Handle credit limit errors specially
+        if (response.status === 402) {
+          const errorData = await response.json();
+          throw new Error(`Subscription error: ${JSON.stringify(errorData)}`);
+        }
+        
         // Extract detailed error information
-        const errorDetails = this.extractErrorDetails(response.body);
+        const errorDetails = await response.text();
         console.error('❌ Azure AI API error details:', errorDetails);
         throw new Error(`Azure AI API error (${response.status}): ${errorDetails}`);
       }
 
-      const content = response.body.choices[0]?.message?.content || "";
+      const responseData = await response.json();
+      const content = responseData.choices[0]?.message?.content || "";
       console.log('✅ Azure AI response received:', content.substring(0, 100) + '...');
       return content;
     } catch (error) {
@@ -526,25 +538,29 @@ export class AzureAIService {
         ...(requestBody.presence_penalty !== undefined && { presence_penalty: requestBody.presence_penalty })
       });
 
-      const apiPath = this.getApiPath();
-      const response = await this.client.path(apiPath).post({
-        body: requestBody,
-      }).asBrowserStream();
+      // Use backend proxy for credit checking
+      const response = await fetch('/azure/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify(requestBody),
+      });
 
-      if (response.status !== "200") {
-        // Try to read error details from stream response
+      if (!response.ok) {
+        // Handle credit limit errors specially
+        if (response.status === 402) {
+          const errorData = await response.json();
+          throw new Error(`Subscription error: ${JSON.stringify(errorData)}`);
+        }
+        
+        // Try to read error details from response
         let errorDetails = `HTTP ${response.status}`;
         try {
-          if (response.body) {
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            const { value } = await reader.read();
-            if (value) {
-              const errorText = decoder.decode(value);
-              const errorObj = JSON.parse(errorText);
-              errorDetails = this.extractErrorDetails(errorObj);
-            }
-          }
+          const errorText = await response.text();
+          const errorObj = JSON.parse(errorText);
+          errorDetails = this.extractErrorDetails(errorObj);
         } catch (parseError) {
           // If we can't parse the error, use the status code
           errorDetails = `Failed to get chat completions, HTTP ${response.status}`;

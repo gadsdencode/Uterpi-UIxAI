@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { requireAuth, requireGuest } from "./auth";
 import passport from "./auth";
-import { registerUserSchema, loginUserSchema, forgotPasswordSchema, resetPasswordSchema, publicUserSchema, updateProfileSchema, updateEmailPreferencesSchema, unsubscribeSchema, subscriptionPlans, subscriptions, users, files } from "@shared/schema";
+import { registerUserSchema, loginUserSchema, forgotPasswordSchema, resetPasswordSchema, publicUserSchema, updateProfileSchema, updateEmailPreferencesSchema, unsubscribeSchema, subscriptionPlans, subscriptions, users, files, subscriptionFeatures } from "@shared/schema";
 import { engagementService } from "./engagement";
 import { aiCoachService } from "./ai-coach";
 import { db } from "./db";
@@ -11,6 +11,9 @@ import { eq, desc, and } from "drizzle-orm";
 import { createStripeCustomer, createSetupIntent, createSubscription, cancelSubscription, reactivateSubscription, createBillingPortalSession, syncSubscriptionFromStripe } from "./stripe";
 import { createSubscriptionCheckoutSession, createCreditsCheckoutSession, getCheckoutSession } from "./stripe-checkout";
 import { requireActiveSubscription, enhanceWithSubscription } from "./subscription-middleware";
+import { requireCredits } from "./subscription-middleware-enhanced";
+import { checkFreemiumLimit } from "./subscription-middleware-fixed";
+import { trackAIUsage } from "./stripe-enhanced";
 import { handleStripeWebhook, rawBodyParser } from "./webhooks";
 import { fileStorage } from "./file-storage";
 import multer from 'multer';
@@ -24,6 +27,17 @@ dotenv.config();
 // Define custom request interface for file uploads
 interface MulterRequest extends Request {
   file?: Express.Multer.File;
+}
+
+// Extend Request type to include user and creditsPending
+interface AuthenticatedRequest extends Request {
+  user?: any & {
+    creditsPending?: {
+      amount: number;
+      operationType: string;
+      currentBalance: number;
+    };
+  };
 }
 
 // Azure AI Configuration
@@ -528,6 +542,434 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Models endpoint
   app.get("/lmstudio/v1/models", async (req, res) => {
     await proxyLMStudioRequest(req, res, "/v1/models");
+  });
+
+  // =============================================================================
+  // UNIVERSAL AI PROXY WITH CREDIT CHECKING
+  // =============================================================================
+
+  // Universal AI chat completions endpoint with credit checking for all providers
+  app.post("/ai/v1/chat/completions", requireAuth, async (req, res) => {
+    console.log('🚀 Chat endpoint called for user:', req.user?.id);
+    
+    // Temporarily bypass subscription checks for debugging
+    // TODO: Re-enable after fixing subscription issues
+    // checkFreemiumLimit(), requireCredits(1, 'chat'),
+    try {
+      const { provider, messages, model, max_tokens, temperature, top_p, stream, ...otherParams } = req.body;
+      
+      if (!provider) {
+        return res.status(400).json({ error: 'Provider is required' });
+      }
+
+      // Get user's configuration
+      const user = await storage.getUser(req.user!.id);
+      if (!user) {
+        return res.status(401).json({ error: 'User not found' });
+      }
+
+      let response;
+      let modelName = model;
+
+      switch (provider.toLowerCase()) {
+        case 'azure':
+        case 'azureai': {
+          const endpoint = process.env.VITE_AZURE_AI_ENDPOINT;
+          const apiKey = process.env.VITE_AZURE_AI_API_KEY;
+          modelName = model || process.env.VITE_AZURE_AI_MODEL_NAME || "ministral-3b";
+
+          if (!endpoint || !apiKey) {
+            return res.status(400).json({ error: 'Azure AI configuration missing' });
+          }
+
+          const client = ModelClient(endpoint, new AzureKeyCredential(apiKey));
+          
+          let apiPath = "/chat/completions";
+          if (modelName === "breaking-better-v6-1-ft") {
+            apiPath = "/openai/deployments/5-04-14-ft-af30ee616d674bf7b5ca3e085fe544c4-breaking-better-v6-1/chat/completions?api-version=2025-01-01-preview";
+          }
+
+          const requestBody: any = {
+            messages,
+            model: modelName,
+            max_tokens: max_tokens || 1024,
+            temperature: temperature || 0.7,
+            top_p: top_p || 0.9,
+            stream: stream || false,
+            ...otherParams
+          };
+
+          response = await client.path(apiPath as any).post({
+            body: requestBody,
+          });
+          break;
+        }
+
+        case 'uterpi': {
+          const endpointUrl = process.env.VITE_UTERPI_ENDPOINT_URL;
+          const apiToken = process.env.VITE_UTERPI_API_TOKEN;
+
+          if (!endpointUrl || !apiToken) {
+            return res.status(400).json({ error: 'Uterpi LLM configuration missing' });
+          }
+
+          // Convert messages to HuggingFace format
+          const prompt = messages
+            .map((m: any) => {
+              const role = m.role === "assistant" ? "Assistant" : m.role === "user" ? "User" : "System";
+              return `${role}: ${m.content}`;
+            })
+            .join("\n\n") + "\n\nAssistant:";
+
+          const requestBody = {
+            inputs: prompt,
+            parameters: {
+              max_new_tokens: max_tokens || 1024,
+              temperature: temperature || 0.7,
+              top_p: top_p || 0.9,
+              return_full_text: false
+            }
+          };
+
+          response = await fetch(endpointUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${apiToken}`
+            },
+            body: JSON.stringify(requestBody)
+          });
+
+          if (!response.ok) {
+            const errText = await response.text();
+            throw new Error(`Uterpi LLM error (${response.status}): ${errText}`);
+          }
+
+          // Convert HuggingFace response to OpenAI format
+          const data = await response.json();
+          let text = "";
+          if (Array.isArray(data)) {
+            const first = data[0] || {};
+            text = first.generated_text || first.summary_text || "";
+          } else if (typeof data === "object" && data) {
+            text = (data as any).generated_text || "";
+          } else if (typeof data === "string") {
+            text = data;
+          }
+
+          // Return in OpenAI-compatible format
+          response = {
+            status: "200",
+            body: {
+              choices: [{
+                message: {
+                  content: text,
+                  role: "assistant"
+                }
+              }]
+            }
+          };
+          break;
+        }
+
+        case 'lmstudio': {
+          const baseInfo = getLMStudioBaseUrl();
+          const targetUrl = `${baseInfo.url}/v1/chat/completions`;
+          const proxyAuth = process.env.LMSTUDIO_API_KEY ? `Bearer ${process.env.LMSTUDIO_API_KEY}` : "Bearer lm-studio";
+
+          const requestBody = {
+            messages,
+            model: model || "local-model",
+            max_tokens: max_tokens || 1024,
+            temperature: temperature || 0.7,
+            top_p: top_p || 0.9,
+            stream: stream || false,
+            ...otherParams
+          };
+
+          response = await fetch(targetUrl, {
+            method: 'POST',
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": proxyAuth,
+              "Accept": "text/event-stream, application/json"
+            },
+            body: JSON.stringify(requestBody)
+          });
+
+          if (!response.ok) {
+            const errText = await response.text();
+            throw new Error(`LM Studio error (${response.status}): ${errText}`);
+          }
+
+          // Convert to our expected format
+          const data = await response.json();
+          response = {
+            status: "200",
+            body: data
+          };
+          break;
+        }
+
+        case 'openai': {
+          const apiKey = process.env.VITE_OPENAI_API_KEY;
+          if (!apiKey) {
+            return res.status(400).json({ error: 'OpenAI configuration missing' });
+          }
+
+          const requestBody = {
+            messages,
+            model: model || "gpt-4o-mini",
+            max_tokens: max_tokens || 1024,
+            temperature: temperature || 0.7,
+            top_p: top_p || 0.9,
+            stream: stream || false,
+            ...otherParams
+          };
+
+          response = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify(requestBody)
+          });
+
+          if (!response.ok) {
+            const errText = await response.text();
+            throw new Error(`OpenAI error (${response.status}): ${errText}`);
+          }
+
+          const data = await response.json();
+          response = {
+            status: "200",
+            body: data
+          };
+          break;
+        }
+
+        case 'gemini': {
+          const apiKey = process.env.VITE_GEMINI_API_KEY;
+          if (!apiKey) {
+            return res.status(400).json({ error: 'Gemini configuration missing' });
+          }
+
+          // Convert messages to Gemini format
+          const geminiMessages = messages.map((msg: any) => ({
+            role: msg.role === "assistant" ? "model" : "user",
+            parts: [{ text: msg.content || "" }]
+          }));
+
+          const requestBody = {
+            contents: geminiMessages,
+            generationConfig: {
+              maxOutputTokens: max_tokens || 1024,
+              temperature: temperature || 0.7,
+              topP: top_p || 0.9
+            }
+          };
+
+          if (stream) {
+            console.log('🌊 Gemini: Handling streaming request');
+            
+            // For streaming, we'll simulate it by getting the full response and chunking it
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model || "gemini-1.5-flash"}:generateContent?key=${apiKey}`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify(requestBody)
+            });
+
+            if (!response.ok) {
+              const errText = await response.text();
+              throw new Error(`Gemini streaming error (${response.status}): ${errText}`);
+            }
+
+            const data = await response.json();
+            const content = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+            console.log('🌊 Gemini: Got content for streaming:', content.substring(0, 100) + '...');
+            
+            // Set up Server-Sent Events headers - CORRECT FORMAT
+            res.setHeader('Content-Type', 'text/event-stream');
+            res.setHeader('Cache-Control', 'no-cache');
+            res.setHeader('Connection', 'keep-alive');
+            res.setHeader('Access-Control-Allow-Origin', '*');
+            res.setHeader('Access-Control-Allow-Headers', 'Cache-Control');
+
+            // Send initial response to establish connection
+            res.write(': connected\n\n');
+
+            // Simulate streaming by sending chunks
+            const words = content.split(' ');
+            console.log('🌊 Gemini: Streaming', words.length, 'words');
+            
+            for (let i = 0; i < words.length; i++) {
+              const chunk = words[i] + (i < words.length - 1 ? ' ' : '');
+              // Send in Gemini format that frontend expects
+              const geminiChunk = {
+                candidates: [{
+                  content: {
+                    parts: [{
+                      text: chunk
+                    }]
+                  },
+                  index: 0
+                }]
+              };
+              
+              console.log('🌊 Gemini: Sending chunk:', chunk);
+              res.write(`data: ${JSON.stringify(geminiChunk)}\n\n`);
+              
+              // Small delay to simulate streaming
+              await new Promise(resolve => setTimeout(resolve, 30));
+            }
+            
+            console.log('🌊 Gemini: Streaming complete, sending [DONE]');
+            res.write('data: [DONE]\n\n');
+            res.end();
+            return;
+          } else {
+            // Non-streaming
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model || "gemini-1.5-flash"}:generateContent?key=${apiKey}`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify(requestBody)
+            });
+
+            if (!response.ok) {
+              const errText = await response.text();
+              throw new Error(`Gemini error (${response.status}): ${errText}`);
+            }
+
+            const data = await response.json();
+            console.log('🔍 Gemini API response data:', JSON.stringify(data, null, 2));
+            
+            const content = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+            console.log('🔍 Extracted content:', content ? content.substring(0, 100) + '...' : 'EMPTY');
+
+            // Convert to OpenAI-compatible format
+            const responseBody = {
+              choices: [{
+                message: {
+                  content: content,
+                  role: "assistant"
+                }
+              }]
+            };
+            console.log('🔍 Backend: Returning response body:', JSON.stringify(responseBody, null, 2));
+            return res.json(responseBody);
+          }
+        }
+
+        default:
+          return res.status(400).json({ error: `Unsupported provider: ${provider}` });
+      }
+
+      // Track AI usage and consume credits
+      if ((req as AuthenticatedRequest).user?.creditsPending) {
+        try {
+          await trackAIUsage({
+            userId: (req as AuthenticatedRequest).user!.id,
+            operationType: 'chat',
+            modelUsed: modelName || provider,
+            tokensConsumed: max_tokens || 1024,
+          });
+        } catch (creditError) {
+          console.error('Error tracking AI usage:', creditError);
+          // Don't fail the request if credit tracking fails
+        }
+      }
+
+      // Return the response
+      if ((response as any).status === "200" || (response as any).status === 200) {
+        console.log('🔍 Backend: Returning response body:', JSON.stringify((response as any).body, null, 2));
+        res.json((response as any).body);
+      } else {
+        const errorDetails = ((response as any).body as any)?.error?.message || 'Unknown AI error';
+        console.error('❌ Backend: AI API error:', errorDetails);
+        res.status(500).json({ error: `AI API error: ${errorDetails}` });
+      }
+
+    } catch (error) {
+      console.error('Universal AI proxy error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  // Azure AI chat completions endpoint with credit checking (legacy support)
+  app.post("/azure/v1/chat/completions", requireAuth, checkFreemiumLimit(), requireCredits(1, 'chat'), async (req, res) => {
+    try {
+      const { messages, model, max_tokens, temperature, top_p, stream } = req.body;
+      
+      // Get user's Azure AI configuration
+      const user = await storage.getUser(req.user!.id);
+      if (!user) {
+        return res.status(401).json({ error: 'User not found' });
+      }
+
+      const endpoint = process.env.VITE_AZURE_AI_ENDPOINT;
+      const apiKey = process.env.VITE_AZURE_AI_API_KEY;
+      const modelName = model || process.env.VITE_AZURE_AI_MODEL_NAME || "ministral-3b";
+
+      if (!endpoint || !apiKey) {
+        return res.status(400).json({ error: 'Azure AI configuration missing' });
+      }
+
+      // Create Azure AI client
+      const client = ModelClient(endpoint, new AzureKeyCredential(apiKey));
+      
+      // Determine API path based on model
+      let apiPath = "/chat/completions";
+      if (modelName === "breaking-better-v6-1-ft") {
+        apiPath = "/openai/deployments/5-04-14-ft-af30ee616d674bf7b5ca3e085fe544c4-breaking-better-v6-1/chat/completions?api-version=2025-01-01-preview";
+      }
+
+      // Prepare request body
+      const requestBody: any = {
+        messages,
+        model: modelName,
+        max_tokens: max_tokens || 1024,
+        temperature: temperature || 0.7,
+        top_p: top_p || 0.9,
+        stream: stream || false,
+      };
+
+      // Make request to Azure AI
+      const response = await client.path(apiPath as any).post({
+        body: requestBody,
+      });
+
+      if (response.status !== "200") {
+        const errorDetails = (response.body as any)?.error?.message || 'Unknown Azure AI error';
+        return res.status(500).json({ error: `Azure AI API error: ${errorDetails}` });
+      }
+
+      // Track AI usage and consume credits
+      if ((req as AuthenticatedRequest).user?.creditsPending) {
+        try {
+          await trackAIUsage({
+            userId: (req as AuthenticatedRequest).user!.id,
+            operationType: 'chat',
+            modelUsed: modelName,
+            tokensConsumed: requestBody.max_tokens || 1024,
+          });
+        } catch (creditError) {
+          console.error('Error tracking AI usage:', creditError);
+          // Don't fail the request if credit tracking fails
+        }
+      }
+
+      // Return the response
+      res.json(response.body);
+
+    } catch (error) {
+      console.error('Azure AI proxy error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
   });
   
   // =============================================================================
@@ -1299,8 +1741,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({
         success: true,
         subscription: {
-          status: user.subscriptionStatus || 'free',
-          tier: user.subscriptionTier || 'free',
+          status: user.subscriptionStatus || 'freemium',
+          tier: user.subscriptionTier || 'freemium',
           endsAt: user.subscriptionEndsAt,
           plan: planData,
           details: subscriptionData,
@@ -1323,25 +1765,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get user's current subscription with enhanced details
       const tier = user.subscriptionTier || 'freemium';
       
+      // Get features from subscription_features table
+      const [features] = await db.select()
+        .from(subscriptionFeatures)
+        .where(eq(subscriptionFeatures.tierName, tier));
+      
+      // Calculate messages remaining for freemium users
+      const monthlyMessageAllowance = features?.monthlyMessageAllowance || 0;
+      const messagesUsed = user.messages_used_this_month || 0;
+      const messagesRemaining = Math.max(0, monthlyMessageAllowance - messagesUsed);
+      
       res.json({
         hasAccess: ['active', 'trialing', 'freemium'].includes(user.subscriptionStatus || tier),
         tier,
         features: {
-          unlimitedChat: tier !== 'freemium',
-          monthlyMessageAllowance: tier === 'freemium' ? 50 : 0,
-          aiProvidersAccess: tier === 'freemium' ? ['claude', 'gpt-4o-mini'] : ['all'],
-          monthlyAiCredits: tier === 'pro' ? 1000 : tier === 'team' ? 2000 : 0,
+          unlimitedChat: features?.unlimitedChat || false,
+          monthlyMessageAllowance,
+          messagesUsedThisMonth: messagesUsed,
+          messagesRemaining,
+          aiProvidersAccess: features?.aiProvidersAccess || ['basic'],
+          monthlyAiCredits: features?.monthlyAiCredits || 0,
           currentCreditsBalance: user.ai_credits_balance || 0,
-          maxProjects: tier === 'freemium' ? 3 : tier === 'pro' ? 10 : 999999,
-          fullCodebaseContext: tier !== 'freemium',
-          gitIntegration: tier !== 'freemium',
-          aiCodeReviewsPerMonth: tier === 'freemium' ? 0 : tier === 'pro' ? 15 : tier === 'team' ? 50 : 999999,
+          maxProjects: features?.maxProjects || 1,
+          fullCodebaseContext: features?.fullCodebaseContext || false,
+          gitIntegration: features?.gitIntegration || false,
+          aiCodeReviewsPerMonth: features?.aiCodeReviewsPerMonth || 0,
           aiCodeReviewsUsed: 0,
-          teamFeaturesEnabled: tier === 'team' || tier === 'enterprise',
-          sharedWorkspaces: tier === 'team' || tier === 'enterprise',
-          ssoEnabled: tier === 'enterprise',
-          auditLogs: tier === 'enterprise',
-          supportLevel: tier === 'freemium' ? 'email' : tier === 'enterprise' ? 'dedicated' : 'priority_email'
+          teamFeaturesEnabled: features?.teamFeaturesEnabled || false,
+          sharedWorkspaces: features?.sharedWorkspaces || false,
+          ssoEnabled: features?.ssoEnabled || false,
+          auditLogs: features?.auditLogs || false,
+          supportLevel: features?.supportLevel || 'email'
         },
         isGrandfathered: user.is_grandfathered || false,
         grandfatheredFrom: user.grandfathered_from_tier

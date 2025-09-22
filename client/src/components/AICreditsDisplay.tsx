@@ -27,7 +27,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { useNavigate } from 'react-router-dom';
+import { navigateTo } from './Router';
 import { useAuth } from '@/hooks/useAuth';
 
 interface CreditTransaction {
@@ -57,7 +57,6 @@ export const AICreditsDisplay: React.FC<AICreditsDisplayProps> = ({
   onCreditsUpdate,
 }) => {
   const { user } = useAuth();
-  const navigate = useNavigate();
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [balance, setBalance] = useState(0);
@@ -137,7 +136,7 @@ export const AICreditsDisplay: React.FC<AICreditsDisplayProps> = ({
     setPurchasingPackage(packageId);
     try {
       // In a real implementation, this would open Stripe checkout
-      navigate(`/checkout/credits?package=${packageId}`);
+      navigateTo(`/checkout/credits?package=${packageId}`);
     } catch (error) {
       console.error('Error purchasing credits:', error);
       toast({

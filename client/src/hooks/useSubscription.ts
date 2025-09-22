@@ -15,7 +15,7 @@ export interface SubscriptionPlan {
 }
 
 export interface SubscriptionStatus {
-  status: 'free' | 'active' | 'trialing' | 'past_due' | 'canceled' | 'expired';
+  status: 'freemium' | 'active' | 'trialing' | 'past_due' | 'canceled' | 'expired';
   tier: string;
   endsAt?: string;
   plan?: SubscriptionPlan;
@@ -272,7 +272,7 @@ export const useSubscription = (): UseSubscriptionReturn => {
     
     // Check tier hierarchy first - Friends & Family should have premium access
     const tierHierarchy: Record<string, number> = { 
-      free: 0, 
+      freemium: 0,  // Freemium tier
       basic: 1, 
       premium: 2,
       friends_family: 2, // Friends & Family gets premium access
@@ -285,7 +285,19 @@ export const useSubscription = (): UseSubscriptionReturn => {
       return true; // Always allow Friends & Family users during testing
     }
     
-    // For other tiers, check normal subscription logic
+    // For freemium tier, allow access regardless of status
+    if (subscription.tier?.toLowerCase() === 'freemium') {
+      // Freemium users should have access to basic features
+      if (!requiredTier || requiredTier.toLowerCase() === 'basic') {
+        return true;
+      }
+      // Check if they can access higher tiers
+      const userTierLevel = tierHierarchy[subscription.tier?.toLowerCase()] || 0;
+      const requiredTierLevel = tierHierarchy[requiredTier.toLowerCase()] || 0;
+      return userTierLevel >= requiredTierLevel;
+    }
+    
+    // For paid tiers, check normal subscription logic
     const isActive = subscription?.status === 'active' || subscription?.status === 'trialing';
     if (!isActive) return false;
     

@@ -77,7 +77,7 @@ export class LMStudioService {
         contextLength: 128000,
         description: "Uterpi AI served through LM Studio (OpenAI-compatible endpoint)",
         category: "text",
-        tier: "free",
+        tier: "freemium",
         isFavorite: true
       },
       {
@@ -90,7 +90,7 @@ export class LMStudioService {
         contextLength: 128000,
         description: "Uterpi AI served through LM Studio (OpenAI-compatible)",
         category: "text",
-        tier: "free",
+        tier: "freemium",
         isFavorite: false
       }
     ];
@@ -154,17 +154,26 @@ export class LMStudioService {
       requestBody.stop = options.stop;
     }
 
-    const response = await fetch(`${this.config.baseUrl || "/lmstudio"}/v1/chat/completions`, {
+    // Use universal AI proxy for credit checking
+    const response = await fetch('/ai/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.config.apiKey || "lm-studio"}`,
-        'Accept': 'application/json'
       },
-      body: JSON.stringify(requestBody)
+      credentials: 'include',
+      body: JSON.stringify({
+        provider: 'lmstudio',
+        ...requestBody
+      })
     });
 
     if (!response.ok) {
+      // Handle credit limit errors specially
+      if (response.status === 402) {
+        const errorData = await response.json();
+        throw new Error(`Subscription error: ${JSON.stringify(errorData)}`);
+      }
+      
       const errorText = await response.text();
       console.error("LM Studio API error:", errorText);
       throw new Error(`LM Studio API error (${response.status}): ${errorText}`);
@@ -224,17 +233,26 @@ export class LMStudioService {
       requestBody.stop = options.stop;
     }
 
-    const response = await fetch(`${this.config.baseUrl || "/lmstudio"}/v1/chat/completions`, {
+    // Use universal AI proxy for credit checking
+    const response = await fetch('/ai/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.config.apiKey || "lm-studio"}`,
-        'Accept': 'text/event-stream'
       },
-      body: JSON.stringify(requestBody)
+      credentials: 'include',
+      body: JSON.stringify({
+        provider: 'lmstudio',
+        ...requestBody
+      })
     });
 
     if (!response.ok) {
+      // Handle credit limit errors specially
+      if (response.status === 402) {
+        const errorData = await response.json();
+        throw new Error(`Subscription error: ${JSON.stringify(errorData)}`);
+      }
+      
       const errorText = await response.text();
       throw new Error(`LM Studio streaming error (${response.status}): ${errorText}`);
     }

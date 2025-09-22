@@ -4,6 +4,19 @@ export interface Message {
   role: "user" | "assistant";
   timestamp: Date;
   attachments?: string[];
+  isCreditLimit?: boolean;
+  metadata?: {
+    code?: string;
+    currentBalance?: number;
+    messagesUsed?: number;
+    monthlyAllowance?: number;
+    isFreemium?: boolean;
+    creditsRequired?: number;
+    isTeamPooled?: boolean;
+    purchaseUrl?: string;
+    upgradeUrl?: string;
+    message?: string;
+  };
 }
 
 export interface CommandSuggestion {
@@ -108,7 +121,7 @@ export interface LLMModel {
   contextLength: number;
   description: string;
   category: "text" | "code" | "multimodal" | "reasoning";
-  tier: "free" | "pro" | "enterprise" | "standard";
+  tier: "freemium" | "pro" | "enterprise" | "standard";
   isFavorite: boolean;
   capabilities?: {
     supportsVision?: boolean;

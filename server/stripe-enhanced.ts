@@ -8,7 +8,7 @@ import { users, subscriptions, subscriptionPlans, aiCreditsTransactions, teams }
 import { eq, and } from 'drizzle-orm';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2025-06-30.basil',
+  apiVersion: '2024-06-20',
 });
 
 // Stripe Product/Price IDs (replace with actual IDs from Stripe Dashboard)

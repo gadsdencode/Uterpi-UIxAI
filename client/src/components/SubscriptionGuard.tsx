@@ -332,7 +332,7 @@ export const SubscriptionGuard: React.FC<SubscriptionGuardProps> = ({
                 Unlock {feature}
               </h2>
               <p className="text-slate-300 mb-3">
-                Just <span className="text-violet-400 font-bold text-lg">$5/month</span>
+                Starting at <span className="text-violet-400 font-bold text-lg">$19/month</span>
               </p>
               <p className="text-slate-400 text-sm">
                 {feature} requires a {requiredTier} subscription or higher
@@ -366,15 +366,15 @@ export const SubscriptionGuard: React.FC<SubscriptionGuardProps> = ({
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: 0.4 }}
               >
-                <h3 className="font-medium mb-3 text-white">What you'll get for just $5/month:</h3>
+                <h3 className="font-medium mb-3 text-white">Choose your plan:</h3>
                 <ul className="space-y-2">
                   {[
-                    'Unlimited AI interactions',
-                    'Advanced code analysis & debugging',
-                    'UI generation & cloning', 
-                    'Performance insights & optimization',
-                    'All AI models available',
-                    'Priority support & processing'
+                    'Free: 100 AI Credits/month',
+                    'Pro ($19/mo): 1,000 Credits + All AI providers',
+                    'Team ($49/user): 5,000 Credits + Shared workspaces',
+                    'Full codebase context & Git integration',
+                    'AI code reviews & optimizations',
+                    'Priority support for paid plans'
                   ].map((featureItem, index) => (
                     <motion.li 
                       key={featureItem}
@@ -398,10 +398,10 @@ export const SubscriptionGuard: React.FC<SubscriptionGuardProps> = ({
                 className="space-y-3"
               >
                 <button
-                  onClick={() => window.location.href = '/subscribe'}
+                  onClick={() => window.location.href = '/pricing'}
                   className="w-full py-3 bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700 rounded-xl text-white font-medium transition-all duration-200 flex items-center justify-center gap-2"
                 >
-                  Get Started for $5/month
+                  View Pricing Plans
                   <ArrowRight className="h-4 w-4" />
                 </button>
                 

@@ -31,9 +31,27 @@ export const users = pgTable("users", {
   
   // Subscription-related fields
   stripeCustomerId: text("stripe_customer_id").unique(),
-  subscriptionStatus: text("subscription_status").default("free"), // free, active, past_due, canceled, etc.
-  subscriptionTier: text("subscription_tier").default("free"), // free, basic, premium, etc.
+  subscriptionStatus: text("subscription_status").default("freemium"), // freemium, active, past_due, canceled, etc.
+  subscriptionTier: text("subscription_tier").default("freemium"), // freemium, pro, team, enterprise, etc.
   subscriptionEndsAt: timestamp("subscription_ends_at"),
+  
+  // AI Credits fields
+  ai_credits_balance: integer("ai_credits_balance").default(0),
+  ai_credits_used_this_month: integer("ai_credits_used_this_month").default(0),
+  credits_reset_at: timestamp("credits_reset_at"),
+  
+  // Message allowance fields (for freemium)
+  messages_used_this_month: integer("messages_used_this_month").default(0),
+  messages_reset_at: timestamp("messages_reset_at"),
+  
+  // Team fields
+  teamId: integer("team_id"), // Will add foreign key reference after teams table is defined
+  teamRole: text("team_role"), // 'owner', 'admin', 'member'
+  
+  // Grandfathering fields
+  is_grandfathered: boolean("is_grandfathered").default(false),
+  grandfathered_from_tier: text("grandfathered_from_tier"),
+  grandfathered_at: timestamp("grandfathered_at"),
   
   // Access override fields for admin control
   accessOverride: boolean("access_override").default(false),
@@ -68,6 +86,7 @@ export const subscriptions = pgTable("subscriptions", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").references(() => users.id).notNull(),
   planId: integer("plan_id").references(() => subscriptionPlans.id),
+  teamId: integer("team_id").references(() => teams.id),
   stripeSubscriptionId: text("stripe_subscription_id").unique(),
   stripePriceId: text("stripe_price_id"),
   status: text("status").notNull(), // active, past_due, canceled, etc.
@@ -77,6 +96,7 @@ export const subscriptions = pgTable("subscriptions", {
   canceledAt: timestamp("canceled_at"),
   trialStart: timestamp("trial_start"),
   trialEnd: timestamp("trial_end"),
+  metadata: json("metadata"), // For storing additional info like grandfathered status
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -708,4 +728,106 @@ export const aiCoachConversations = pgTable("ai_coach_conversations", {
   startedAt: timestamp("started_at").defaultNow(),
   endedAt: timestamp("ended_at"),
   createdAt: timestamp("created_at").defaultNow(),
+});
+
+// =============================================================================
+// NEW MULTI-TIER SUBSCRIPTION TABLES
+// =============================================================================
+
+// Teams table for Team and Enterprise plans
+export const teams = pgTable("teams", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  ownerId: integer("owner_id").references(() => users.id).notNull(),
+  subscriptionTier: text("subscription_tier").notNull(), // 'team', 'enterprise'
+  
+  // Team limits and usage
+  maxMembers: integer("max_members").notNull().default(3),
+  currentMembers: integer("current_members").default(1),
+  pooledAiCredits: integer("pooled_ai_credits").default(0),
+  pooledCreditsUsedThisMonth: integer("pooled_credits_used_this_month").default(0),
+  
+  // Team features
+  sharedWorkspacesCount: integer("shared_workspaces_count").default(0),
+  maxWorkspaces: integer("max_workspaces").default(10),
+  customPersonasCount: integer("custom_personas_count").default(0),
+  
+  // Enterprise features
+  ssoEnabled: boolean("sso_enabled").default(false),
+  auditLogsEnabled: boolean("audit_logs_enabled").default(false),
+  dataResidencyRegion: text("data_residency_region"),
+  dedicatedAccountManager: text("dedicated_account_manager"),
+  
+  // Metadata
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// AI credits transactions table for tracking usage
+export const aiCreditsTransactions = pgTable("ai_credits_transactions", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  teamId: integer("team_id").references(() => teams.id),
+  
+  // Transaction details
+  transactionType: text("transaction_type").notNull(), // 'usage', 'purchase', 'monthly_reset', 'bonus', 'refund'
+  amount: integer("amount").notNull(), // Positive for credits added, negative for credits used
+  balanceAfter: integer("balance_after").notNull(),
+  
+  // Usage details (for 'usage' type)
+  operationType: text("operation_type"), // 'chat', 'codebase_analysis', 'app_generation', 'code_review', 'advanced_model'
+  modelUsed: text("model_used"),
+  tokensConsumed: integer("tokens_consumed"),
+  
+  // Purchase details (for 'purchase' type)
+  stripePaymentIntentId: text("stripe_payment_intent_id"),
+  purchaseAmountCents: integer("purchase_amount_cents"),
+  
+  // Metadata
+  description: text("description"),
+  metadata: json("metadata"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Feature flags table for tier-based feature access
+export const subscriptionFeatures = pgTable("subscription_features", {
+  id: serial("id").primaryKey(),
+  tierName: text("tier_name").notNull().unique(), // 'free', 'pro', 'team', 'enterprise'
+  
+  // Core features
+  unlimitedChat: boolean("unlimited_chat").default(false),
+  monthlyMessageAllowance: integer("monthly_message_allowance").default(0), // For freemium tier
+  aiProvidersAccess: json("ai_providers_access").$type<string[]>(), // Array of allowed AI provider names
+  
+  // AI Credits
+  monthlyAiCredits: integer("monthly_ai_credits").default(0),
+  creditsRollover: boolean("credits_rollover").default(false),
+  creditsPurchaseEnabled: boolean("credits_purchase_enabled").default(true),
+  
+  // Project limits
+  maxProjects: integer("max_projects").default(1),
+  fullCodebaseContext: boolean("full_codebase_context").default(false),
+  
+  // Integrations
+  gitIntegration: boolean("git_integration").default(false),
+  
+  // AI Features
+  aiCodeReviewsPerMonth: integer("ai_code_reviews_per_month").default(0),
+  
+  // Team features
+  teamFeaturesEnabled: boolean("team_features_enabled").default(false),
+  sharedWorkspaces: boolean("shared_workspaces").default(false),
+  teamPersonas: boolean("team_personas").default(false),
+  
+  // Security & Compliance
+  ssoEnabled: boolean("sso_enabled").default(false),
+  auditLogs: boolean("audit_logs").default(false),
+  dataResidency: boolean("data_residency").default(false),
+  
+  // Support
+  supportLevel: text("support_level").default("email"), // 'email', 'priority_email', 'dedicated'
+  
+  // Metadata
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
 });

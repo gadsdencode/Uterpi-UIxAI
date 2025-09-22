@@ -482,14 +482,34 @@ const AuthenticatedApp: React.FC = () => {
                 Please sign in or create an account
                 </p>
                 <div className="mt-4 p-3 bg-violet-500/10 rounded-lg border border-violet-400/20">
-                  <p className="text-sm text-white">
-                    🚀 <span className="font-bold">Universal Interface for AI</span> - Just <span className="text-violet-400 font-bold">$5/month</span>
+                  <p className="text-sm text-white mb-2">
+                    🚀 <span className="font-bold">Universal Interface for AI</span>
                   </p>
-                  <div className="text-xs text-slate-300 mt-2 space-y-1">
+                  <div className="flex flex-col gap-3 mb-3">
+                    <div className="p-2 bg-gradient-to-r from-green-500/10 to-emerald-500/10 rounded-lg border border-green-400/20">
+                      <p className="text-green-400 font-bold text-sm">Start Free</p>
+                      <p className="text-xs text-slate-300">10 messages/month to try Uterpi</p>
+                    </div>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <div className="flex-1 text-center">
+                        <p className="text-violet-400 font-bold text-base">$19<span className="text-xs font-normal">/mo</span></p>
+                        <p className="text-xs text-slate-400">Pro • Unlimited</p>
+                      </div>
+                      <div className="flex-1 text-center border-l-0 sm:border-l border-violet-400/20">
+                        <p className="text-violet-400 font-bold text-base">$49<span className="text-xs font-normal">/user</span></p>
+                        <p className="text-xs text-slate-400">Team • Shared</p>
+                      </div>
+                      <div className="flex-1 text-center border-l-0 sm:border-l border-violet-400/20">
+                        <p className="text-blue-400 font-bold text-sm">Pay as you go</p>
+                        <p className="text-xs text-slate-400">AI Credits: 2¢ each</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-xs text-slate-300 space-y-1">
                     <p>• Use any AI model + Uterpi's proprietary LLM</p>
                     <p>• Custom templates & personas to make Uterpi your own</p>
                     <p>• AI analyzes and suggests optimizations to your workflow</p>
-                    <p>• Ongoing feature updates & versioning of evolving AI models</p>
+                    <p>• Purchase AI Credits as needed - they never expire</p>
                   </div>
                 </div>
               </div>
@@ -511,7 +531,7 @@ const AuthenticatedApp: React.FC = () => {
                   }}
                   className="w-full py-3 bg-slate-800/50 hover:bg-slate-700/50 border border-slate-600/50 rounded-xl text-white font-medium transition-all duration-200"
                 >
-                  Join the Journey for $5/month
+                  Start Free - 10 Messages Included
                 </RippleButton>
                 <p className="text-xs text-slate-400 text-center">
                   ⚠️ Some LLM models may have parameters that are not currently supported by Uterpi.

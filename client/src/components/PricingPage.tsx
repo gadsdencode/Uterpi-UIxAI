@@ -176,7 +176,8 @@ const PricingPage: React.FC = () => {
 
   const handleSelectPlan = async (planId: string) => {
     if (!user) {
-      navigateTo('/');
+      // Redirect to login page for unauthenticated users
+      navigateTo('/login');
       return;
     }
 
@@ -364,8 +365,9 @@ const PricingPage: React.FC = () => {
                   variant={plan.popular ? 'default' : 'outline'}
                   disabled={plan.disabled || loading}
                   onClick={() => handleSelectPlan(plan.id)}
+                  data-testid={`button-select-${plan.id}`}
                 >
-                  {plan.ctaText}
+                  {!user && (plan.id === 'pro' || plan.id === 'team') ? 'Sign In to Upgrade' : plan.ctaText}
                 </Button>
               </CardContent>
             </Card>

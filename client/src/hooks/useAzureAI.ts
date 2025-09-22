@@ -456,8 +456,11 @@ export const useAzureAI = (options: AzureAIOptions = {}): UseAzureAIReturn => {
   }, [currentModel, fetchCapabilities]);
 
   // Fetch capabilities when model changes
+  // ONLY fetch if this provider is actually being used
   useEffect(() => {
-    if (currentModel) {
+    // Check if Azure is the active provider by checking localStorage
+    const activeProvider = localStorage.getItem('current-ai-provider');
+    if (currentModel && activeProvider === 'azure') {
       fetchCapabilities(currentModel);
     }
   }, [currentModel, fetchCapabilities]);

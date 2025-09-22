@@ -56,7 +56,7 @@ const OpenAISettingsModal: React.FC<OpenAISettingsModalProps> = ({
       // Test with a simple request
       await service.sendChatCompletion([
         { role: 'user', content: 'Hello' }
-      ], { maxTokens: 5 });
+      ], { maxTokens: 100 }); // Increased for consistency
 
       setStatus({ valid: true });
     } catch (error) {

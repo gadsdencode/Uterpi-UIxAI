@@ -48,18 +48,22 @@ const GeminiSettingsModal: React.FC<GeminiSettingsModalProps> = ({
     setStatus({ testing: true });
     
     try {
+      console.log('🔧 Testing Gemini connection with API key:', apiKey.substring(0, 10) + '...');
+      
       const service = new GeminiService({ 
         apiKey: apiKey.trim(), 
-        modelName: 'gemini-2.5-flash' 
+        modelName: 'gemini-1.5-flash' // Use a stable model for testing
       });
       
-      // Test with a simple request
-      await service.sendChatCompletion([
-        { role: 'user', content: 'Hello' }
-      ], { maxTokens: 5 });
-
+      // Test with a simple request (Gemini needs more tokens even for simple responses)
+      const response = await service.sendChatCompletion([
+        { role: 'user', content: 'Say "test successful" in 3 words or less' }
+      ], { maxTokens: 100 }); // Gemini needs more tokens even for short responses
+      
+      console.log('✅ Gemini test response:', response);
       setStatus({ valid: true });
     } catch (error) {
+      console.error('❌ Gemini test failed:', error);
       const errorMessage = error instanceof Error ? error.message : 'Connection failed';
       setStatus({ valid: false, error: errorMessage });
     }

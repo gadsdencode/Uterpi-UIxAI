@@ -244,11 +244,19 @@ export const useGemini = (options: GeminiOptions = {}): UseGeminiReturn => {
 
     try {
       const aiService = getAIService();
+      console.log('🚀 Gemini hook: Sending message with', messages.length, 'messages');
       const azureMessages = convertToAzureAIMessages(messages);
       const response = await aiService.sendChatCompletion(azureMessages, options.chatOptions);
+      console.log('✅ Gemini hook: Response received:', response ? `${response.substring(0, 100)}...` : 'EMPTY');
+      
+      if (!response) {
+        throw new Error('Gemini returned empty response');
+      }
+      
       return response;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Failed to send message";
+      console.error('❌ Gemini hook error:', errorMessage);
       setError(errorMessage);
       throw new Error(errorMessage);
     } finally {
@@ -261,15 +269,20 @@ export const useGemini = (options: GeminiOptions = {}): UseGeminiReturn => {
     messages: Message[],
     onChunk: (chunk: string) => void
   ): Promise<void> => {
+    console.log('🌊 Gemini hook: sendStreamingMessage called with', messages.length, 'messages');
     setIsLoading(true);
     setError(null);
 
     try {
       const aiService = getAIService();
+      console.log('🌊 Gemini hook: Got AI service, converting messages...');
       const azureMessages = convertToAzureAIMessages(messages);
+      console.log('🌊 Gemini hook: Calling service streaming with', azureMessages.length, 'messages');
       await aiService.sendStreamingChatCompletion(azureMessages, onChunk, options.chatOptions);
+      console.log('🌊 Gemini hook: Streaming completed successfully');
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Failed to send streaming message";
+      console.error('❌ Gemini hook streaming error:', errorMessage);
       setError(errorMessage);
       throw new Error(errorMessage);
     } finally {

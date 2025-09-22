@@ -9,6 +9,7 @@ import {
   sendWelcomeEmail, sendReengagementEmail, sendFeatureDiscoveryEmail,
   sendUsageInsightsEmail, sendProductTipsEmail, type EngagementEmailOptions
 } from "./email";
+import { aiCoachService } from "./ai-coach";
 
 // =============================================================================
 // ENGAGEMENT TRACKING SERVICE
@@ -77,7 +78,7 @@ export class EngagementService {
   }
 
   /**
-   * Track user activity
+   * Track user activity with AI Coach integration
    */
   async trackActivity(
     userId: number, 
@@ -102,6 +103,20 @@ export class EngagementService {
 
       // Update engagement metrics
       await this.updateEngagementMetrics(userId, activityType, activityData);
+
+      // Track workflow activity for AI Coach analysis
+      if (sessionId) {
+        await aiCoachService.trackWorkflowActivity(
+          userId,
+          sessionId,
+          activityType,
+          {
+            ...activityData,
+            duration,
+            timestamp: new Date().toISOString(),
+          }
+        );
+      }
 
     } catch (error) {
       console.error('Error tracking activity:', error);

@@ -81,7 +81,10 @@ export const useAIProvider = (options: AIProviderOptions = {}): UseAIProviderRet
       case 'huggingface': return huggingface;
       case 'lmstudio': return lmstudio;
       case 'uterpi': return uterpi;
-      default: return azureAI;
+      default: 
+        // Default to lmstudio instead of azure
+        console.warn(`Unknown provider: ${currentProvider}, defaulting to lmstudio`);
+        return lmstudio;
     }
   }, [currentProvider, azureAI, openAI, gemini, huggingface, lmstudio, uterpi]);
 
@@ -187,14 +190,32 @@ export const useAIProvider = (options: AIProviderOptions = {}): UseAIProviderRet
   // Forward all provider hook methods to the current provider
   const activeHook = getCurrentProviderHook();
 
+  // Wrap sendMessage to add debugging
+  const wrappedSendMessage = useCallback(async (messages: Message[]): Promise<string> => {
+    console.log(`🎯 useAIProvider: Sending message via ${currentProvider}`);
+    const response = await activeHook.sendMessage(messages);
+    console.log(`✅ useAIProvider: Response from ${currentProvider}:`, response ? `${response.substring(0, 100)}...` : 'EMPTY');
+    return response;
+  }, [activeHook, currentProvider]);
+
+  // Wrap sendStreamingMessage to add debugging
+  const wrappedSendStreamingMessage = useCallback(async (
+    messages: Message[],
+    onChunk: (chunk: string) => void
+  ): Promise<void> => {
+    console.log(`🌊 useAIProvider: Sending STREAMING message via ${currentProvider}`);
+    await activeHook.sendStreamingMessage(messages, onChunk);
+    console.log(`✅ useAIProvider: Streaming completed for ${currentProvider}`);
+  }, [activeHook, currentProvider]);
+
   return {
     // Provider management
     currentProvider,
     setProvider,
     
     // Forward all AI functionality from active provider
-    sendMessage: activeHook.sendMessage,
-    sendStreamingMessage: activeHook.sendStreamingMessage,
+    sendMessage: wrappedSendMessage,
+    sendStreamingMessage: wrappedSendStreamingMessage,
     isLoading: activeHook.isLoading,
     error: activeHook.error,
     clearError: activeHook.clearError,

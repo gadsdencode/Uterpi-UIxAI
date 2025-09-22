@@ -105,13 +105,13 @@ export class GeminiService {
         id: "gemini-1.5-flash",
         name: "Gemini 1.5 Flash",
         provider: "Google",
-        performance: 88,
-        cost: 0.0001,
+        performance: 90,
+        cost: 0.00015,
         latency: 400,
         contextLength: 1000000,
-        description: "Fast and efficient multimodal model",
-        category: "text",
-        tier: "free",
+        description: "Fast multimodal model with 1M context",
+        category: "multimodal",
+        tier: "standard",
         isFavorite: false,
         capabilities: {
           supportsVision: true,
@@ -207,6 +207,14 @@ export class GeminiService {
         presencePenalty: options.presencePenalty
       });
 
+      // Gemini requires a minimum number of tokens to generate any response
+      // Even for simple responses, it needs at least 50-100 tokens
+      const minTokensForGemini = 50;
+      if (validatedParams.maxTokens < minTokensForGemini) {
+        console.warn(`⚠️ Gemini requires at least ${minTokensForGemini} tokens. Adjusting from ${validatedParams.maxTokens} to ${minTokensForGemini}`);
+        validatedParams.maxTokens = minTokensForGemini;
+      }
+
       // Build request body
       const requestBody: any = {
         contents: processedContents,
@@ -235,11 +243,16 @@ export class GeminiService {
 
       console.log('🔗 Sending Gemini request:', {
         model: this.config.modelName,
-        contentCount: processedContents.length
+        contentCount: processedContents.length,
+        hasSystemInstruction: !!systemInstruction,
+        apiKeyPrefix: this.config.apiKey?.substring(0, 10) + '...'
       });
 
       const baseUrl = this.config.baseUrl || 'https://generativelanguage.googleapis.com';
-      const response = await fetch(`${baseUrl}/v1beta/models/${this.config.modelName}:generateContent`, {
+      const fullUrl = `${baseUrl}/v1beta/models/${this.config.modelName}:generateContent`;
+      console.log('📍 Gemini API URL:', fullUrl);
+      
+      const response = await fetch(fullUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -253,15 +266,81 @@ export class GeminiService {
       if (!response.ok) {
         const errorData = await response.text();
         console.error('❌ Gemini API error details:', errorData);
+        
+        // Handle specific error codes
+        if (response.status === 403) {
+          console.error('❌ Gemini API Key Error: Invalid or missing API key');
+          throw new Error('Gemini API key is invalid or missing. Please check your API key in AI Provider Settings.');
+        } else if (response.status === 404) {
+          console.error('❌ Gemini Model Error: Model not found');
+          throw new Error(`Gemini model "${this.config.modelName}" not found. Please check the model name.`);
+        } else if (response.status === 400) {
+          console.error('❌ Gemini Request Error: Bad request');
+          throw new Error(`Invalid request to Gemini API: ${errorData}`);
+        }
+        
         throw new Error(`Gemini API error (${response.status}): ${errorData}`);
       }
 
       const data = await response.json();
-      const content = data.candidates[0]?.content?.parts[0]?.text || "";
+      console.log('📡 Gemini API response structure:', {
+        hasCandidates: !!data.candidates,
+        candidatesLength: data.candidates?.length,
+        error: data.error
+      });
+      
+      // Check for error in response
+      if (data.error) {
+        console.error('❌ Gemini API returned error:', data.error);
+        throw new Error(`Gemini API error: ${data.error.message || JSON.stringify(data.error)}`);
+      }
+      
+      // Check if candidates exist and have content
+      if (!data.candidates || !Array.isArray(data.candidates) || data.candidates.length === 0) {
+        console.error('❌ Gemini API response missing candidates:', data);
+        throw new Error('Gemini API returned no response candidates. Please check your API key and model.');
+      }
+      
+      // Safely extract content
+      const candidate = data.candidates[0];
+      
+      // Check if response was truncated due to token limit
+      if (candidate.finishReason === 'MAX_TOKENS') {
+        console.warn('⚠️ Gemini response truncated due to MAX_TOKENS limit');
+        // Still try to get partial content if available
+      }
+      
+      // Check for empty content
+      if (!candidate.content || !candidate.content.parts || candidate.content.parts.length === 0) {
+        // If MAX_TOKENS and no content, it means we need more output tokens
+        if (candidate.finishReason === 'MAX_TOKENS') {
+          console.error('❌ Gemini hit token limit before generating any content. Increase maxTokens.');
+          throw new Error('Gemini needs more output tokens. Please increase maxTokens in the request.');
+        }
+        console.error('❌ Gemini API response missing content:', candidate);
+        throw new Error('Gemini API returned empty response content.');
+      }
+      
+      const content = candidate.content.parts[0]?.text || "";
+      if (!content && candidate.finishReason === 'MAX_TOKENS') {
+        console.error('❌ Gemini hit MAX_TOKENS limit with empty content');
+        throw new Error('Gemini response was cut off. Please increase maxTokens to get a complete response.');
+      } else if (!content) {
+        console.warn('⚠️ Gemini API returned empty text content');
+      }
+      
       console.log('✅ Gemini response received:', content.substring(0, 100) + '...');
       return content;
-    } catch (error) {
+    } catch (error: any) {
       console.error("Gemini Service Error:", error);
+      
+      // Provide user-friendly error messages
+      if (error.message?.includes('API key')) {
+        throw new Error('Gemini API key issue. Please verify your API key in AI Provider Settings.');
+      } else if (error.message?.includes('model')) {
+        throw new Error('Gemini model issue. Please try a different model or check your settings.');
+      }
+      
       throw error;
     }
   }
@@ -290,6 +369,13 @@ export class GeminiService {
         presencePenalty: options.presencePenalty
       });
 
+      // Gemini requires a minimum number of tokens to generate any response
+      const minTokensForGemini = 50;
+      if (validatedParams.maxTokens < minTokensForGemini) {
+        console.warn(`⚠️ Gemini streaming requires at least ${minTokensForGemini} tokens. Adjusting from ${validatedParams.maxTokens} to ${minTokensForGemini}`);
+        validatedParams.maxTokens = minTokensForGemini;
+      }
+
       // Build request body
       const requestBody: any = {
         contents,
@@ -311,7 +397,9 @@ export class GeminiService {
       }
 
       const baseUrl = this.config.baseUrl || 'https://generativelanguage.googleapis.com';
-      const response = await fetch(`${baseUrl}/v1beta/models/${this.config.modelName}:streamGenerateContent`, {
+      const url = `${baseUrl}/v1beta/models/${this.config.modelName}:streamGenerateContent?alt=sse`;
+      
+      const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -319,7 +407,7 @@ export class GeminiService {
         },
         body: JSON.stringify(requestBody),
       });
-
+      
       if (!response.ok) {
         const errorData = await response.text();
         console.error('❌ Gemini streaming error:', errorData);
@@ -333,6 +421,7 @@ export class GeminiService {
 
       const decoder = new TextDecoder();
       let buffer = '';
+      let accumulatedText = ''; // Track ALL text sent so far for the entire response
 
       try {
         while (true) {
@@ -346,31 +435,80 @@ export class GeminiService {
           const chunk = decoder.decode(value, { stream: true });
           buffer += chunk;
 
-          // Process complete SSE events (Gemini uses same format as OpenAI)
+          // Process complete lines
           const lines = buffer.split('\n');
-          buffer = lines.pop() || '';
+          buffer = lines.pop() || ''; // Keep incomplete line in buffer
 
           for (const line of lines) {
+            if (!line.trim()) continue;
+            
+            let jsonData = line;
+            
+            // Check if it's SSE format (with alt=sse parameter)
             if (line.startsWith('data: ')) {
-              const data = line.slice(6).trim();
-              
-              if (data === '[DONE]') {
+              jsonData = line.slice(6).trim();
+              if (jsonData === '[DONE]') {
                 return;
               }
-
-              try {
-                const eventData = JSON.parse(data);
-                // Gemini response format is different - candidates[].content.parts[].text
-                for (const candidate of eventData.candidates || []) {
-                  const content = candidate.content?.parts?.[0]?.text;
-                  if (content) {
-                    onChunk(content);
+            }
+            
+            try {
+              const data = JSON.parse(jsonData);
+              
+              // Extract text from Gemini streaming response
+              if (data.candidates && data.candidates[0]) {
+                const candidate = data.candidates[0];
+                
+                // Get the current text from this response
+                const currentText = candidate.content?.parts?.[0]?.text || '';
+                
+                if (!currentText) continue;
+                
+                // Check if this chunk contains the accumulated text as a prefix
+                // This means it's a cumulative update containing all previous text plus new
+                if (currentText.startsWith(accumulatedText)) {
+                  // Extract only the NEW characters after what we've already sent
+                  const newText = currentText.substring(accumulatedText.length);
+                  if (newText) {
+                    onChunk(newText);
+                    accumulatedText = currentText;
+                  }
+                } else if (accumulatedText.startsWith(currentText)) {
+                  // This chunk is a subset of what we already have, skip it
+                  continue;
+                } else {
+                  // This is completely new text (not a continuation of accumulated)
+                  // Just send it as is
+                  onChunk(currentText);
+                  accumulatedText = accumulatedText + currentText;
+                }
+                
+                // Check if response is complete
+                if (candidate.finishReason && candidate.finishReason !== 'STOP') {
+                  if (candidate.finishReason === 'MAX_TOKENS') {
+                    console.warn('⚠️ Gemini streaming hit token limit');
                   }
                 }
-              } catch (parseError) {
-                console.warn("Failed to parse SSE event:", parseError);
+              }
+            } catch (e) {
+              // Silently ignore parse errors for non-JSON lines
+            }
+          }
+        }
+        
+        // Process any remaining buffer
+        if (buffer.trim()) {
+          try {
+            const data = JSON.parse(buffer);
+            if (data.candidates && data.candidates[0]) {
+              const fullText = data.candidates[0].content?.parts?.[0]?.text || '';
+              if (fullText && fullText.length > previousText.length) {
+                const newText = fullText.substring(previousText.length);
+                onChunk(newText);
               }
             }
+          } catch (e) {
+            // Ignore incomplete JSON at end
           }
         }
       } finally {

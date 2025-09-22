@@ -554,3 +554,158 @@ export const userActivity = pgTable("user_activity", {
   // Metadata
   createdAt: timestamp("created_at").defaultNow(),
 });
+
+// =============================================================================
+// AI COACH WORKFLOW TRACKING SYSTEM
+// =============================================================================
+
+// Workflow tracking table for AI Coach analysis
+export const workflowTracking = pgTable("workflow_tracking", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  sessionId: text("session_id").notNull(),
+  
+  // Workflow identification
+  workflowType: text("workflow_type"), // coding, debugging, analysis, writing, research, etc.
+  workflowName: text("workflow_name"), // User-friendly name for the workflow
+  
+  // Workflow state
+  status: text("status").default("active"), // active, completed, abandoned
+  
+  // Workflow metrics
+  totalSteps: integer("total_steps").default(0),
+  completedSteps: integer("completed_steps").default(0),
+  
+  // Command and model usage patterns
+  commandSequence: json("command_sequence").$type<Array<{
+    command: string;
+    timestamp: string;
+    modelUsed?: string;
+    duration?: number;
+    success?: boolean;
+  }>>(),
+  
+  modelSwitchPatterns: json("model_switch_patterns").$type<Array<{
+    fromModel: string;
+    toModel: string;
+    reason?: string;
+    timestamp: string;
+  }>>(),
+  
+  // Time tracking
+  startedAt: timestamp("started_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+  totalDuration: integer("total_duration"), // in seconds
+  activeTime: integer("active_time"), // actual working time in seconds
+  
+  // Efficiency metrics
+  efficiencyScore: integer("efficiency_score"), // 0-100
+  complexityLevel: text("complexity_level"), // simple, moderate, complex, expert
+  
+  // AI Coach analysis
+  coachAnalysis: json("coach_analysis"), // Stored AI Coach insights
+  lastAnalyzedAt: timestamp("last_analyzed_at"),
+  
+  // Metadata
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// AI Coach insights table
+export const aiCoachInsights = pgTable("ai_coach_insights", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  workflowId: integer("workflow_id").references(() => workflowTracking.id),
+  
+  // Insight details
+  insightType: text("insight_type").notNull(), // workflow_optimization, model_recommendation, efficiency_tip, etc.
+  insightCategory: text("insight_category").notNull(), // strategic, tactical, operational
+  
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  
+  // Actionable recommendations
+  recommendations: json("recommendations").$type<Array<{
+    action: string;
+    expectedImprovement: string;
+    difficulty: 'easy' | 'medium' | 'hard';
+  }>>(),
+  
+  // Context and triggers
+  triggerContext: json("trigger_context"), // What triggered this insight
+  applicableScenarios: json("applicable_scenarios").$type<string[]>(),
+  
+  // User interaction
+  wasShown: boolean("was_shown").default(false),
+  wasActedUpon: boolean("was_acted_upon").default(false),
+  userFeedback: text("user_feedback"), // positive, negative, neutral
+  feedbackDetails: text("feedback_details"),
+  
+  // Impact tracking
+  expectedImpact: text("expected_impact"), // high, medium, low
+  actualImpact: text("actual_impact"),
+  impactMetrics: json("impact_metrics"),
+  
+  // Timing
+  generatedAt: timestamp("generated_at").defaultNow(),
+  shownAt: timestamp("shown_at"),
+  actedAt: timestamp("acted_at"),
+  expiresAt: timestamp("expires_at"),
+  
+  // Metadata
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Workflow patterns table for learning user behaviors
+export const workflowPatterns = pgTable("workflow_patterns", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  
+  // Pattern identification
+  patternName: text("pattern_name").notNull(),
+  patternType: text("pattern_type").notNull(), // task_sequence, model_preference, time_of_day, etc.
+  
+  // Pattern data
+  patternData: json("pattern_data").notNull(),
+  frequency: integer("frequency").default(1),
+  confidence: decimal("confidence", { precision: 3, scale: 2 }), // 0.00-1.00
+  
+  // Learning metrics
+  firstObservedAt: timestamp("first_observed_at").defaultNow(),
+  lastObservedAt: timestamp("last_observed_at").defaultNow(),
+  observationCount: integer("observation_count").default(1),
+  
+  // Pattern effectiveness
+  successRate: decimal("success_rate", { precision: 3, scale: 2 }), // 0.00-1.00
+  averageTimeToComplete: integer("avg_time_to_complete"), // in seconds
+  
+  // Metadata
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// AI Coach conversations table for contextual coaching
+export const aiCoachConversations = pgTable("ai_coach_conversations", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  
+  // Conversation context
+  conversationContext: text("conversation_context").notNull(), // workflow_help, optimization_advice, etc.
+  
+  // Messages
+  messages: json("messages").$type<Array<{
+    role: 'user' | 'coach';
+    content: string;
+    timestamp: string;
+  }>>().notNull(),
+  
+  // Outcomes
+  resolutionStatus: text("resolution_status"), // resolved, ongoing, abandoned
+  userSatisfaction: integer("user_satisfaction"), // 1-5 rating
+  
+  // Metadata
+  startedAt: timestamp("started_at").defaultNow(),
+  endedAt: timestamp("ended_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});

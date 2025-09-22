@@ -464,12 +464,16 @@ const NeuralNetworkPulse: React.FC<{ isActive?: boolean }> = ({ isActive = false
   </motion.div>
 );
 
-const RippleButton: React.FC<{
-  children: React.ReactNode;
-  onClick?: () => void;
-  className?: string;
-  disabled?: boolean;
-}> = ({ children, onClick, className, disabled = false }) => {
+const RippleButton = React.forwardRef<
+  HTMLButtonElement,
+  {
+    children: React.ReactNode;
+    onClick?: () => void;
+    className?: string;
+    disabled?: boolean;
+    'aria-label'?: string;
+  }
+>(({ children, onClick, className, disabled = false, 'aria-label': ariaLabel }, ref) => {
   const [ripples, setRipples] = useState<Array<{ id: number; x: number; y: number }>>([]);
 
   const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
@@ -499,8 +503,10 @@ const RippleButton: React.FC<{
 
   return (
     <button
+      ref={ref}
       onClick={handleClick}
       disabled={disabled}
+      aria-label={ariaLabel}
       className={`
         relative overflow-hidden transition-all duration-200
         ${disabled ? "opacity-50 cursor-not-allowed" : "hover:scale-105 active:scale-95"}
@@ -525,7 +531,9 @@ const RippleButton: React.FC<{
       ))}
     </button>
   );
-};
+});
+
+RippleButton.displayName = 'RippleButton';
 
 const OrigamiModal: React.FC<{
   isOpen: boolean;
@@ -644,6 +652,7 @@ const FuturisticAIChat: React.FC = () => {
   const [showFileManager, setShowFileManager] = useState(false);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
+  const [isChatActive, setIsChatActive] = useState(false); // Track if chat is actively processing
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -729,51 +738,116 @@ const FuturisticAIChat: React.FC = () => {
     return selectedLLMModel?.name || currentModel || 'Choose Model';
   })();
 
-  // Get AI service instance for intelligent toasts (prefer Uterpi, then current provider)
+  // Get AI service instance for intelligent toasts (create a SEPARATE instance to avoid interference)
   const aiServiceRef = useRef<any>(null);
   useEffect(() => {
     const getAIService = async () => {
       try {
-        // If provider is Uterpi, force-initialize to Uterpi each time
-        if (currentProvider !== 'uterpi' && aiServiceRef.current) return;
-
-        const uterpiToken = (import.meta as any).env?.VITE_UTERPI_API_TOKEN;
-        const uterpiUrl = (import.meta as any).env?.VITE_UTERPI_ENDPOINT_URL;
-        if (uterpiToken && uterpiUrl) {
-          const { HuggingFaceService } = await import('../lib/huggingface');
-          aiServiceRef.current = new HuggingFaceService({ apiToken: uterpiToken, endpointUrl: uterpiUrl, modelName: 'hf-endpoint' });
-          console.log('✅ Uterpi AI Service initialized for intelligent toasts');
-          return;
-        }
-
-        // If Uterpi is selected but credentials are missing, do not fallback to Azure
-        if (currentProvider === 'uterpi') {
-          aiServiceRef.current = null;
-          console.warn('Uterpi selected but VITE_UTERPI_* not set; disabling system analysis to avoid Azure fallback');
-          return;
-        }
-
-        if (currentProvider === 'huggingface') {
-          const token = localStorage.getItem('hf-api-token');
-          const url = localStorage.getItem('hf-endpoint-url');
-          if (token && url) {
-            const { HuggingFaceService } = await import('../lib/huggingface');
-            aiServiceRef.current = new HuggingFaceService({ apiToken: token, endpointUrl: url, modelName: 'hf-endpoint' });
-            console.log('✅ Hugging Face AI Service initialized for intelligent toasts');
+        // Create a DEDICATED service instance for intelligent toasts
+        // This prevents interference with chat operations
+        switch (currentProvider) {
+          case 'gemini': {
+            const apiKey = localStorage.getItem('gemini-api-key');
+            if (apiKey) {
+              const { GeminiService } = await import('../lib/gemini');
+              // Create a separate instance specifically for analysis
+              // Use a lightweight model for faster analysis
+              aiServiceRef.current = new GeminiService({ 
+                apiKey, 
+                modelName: 'gemini-1.5-flash' // Use flash model for analysis to reduce load
+              });
+              console.log('✅ Separate Gemini Service initialized for intelligent toasts');
+              return;
+            }
+            break;
+          }
+          
+          case 'openai': {
+            const apiKey = localStorage.getItem('openai-api-key');
+            if (apiKey) {
+              const { OpenAIService } = await import('../lib/openAI');
+              // Create a separate instance for analysis with a lightweight model
+              aiServiceRef.current = new OpenAIService({ 
+                apiKey, 
+                modelName: 'gpt-4o-mini' // Use mini model for analysis to reduce load
+              });
+              console.log('✅ Separate OpenAI Service initialized for intelligent toasts');
+              return;
+            }
+            break;
+          }
+          
+          case 'huggingface': {
+            const token = localStorage.getItem('hf-api-token');
+            const url = localStorage.getItem('hf-endpoint-url');
+            if (token && url) {
+              const { HuggingFaceService } = await import('../lib/huggingface');
+              aiServiceRef.current = new HuggingFaceService({ 
+                apiToken: token, 
+                endpointUrl: url, 
+                modelName: 'hf-endpoint' 
+              });
+              console.log('✅ HuggingFace Service initialized for intelligent toasts');
+              return;
+            }
+            break;
+          }
+          
+          case 'azure': {
+            const azureKey = localStorage.getItem('azure-api-key');
+            const azureEndpoint = localStorage.getItem('azure-endpoint');
+            if (azureKey && azureEndpoint) {
+              const { AzureAIService } = await import('../lib/azureAI');
+              aiServiceRef.current = new AzureAIService({ 
+                apiKey: azureKey, 
+                endpoint: azureEndpoint,
+                modelName: selectedLLMModel?.id || 'gpt-4o' 
+              });
+              console.log('✅ Azure AI Service initialized for intelligent toasts');
+              return;
+            }
+            break;
+          }
+          
+          case 'uterpi': {
+            const uterpiToken = (import.meta as any).env?.VITE_UTERPI_API_TOKEN;
+            const uterpiUrl = (import.meta as any).env?.VITE_UTERPI_ENDPOINT_URL;
+            if (uterpiToken && uterpiUrl) {
+              const { HuggingFaceService } = await import('../lib/huggingface');
+              aiServiceRef.current = new HuggingFaceService({ 
+                apiToken: uterpiToken, 
+                endpointUrl: uterpiUrl, 
+                modelName: 'hf-endpoint' 
+              });
+              console.log('✅ Uterpi AI Service initialized for intelligent toasts');
+              return;
+            }
+            break;
+          }
+          
+          case 'lmstudio': {
+            const baseUrl = localStorage.getItem('lmstudio-base-url') || 'http://localhost:1234/v1';
+            const { LMStudioService } = await import('../lib/lmstudio');
+            aiServiceRef.current = new LMStudioService({ 
+              apiKey: 'not-needed', // LM Studio doesn't require an API key
+              baseUrl, 
+              modelName: selectedLLMModel?.id || 'local-model' 
+            });
+            console.log('✅ LM Studio Service initialized for intelligent toasts');
             return;
           }
         }
 
-        const { AzureAIService } = await import('../lib/azureAI');
-        const config = AzureAIService.createFromEnv();
-        aiServiceRef.current = new AzureAIService(config);
-        console.log('✅ Azure AI Service initialized for intelligent toasts');
+        // No service available for current provider
+        aiServiceRef.current = null;
+        console.log(`⚠️ No AI service available for intelligent toasts with provider: ${currentProvider}`);
       } catch (err) {
         console.warn('Failed to initialize AI service for toasts:', err);
+        aiServiceRef.current = null;
       }
     };
     getAIService();
-  }, [currentProvider]);
+  }, [currentProvider, selectedLLMModel]);
 
   // Intelligent toast system - pass toast function explicitly
   const {
@@ -787,7 +861,7 @@ const FuturisticAIChat: React.FC = () => {
     testShowRecommendation,
     getRecommendationCacheStatus
   } = useIntelligentToast({
-    enabled: true,
+    enabled: !!aiServiceRef.current, // Only enable if we have a compatible AI service
     aiService: aiServiceRef.current,
     toastFunction: (title: string, options?: any) => {
       toast(title, options);
@@ -827,9 +901,10 @@ const FuturisticAIChat: React.FC = () => {
     isAvailable: speechAvailable,
     isHTTPS,
     microphonePermission,
-    error: speechError
+    error: speechError,
+    initialize
   } = useSpeech({
-    autoInitialize: true,
+    autoInitialize: false, // Don't auto-initialize - only when user explicitly enables speech
     onRecognitionResult: (result) => {
       if (result.transcript) {
         // For both interim and final results, show the full transcript
@@ -846,6 +921,14 @@ const FuturisticAIChat: React.FC = () => {
   // Handle text-to-speech for messages
   const handleSpeak = useCallback(async (messageId: string, text: string) => {
     try {
+      // Initialize speech service if not already initialized
+      if (!speechAvailable && initialize) {
+        toast.info('Initializing text-to-speech...');
+        await initialize();
+        // Wait a bit for initialization to complete
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      
       if (speakingMessageId === messageId) {
         // Stop speaking if clicking same message
         stopSpeaking();
@@ -862,11 +945,19 @@ const FuturisticAIChat: React.FC = () => {
       toast.error('Failed to speak message');
       setSpeakingMessageId(null);
     }
-  }, [speakingMessageId, speak, stopSpeaking]);
+  }, [speakingMessageId, speak, stopSpeaking, speechAvailable, initialize]);
   
   // Handle speech-to-text for input
   const handleVoiceInput = useCallback(async () => {
     try {
+      // Initialize speech service if not already initialized
+      if (!speechAvailable && initialize) {
+        toast.info('Initializing speech service...');
+        await initialize();
+        // Wait a bit for initialization to complete
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      
       // Check HTTPS requirement
       if (!isHTTPS && microphonePermission !== 'granted') {
         toast.error('🔒 Microphone access requires HTTPS. Please use a secure connection.');
@@ -907,7 +998,7 @@ const FuturisticAIChat: React.FC = () => {
       
       setIsRecording(false);
     }
-  }, [isRecording, startListening, stopListening, isHTTPS, microphonePermission]);
+  }, [isRecording, startListening, stopListening, isHTTPS, microphonePermission, speechAvailable, initialize]);
 
   // Mic permission badge helper
   const MicPermissionBadge = () => (
@@ -1076,6 +1167,8 @@ const FuturisticAIChat: React.FC = () => {
     if (!input.trim() && attachments.length === 0) return;
     if (isLoading) return; // Prevent multiple requests
 
+    // Set chat as active to prevent interference from intelligent toasts
+    setIsChatActive(true);
     const startTime = Date.now();
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -1103,6 +1196,7 @@ const FuturisticAIChat: React.FC = () => {
     try {
       if (enableStreaming) {
         // Handle streaming response
+        console.log('📤 Using STREAMING mode with provider:', currentProvider);
         const aiMessageId = (Date.now() + 1).toString();
         const aiMessage: Message = {
           id: aiMessageId,
@@ -1143,13 +1237,22 @@ const FuturisticAIChat: React.FC = () => {
         }
       } else {
         // Handle non-streaming response
+        console.log('📤 Sending message to AI provider:', currentProvider);
         const response = await sendMessage(updatedMessages);
+        console.log('📥 Received response:', response ? `${response.substring(0, 100)}...` : 'EMPTY/UNDEFINED');
+        
+        if (!response) {
+          console.error('❌ Empty response received from AI provider');
+          throw new Error('No response received from AI provider');
+        }
+        
         const aiMessage: Message = {
           id: (Date.now() + 1).toString(),
           content: response,
           role: "assistant",
           timestamp: new Date(),
         };
+        console.log('💬 Adding AI message to chat:', aiMessage);
         setMessages(prev => [...prev, aiMessage]);
         
         // Auto-speak AI response if TTS is available and enabled
@@ -1176,13 +1279,20 @@ const FuturisticAIChat: React.FC = () => {
         setTimeout(() => {
           if (selectedLLMModel) {
             console.log('📞 Calling analyzeConversation...');
-            analyzeConversation(updatedMessages, selectedLLMModel, responseTime, estimatedTokens)
-              .then(() => {
-                console.log('✅ analyzeConversation completed successfully');
-              })
-              .catch((error) => {
-                console.error('❌ analyzeConversation failed:', error);
-              });
+            // Wrap in try-catch to prevent analysis errors from breaking chat
+            try {
+              analyzeConversation(updatedMessages, selectedLLMModel, responseTime, estimatedTokens, isChatActive)
+                .then(() => {
+                  console.log('✅ analyzeConversation completed successfully');
+                })
+                .catch((error) => {
+                  // Log error but don't let it break the chat
+                  console.error('⚠️ analyzeConversation failed (non-critical):', error);
+                });
+            } catch (error) {
+              // Catch any synchronous errors
+              console.error('⚠️ analyzeConversation error (non-critical):', error);
+            }
           } else {
             console.warn('⚠️ No selectedLLMModel available for analysis');
           }
@@ -1206,6 +1316,8 @@ const FuturisticAIChat: React.FC = () => {
     } finally {
       setIsTyping(false);
       setActiveMessage(null);
+      // Clear chat active flag after a short delay to ensure response is complete
+      setTimeout(() => setIsChatActive(false), 1000);
     }
   };
 

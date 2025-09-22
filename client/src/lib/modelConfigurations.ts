@@ -64,6 +64,302 @@ export const MODEL_CONFIGURATIONS: Record<string, ModelConfiguration> = {
     ]
   },
   
+  // Gemini Models
+  "gemini-2.5-flash": {
+    id: "gemini-2.5-flash",
+    name: "Gemini 2.5 Flash",
+    provider: "Google",
+    contextLength: 1048576,
+    limits: {
+      maxTokens: {
+        input: 1048576,
+        output: 8192
+      },
+      temperature: {
+        min: 0,
+        max: 2,
+        default: 0.7
+      },
+      topP: {
+        min: 0,
+        max: 1,
+        default: 0.95
+      },
+      frequencyPenalty: {
+        min: -2,
+        max: 2,
+        default: 0
+      },
+      presencePenalty: {
+        min: -2,
+        max: 2,
+        default: 0
+      }
+    },
+    capabilities: {
+      supportsVision: true,
+      supportsCodeGeneration: true,
+      supportsAnalysis: true,
+      supportsImageGeneration: false,
+      supportsSystemMessages: true,
+      supportsJSONMode: true,
+      supportsFunctionCalling: true,
+      supportsStreaming: true,
+      supportsStop: true,
+      supportsLogitBias: false,
+      supportsFrequencyPenalty: false,
+      supportsPresencePenalty: false
+    },
+    recommendedParams: {
+      maxTokens: 2048,
+      temperature: 0.7,
+      topP: 0.95,
+      frequencyPenalty: 0,
+      presencePenalty: 0
+    },
+    specialInstructions: [
+      "Gemini 2.5 Flash - Fast multimodal model with 1M context window",
+      "Supports image understanding and analysis",
+      "Optimized for speed and efficiency"
+    ]
+  },
+
+  "gemini-2.0-flash": {
+    id: "gemini-2.0-flash",
+    name: "Gemini 2.0 Flash",
+    provider: "Google",
+    contextLength: 1048576,
+    limits: {
+      maxTokens: {
+        input: 1048576,
+        output: 8192
+      },
+      temperature: {
+        min: 0,
+        max: 2,
+        default: 0.7
+      },
+      topP: {
+        min: 0,
+        max: 1,
+        default: 0.95
+      },
+      frequencyPenalty: {
+        min: -2,
+        max: 2,
+        default: 0
+      },
+      presencePenalty: {
+        min: -2,
+        max: 2,
+        default: 0
+      }
+    },
+    capabilities: {
+      supportsVision: true,
+      supportsCodeGeneration: true,
+      supportsAnalysis: true,
+      supportsImageGeneration: false,
+      supportsSystemMessages: true,
+      supportsJSONMode: true,
+      supportsFunctionCalling: true,
+      supportsStreaming: true,
+      supportsStop: true,
+      supportsLogitBias: false,
+      supportsFrequencyPenalty: false,
+      supportsPresencePenalty: false
+    },
+    recommendedParams: {
+      maxTokens: 2048,
+      temperature: 0.7,
+      topP: 0.95,
+      frequencyPenalty: 0,
+      presencePenalty: 0
+    },
+    specialInstructions: [
+      "Gemini 2.0 Flash - Latest fast multimodal model",
+      "Enhanced capabilities over 2.5 Flash",
+      "Optimized for speed and efficiency"
+    ]
+  },
+
+  "gemini-1.5-flash": {
+    id: "gemini-1.5-flash",
+    name: "Gemini 1.5 Flash",
+    provider: "Google",
+    contextLength: 1048576,
+    limits: {
+      maxTokens: {
+        input: 1048576,
+        output: 8192
+      },
+      temperature: {
+        min: 0,
+        max: 2,
+        default: 0.7
+      },
+      topP: {
+        min: 0,
+        max: 1,
+        default: 0.95
+      },
+      frequencyPenalty: {
+        min: -2,
+        max: 2,
+        default: 0
+      },
+      presencePenalty: {
+        min: -2,
+        max: 2,
+        default: 0
+      }
+    },
+    capabilities: {
+      supportsVision: true,
+      supportsCodeGeneration: true,
+      supportsAnalysis: true,
+      supportsImageGeneration: false,
+      supportsSystemMessages: true,
+      supportsJSONMode: true,
+      supportsFunctionCalling: true,
+      supportsStreaming: true,
+      supportsStop: true,
+      supportsLogitBias: false,
+      supportsFrequencyPenalty: false,
+      supportsPresencePenalty: false
+    },
+    recommendedParams: {
+      maxTokens: 2048,
+      temperature: 0.7,
+      topP: 0.95,
+      frequencyPenalty: 0,
+      presencePenalty: 0
+    },
+    specialInstructions: [
+      "Gemini 1.5 Flash - Previous generation fast model",
+      "1M context window with multimodal support",
+      "Stable and well-tested"
+    ]
+  },
+
+  "gemini-1.5-pro": {
+    id: "gemini-1.5-pro",
+    name: "Gemini 1.5 Pro",
+    provider: "Google",
+    contextLength: 2097152,
+    limits: {
+      maxTokens: {
+        input: 2097152,
+        output: 8192
+      },
+      temperature: {
+        min: 0,
+        max: 2,
+        default: 0.7
+      },
+      topP: {
+        min: 0,
+        max: 1,
+        default: 0.95
+      },
+      frequencyPenalty: {
+        min: -2,
+        max: 2,
+        default: 0
+      },
+      presencePenalty: {
+        min: -2,
+        max: 2,
+        default: 0
+      }
+    },
+    capabilities: {
+      supportsVision: true,
+      supportsCodeGeneration: true,
+      supportsAnalysis: true,
+      supportsImageGeneration: false,
+      supportsSystemMessages: true,
+      supportsJSONMode: true,
+      supportsFunctionCalling: true,
+      supportsStreaming: true,
+      supportsStop: true,
+      supportsLogitBias: false,
+      supportsFrequencyPenalty: false,
+      supportsPresencePenalty: false
+    },
+    recommendedParams: {
+      maxTokens: 2048,
+      temperature: 0.7,
+      topP: 0.95,
+      frequencyPenalty: 0,
+      presencePenalty: 0
+    },
+    specialInstructions: [
+      "Gemini 1.5 Pro - Previous generation advanced model",
+      "2M context window for complex tasks",
+      "Higher quality than 1.5 Flash"
+    ]
+  },
+
+  "gemini-pro": {
+    id: "gemini-pro",
+    name: "Gemini Pro",
+    provider: "Google",
+    contextLength: 32768,
+    limits: {
+      maxTokens: {
+        input: 32768,
+        output: 2048
+      },
+      temperature: {
+        min: 0,
+        max: 1,
+        default: 0.7
+      },
+      topP: {
+        min: 0,
+        max: 1,
+        default: 0.95
+      },
+      frequencyPenalty: {
+        min: -2,
+        max: 2,
+        default: 0
+      },
+      presencePenalty: {
+        min: -2,
+        max: 2,
+        default: 0
+      }
+    },
+    capabilities: {
+      supportsVision: false,
+      supportsCodeGeneration: true,
+      supportsAnalysis: true,
+      supportsImageGeneration: false,
+      supportsSystemMessages: true,
+      supportsJSONMode: true,
+      supportsFunctionCalling: true,
+      supportsStreaming: true,
+      supportsStop: true,
+      supportsLogitBias: false,
+      supportsFrequencyPenalty: false,
+      supportsPresencePenalty: false
+    },
+    recommendedParams: {
+      maxTokens: 1024,
+      temperature: 0.7,
+      topP: 0.95,
+      frequencyPenalty: 0,
+      presencePenalty: 0
+    },
+    specialInstructions: [
+      "Gemini Pro - Balanced performance model",
+      "Good for general-purpose tasks",
+      "32K context window"
+    ]
+  },
+  
   // Uterpi AI via LM Studio (model ID as shown in LM Studio server)
   "nomadai-lcdu-v8": {
     id: "nomadai-lcdu-v8",

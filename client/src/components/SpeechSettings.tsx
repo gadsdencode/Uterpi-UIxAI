@@ -38,6 +38,7 @@ const SpeechSettings: React.FC<SpeechSettingsProps> = ({ onClose }) => {
 
   // Load saved settings
   useEffect(() => {
+    // Default to false unless explicitly enabled by user
     const savedAutoSpeak = localStorage.getItem('auto-speak-responses') === 'true';
     const savedRate = parseFloat(localStorage.getItem('speech-rate') || '1.0');
     const savedPitch = parseFloat(localStorage.getItem('speech-pitch') || '1.0');

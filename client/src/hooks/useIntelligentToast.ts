@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import { IntelligentToastService } from '../lib/intelligentToastService';
 import { AzureAIService } from '../lib/azureAI';
 import { Message, LLMModel } from '../types';
+import { useAICoach } from './useAICoach';
 
 interface UseIntelligentToastOptions {
   enabled?: boolean;
@@ -22,6 +23,13 @@ export const useIntelligentToast = (options: UseIntelligentToastOptions) => {
   const { enabled = true, aiService, toastFunction, onModelSwitch, onNewChat } = options;
   const serviceRef = useRef<IntelligentToastService | null>(null);
   const lastAnalysisTimeRef = useRef<number>(0);
+  
+  // Integrate AI Coach for strategic insights
+  const aiCoach = useAICoach({
+    enabled: enabled && !!aiService,
+    autoFetch: true,
+    pollingInterval: 30000, // Check for new insights every 30 seconds
+  });
 
   // Initialize/reinitialize intelligent toast service when AI service becomes available
   useEffect(() => {
@@ -30,15 +38,22 @@ export const useIntelligentToast = (options: UseIntelligentToastOptions) => {
     }
   }, [enabled, aiService, toastFunction, onModelSwitch, onNewChat]);
 
-  // Analyze conversation and show recommendations
+  // Analyze conversation with AI Coach integration
   const analyzeConversation = useCallback(async (
     messages: Message[],
     currentModel: LLMModel,
     responseTime?: number,
-    tokenUsage?: number
+    tokenUsage?: number,
+    isChatActive?: boolean
   ) => {
     if (!serviceRef.current || !enabled || !aiService) {
       console.log('⚠️ IntelligentToast analysis skipped - service not ready');
+      return;
+    }
+
+    // Skip analysis if chat is currently active to prevent interference
+    if (isChatActive) {
+      console.log('⏸️ IntelligentToast analysis deferred - chat is active');
       return;
     }
 
@@ -51,14 +66,26 @@ export const useIntelligentToast = (options: UseIntelligentToastOptions) => {
 
     lastAnalysisTimeRef.current = now;
     console.log('🔍 Starting intelligent conversation analysis...');
-    await serviceRef.current.analyzeAndRecommend(messages, currentModel, responseTime, tokenUsage);
-  }, [enabled, aiService]);
+    
+    // Run both traditional analysis and AI Coach analysis in parallel
+    await Promise.all([
+      serviceRef.current.analyzeAndRecommend(messages, currentModel, responseTime, tokenUsage),
+      aiCoach.analyzeConversation(messages, currentModel, responseTime, tokenUsage)
+    ]);
+  }, [enabled, aiService, aiCoach]);
 
-  // Track user actions
+  // Track user actions with AI Coach integration
   const trackAction = useCallback((action: string, data?: any) => {
     if (!serviceRef.current || !enabled) return;
     serviceRef.current.trackAction(action, data);
-  }, [enabled]);
+    
+    // Also track with AI Coach for workflow analysis
+    if (action === 'model_switch' && data?.fromModel && data?.toModel) {
+      aiCoach.trackModelSwitch(data.fromModel, data.toModel, data.reason);
+    } else if (action === 'command' || action === 'chat_message') {
+      aiCoach.trackCommand(action, data?.model, data?.success);
+    }
+  }, [enabled, aiCoach]);
 
   // Get performance insights
   const getInsights = useCallback(() => {
@@ -102,11 +129,14 @@ export const useIntelligentToast = (options: UseIntelligentToastOptions) => {
     return serviceRef.current.getRecommendationCacheStatus();
   }, [enabled]);
 
-  // Show immediate optimization tip
+  // Show immediate optimization tip with AI Coach enhancement
   const showOptimizationTip = useCallback((tip: string, action?: () => void) => {
     if (!enabled) return;
     
-    if (toastFunction) {
+    // Use AI Coach's optimization tip if available
+    if (aiCoach.showOptimizationTip) {
+      aiCoach.showOptimizationTip(tip, action);
+    } else if (toastFunction) {
       toastFunction("🚀 Optimization Tip", {
         description: tip,
         duration: 8000,
@@ -116,7 +146,7 @@ export const useIntelligentToast = (options: UseIntelligentToastOptions) => {
         } : undefined
       });
     }
-  }, [enabled, toastFunction]);
+  }, [enabled, toastFunction, aiCoach]);
 
   // Show performance alert
   const showPerformanceAlert = useCallback((message: string, severity: 'low' | 'medium' | 'high' = 'medium') => {
@@ -145,6 +175,14 @@ export const useIntelligentToast = (options: UseIntelligentToastOptions) => {
     getRecommendationCacheStatus,
     showOptimizationTip,
     showPerformanceAlert,
-    isEnabled: enabled && !!serviceRef.current
+    isEnabled: enabled && !!serviceRef.current,
+    // AI Coach specific methods
+    aiCoach: {
+      insights: aiCoach.insights,
+      workflowStats: aiCoach.workflowStats,
+      getStrategicAdvice: aiCoach.getStrategicAdvice,
+      recordFeedback: aiCoach.recordFeedback,
+      applyRecommendation: aiCoach.applyRecommendation,
+    }
   };
 }; 

@@ -82,7 +82,7 @@ const AIProviderSettings: React.FC = () => {
       await service.sendChatCompletion([
         { role: 'system', content: 'You are a helpful assistant.' },
         { role: 'user', content: 'Say "hello" if you can read this.' }
-      ], { maxTokens: 10 });
+      ], { maxTokens: 100 }); // Increased for Gemini compatibility
 
       setOpenaiStatus({ configured: true, valid: true });
     } catch (error) {
@@ -108,7 +108,7 @@ const AIProviderSettings: React.FC = () => {
       await service.sendChatCompletion([
         { role: 'system', content: 'You are a helpful assistant.' },
         { role: 'user', content: 'Say "hello" if you can read this.' }
-      ], { maxTokens: 10 });
+      ], { maxTokens: 100 }); // Increased for Gemini compatibility
 
       setGeminiStatus({ configured: true, valid: true });
     } catch (error) {

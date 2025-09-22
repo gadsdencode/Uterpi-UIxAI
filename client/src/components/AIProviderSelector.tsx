@@ -107,7 +107,7 @@ const AIProviderSelector: React.FC<AIProviderSelectorProps> = ({
           await svc.sendChatCompletion([
             { role: 'system', content: 'Connectivity test' },
             { role: 'user', content: 'ping' }
-          ], { maxTokens: 5 });
+          ], { maxTokens: 100 }); // Increased for Gemini compatibility
           setProviderStatus(prev => ({ ...prev, openai: { ...prev.openai, connection: 'ok', connectionMessage: 'Connected' } }));
         }
         if (p === 'gemini' && geminiKey) {
@@ -116,7 +116,7 @@ const AIProviderSelector: React.FC<AIProviderSelectorProps> = ({
           await svc.sendChatCompletion([
             { role: 'system', content: 'Connectivity test' },
             { role: 'user', content: 'ping' }
-          ], { maxTokens: 5 });
+          ], { maxTokens: 100 }); // Increased for Gemini compatibility
           setProviderStatus(prev => ({ ...prev, gemini: { ...prev.gemini, connection: 'ok', connectionMessage: 'Connected' } }));
         }
         if (p === 'huggingface' && hfToken && hfUrl) {
@@ -125,7 +125,7 @@ const AIProviderSelector: React.FC<AIProviderSelectorProps> = ({
           await svc.sendChatCompletion([
             { role: 'system', content: 'Connectivity test' },
             { role: 'user', content: 'ping' }
-          ], { maxTokens: 5 });
+          ], { maxTokens: 100 }); // Increased for Gemini compatibility
           setProviderStatus(prev => ({ ...prev, huggingface: { ...prev.huggingface, connection: 'ok', connectionMessage: 'Connected' } }));
         }
         if (p === 'lmstudio') {
@@ -137,7 +137,7 @@ const AIProviderSelector: React.FC<AIProviderSelectorProps> = ({
           await svc.sendChatCompletion([
             { role: 'system', content: 'Connectivity test' },
             { role: 'user', content: 'ping' }
-          ], { maxTokens: 5 });
+          ], { maxTokens: 100 }); // Increased for Gemini compatibility
           setProviderStatus(prev => ({ ...prev, lmstudio: { ...prev.lmstudio, connection: 'ok', connectionMessage: 'Connected' } }));
         }
       } catch (err: any) {

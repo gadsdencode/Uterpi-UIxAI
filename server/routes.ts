@@ -5,6 +5,7 @@ import { requireAuth, requireGuest } from "./auth";
 import passport from "./auth";
 import { registerUserSchema, loginUserSchema, forgotPasswordSchema, resetPasswordSchema, publicUserSchema, updateProfileSchema, updateEmailPreferencesSchema, unsubscribeSchema, subscriptionPlans, subscriptions, users, files } from "@shared/schema";
 import { engagementService } from "./engagement";
+import { aiCoachService } from "./ai-coach";
 import { db } from "./db";
 import { eq, desc, and } from "drizzle-orm";
 import { createStripeCustomer, createSetupIntent, createSubscription, cancelSubscription, reactivateSubscription, createBillingPortalSession, syncSubscriptionFromStripe } from "./stripe";
@@ -976,6 +977,118 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Send email error:", error);
       res.status(500).json({ error: "Failed to send email" });
+    }
+  });
+
+  // =============================================================================
+  // AI COACH SYSTEM ROUTES
+  // =============================================================================
+
+  // Get pending AI Coach insights
+  app.get("/api/coach/insights", requireAuth, async (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 5;
+      const insights = await aiCoachService.getPendingInsights(req.user!.id, limit);
+      
+      res.json({ insights });
+    } catch (error) {
+      console.error('Error fetching coach insights:', error);
+      res.status(500).json({ error: "Failed to fetch insights" });
+    }
+  });
+
+  // Mark insight as shown
+  app.post("/api/coach/insights/:id/shown", requireAuth, async (req, res) => {
+    try {
+      const insightId = parseInt(req.params.id);
+      await aiCoachService.markInsightShown(insightId);
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error marking insight as shown:', error);
+      res.status(500).json({ error: "Failed to update insight" });
+    }
+  });
+
+  // Record feedback on insight
+  app.post("/api/coach/insights/:id/feedback", requireAuth, async (req, res) => {
+    try {
+      const insightId = parseInt(req.params.id);
+      const { feedback, details } = req.body;
+      
+      if (!['positive', 'negative', 'neutral'].includes(feedback)) {
+        return res.status(400).json({ error: "Invalid feedback type" });
+      }
+      
+      await aiCoachService.recordInsightFeedback(insightId, feedback, details);
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error recording insight feedback:', error);
+      res.status(500).json({ error: "Failed to record feedback" });
+    }
+  });
+
+  // Get user workflow statistics
+  app.get("/api/coach/workflow-stats", requireAuth, async (req, res) => {
+    try {
+      const stats = await aiCoachService.getUserWorkflowStats(req.user!.id);
+      
+      res.json({ stats });
+    } catch (error) {
+      console.error('Error fetching workflow stats:', error);
+      res.status(500).json({ error: "Failed to fetch workflow statistics" });
+    }
+  });
+
+  // Track workflow command (for real-time tracking)
+  app.post("/api/coach/track-command", requireAuth, async (req, res) => {
+    try {
+      const { command, model, duration, success } = req.body;
+      const sessionId = req.sessionID;
+      
+      await aiCoachService.trackWorkflowActivity(
+        req.user!.id,
+        sessionId,
+        'command',
+        {
+          command,
+          model,
+          duration,
+          success,
+          timestamp: new Date().toISOString(),
+        }
+      );
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error tracking command:', error);
+      res.status(500).json({ error: "Failed to track command" });
+    }
+  });
+
+  // Track model switch
+  app.post("/api/coach/track-model-switch", requireAuth, async (req, res) => {
+    try {
+      const { fromModel, toModel, reason } = req.body;
+      const sessionId = req.sessionID;
+      
+      await aiCoachService.trackWorkflowActivity(
+        req.user!.id,
+        sessionId,
+        'model_switch',
+        {
+          fromModel,
+          toModel,
+          reason,
+          timestamp: new Date().toISOString(),
+        }
+      );
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error tracking model switch:', error);
+      res.status(500).json({ error: "Failed to track model switch" });
     }
   });
 

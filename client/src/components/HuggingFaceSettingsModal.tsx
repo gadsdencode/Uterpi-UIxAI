@@ -42,7 +42,7 @@ const HuggingFaceSettingsModal: React.FC<HuggingFaceSettingsModalProps> = ({ ope
     setStatus({ testing: true });
     try {
       const service = new HuggingFaceService({ apiToken: apiToken.trim(), endpointUrl: endpointUrl.trim(), modelName: 'hf-endpoint' });
-      await service.sendChatCompletion([{ role: 'user', content: 'Hello' }], { maxTokens: 5 });
+      await service.sendChatCompletion([{ role: 'user', content: 'Hello' }], { maxTokens: 100 }); // Increased for consistency
       setStatus({ valid: true });
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Connection failed';

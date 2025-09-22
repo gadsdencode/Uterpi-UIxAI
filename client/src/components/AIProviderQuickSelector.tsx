@@ -203,7 +203,7 @@ export const AIProviderQuickSelector: React.FC = () => {
       await service.sendChatCompletion([
         { role: 'system', content: 'Connection test' },
         { role: 'user', content: 'ping' }
-      ], { maxTokens: 5 });
+      ], { maxTokens: 100 }); // Increased for Gemini compatibility
       
       toast.success(`Connection successful!`);
     } catch (error) {

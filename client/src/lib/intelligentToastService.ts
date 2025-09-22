@@ -105,7 +105,7 @@ export interface PerformanceData {
 }
 
 export class IntelligentToastService {
-  private aiService: AzureAIService;
+  private aiService: AzureAIService | any; // Allow any AI service that has sendChatCompletion
   private metrics: ConversationMetrics;
   private performanceHistory: PerformanceData[] = [];
   private shownRecommendations: Set<string> = new Set();
@@ -115,6 +115,7 @@ export class IntelligentToastService {
   private availableModels: LLMModel[] = [];
   private modelSwitchCallback?: (modelId: string) => void;
   private newChatCallback?: () => void;
+  private isAnalyzing: boolean = false; // Track if analysis is in progress
 
   // Toast queue management to avoid rapid-fire notifications
   private toastQueue: SmartToast[] = [];
@@ -132,7 +133,7 @@ export class IntelligentToastService {
   };
 
   constructor(
-    aiService: AzureAIService, 
+    aiService: AzureAIService | any, // Accept any AI service with sendChatCompletion method
     toastFunction?: ToastFunction,
     modelSwitchCallback?: (modelId: string) => void,
     newChatCallback?: () => void
@@ -200,13 +201,17 @@ export class IntelligentToastService {
     responseTime?: number,
     tokenUsage?: number
   ): Promise<void> {
+    // Prevent concurrent analysis to avoid interference
+    if (this.isAnalyzing) {
+      console.log('⏸️ Analysis already in progress, skipping to prevent interference');
+      return;
+    }
+
+    this.isAnalyzing = true;
     console.log(`🔍 Starting analysis for ${messages.length} messages with model ${currentModel.name}`);
     
-    // Show analysis in progress notification
-    this.toastFunction("🔍 Analyzing Conversation", {
-      description: "Generating intelligent recommendations...",
-      duration: 3000
-    });
+    // Don't show analysis in progress notification - it can interfere with chat
+    // The analysis should happen silently in the background
     
     // Update metrics
     this.updateMetrics(messages, currentModel, responseTime, tokenUsage);
@@ -215,6 +220,7 @@ export class IntelligentToastService {
     const now = Date.now();
     if (now - this.lastAnalysisTime < 10000) { // Reduced from 30s to 10s for faster testing
       console.log('⚠️ Analysis throttled - waiting for cooldown');
+      this.isAnalyzing = false;
       return;
     }
     this.lastAnalysisTime = now;
@@ -222,12 +228,12 @@ export class IntelligentToastService {
     try {
       console.log('🔍 Performing conversation analysis...');
       
-      // Try Azure AI analysis first
+      // Try AI service analysis first
       let analysis = null;
       try {
-        console.log('🚀 Attempting Azure AI analysis...');
+        console.log('🚀 Attempting AI service analysis...');
         analysis = await this.performConversationAnalysis(messages, currentModel);
-        console.log('✅ Azure AI analysis completed successfully');
+        console.log('✅ AI service analysis completed successfully');
         console.log('📋 Analysis result structure:', {
           hasUserInteractionStyle: !!analysis?.userInteractionStyle,
           hasBehavioralInsights: !!analysis?.behavioralInsights,
@@ -237,9 +243,9 @@ export class IntelligentToastService {
           keys: Object.keys(analysis || {})
         });
       } catch (aiError) {
-        console.warn('⚠️ Azure AI analysis failed, using fallback:', aiError);
+        console.warn('⚠️ AI service analysis failed, using fallback:', aiError);
         console.warn('🔍 Error details:', aiError instanceof Error ? aiError.message : String(aiError));
-        // Generate fallback analysis without Azure AI
+        // Generate fallback analysis without AI service
         analysis = this.generateEnhancedFallbackAnalysis(messages, currentModel);
         console.log('🔄 Fallback analysis completed');
         console.log('📋 Fallback analysis structure:', {
@@ -280,11 +286,11 @@ export class IntelligentToastService {
     } catch (error) {
       console.error('❌ Analysis completely failed:', error);
       
-      // Show a basic notification as fallback
-      this.toastFunction("🧠 Smart Analysis", {
-        description: "Performance analysis completed. Continue chatting for more insights.",
-        duration: 4000
-      });
+      // Don't show any toast on error - just fail silently to avoid disrupting chat
+      // The chat functionality is more important than analysis notifications
+    } finally {
+      // Always clear the analyzing flag
+      this.isAnalyzing = false;
     }
   }
 
@@ -303,7 +309,56 @@ export class IntelligentToastService {
     const userMessages = recentMessages.filter(m => m.role === 'user');
     const assistantMessages = recentMessages.filter(m => m.role === 'assistant');
 
-    const analysisPrompt = `Analyze this conversation to understand the user's interaction patterns and provide hidden insights:
+    // Create a more concise prompt for providers with token limitations (like Gemini)
+    const isGemini = this.aiService.constructor?.name?.includes('Gemini');
+    
+    const analysisPrompt = isGemini ? 
+    // Concise version for Gemini with strict JSON requirements
+    `Analyze this conversation. Return ONLY valid JSON, no other text.
+
+CONVERSATION:
+${conversationText.substring(0, 1500)}
+
+CRITICAL: Return ONLY a valid JSON object. Do NOT include any text before or after the JSON.
+Do NOT use apostrophes or quotes in string values unless you escape them with backslash.
+Example: "user's goal" should be "user\\'s goal" or just "user goal"
+
+Return this exact JSON structure (replace placeholders with actual values):
+{
+  "userInteractionStyle": {
+    "communicationType": "direct",
+    "questionStyle": "specific",
+    "engagementLevel": "low",
+    "patienceLevel": "medium"
+  },
+  "conversationDynamics": {
+    "topicDepth": "surface",
+    "focusPattern": "single-topic",
+    "complexityProgression": "stable",
+    "responsePreference": "detailed"
+  },
+  "behavioralInsights": {
+    "learningStyle": "practical",
+    "problemSolvingApproach": "systematic",
+    "confidenceLevel": "high",
+    "expertiseArea": ["coding"],
+    "improvementAreas": ["clarity"]
+  },
+  "interactionQuality": {
+    "clarityScore": 8,
+    "efficiencyScore": 7,
+    "satisfactionPrediction": 9,
+    "potentialFrustrationPoints": ["none"]
+  },
+  "hiddenInsights": {
+    "thinkingPattern": "seeks quick solutions",
+    "aiAssumptions": "expects accurate responses",
+    "uncertaintyHandling": "asks for clarification",
+    "motivation": "problem solving"
+  }
+}` :
+    // Full version for other providers
+    `Analyze this conversation to understand the user's interaction patterns and provide hidden insights:
 
 CONVERSATION:
 ${conversationText}
@@ -379,6 +434,22 @@ Return ONLY a JSON object with this structure:
 }`;
 
     try {
+      // Check if the AI service is available and properly configured
+      if (!this.aiService || typeof this.aiService.sendChatCompletion !== 'function') {
+        console.warn('⚠️ AI service not properly configured for analysis, using fallback');
+        return this.generateEnhancedFallbackAnalysis(messages, currentModel);
+      }
+
+      // Get the service type for logging
+      const serviceName = this.aiService.constructor?.name || 'Unknown';
+      console.log(`🤖 Using ${serviceName} for conversation analysis`);
+
+      // Adjust token limit based on provider (Gemini needs more tokens for JSON responses)
+      // Increased from 2048 to 4096 for Gemini to prevent truncation
+      const maxTokens = serviceName.includes('Gemini') ? 4096 : 1500;
+      console.log(`📊 Requesting ${maxTokens} max tokens for analysis`);
+
+      // Try to use the AI service for analysis (works with any provider that supports sendChatCompletion)
       const response = await this.aiService.sendChatCompletion([
         {
           role: "system",
@@ -388,11 +459,11 @@ Return ONLY a JSON object with this structure:
           role: "user",
           content: analysisPrompt
         }
-      ], { maxTokens: 1200, temperature: 0.3 });
+      ], { maxTokens, temperature: 0.3 });
 
       console.log('📡 Enhanced analysis response received:', response.substring(0, 200) + '...');
       
-      const parsed = this.parseAzureAIResponse(response);
+      const parsed = this.parseAnalysisResponse(response);
       if (parsed) {
         console.log('✅ Successfully parsed enhanced analysis:', parsed);
         return parsed;
@@ -402,22 +473,42 @@ Return ONLY a JSON object with this structure:
       }
     } catch (apiError: any) {
       console.error('❌ Enhanced analysis failed:', apiError);
+      // Don't log the full error if it's a known issue (like service not available)
+      if (apiError.message?.includes('endpoint error') || apiError.message?.includes('403') || apiError.message?.includes('API key')) {
+        console.log('ℹ️ AI service not available for analysis, using fallback');
+      }
       return this.generateEnhancedFallbackAnalysis(messages, currentModel);
     }
   }
 
   /**
-   * Robust JSON parsing for Azure AI responses
+   * Robust JSON parsing for AI service responses
    */
-  private parseAzureAIResponse(response: string): any {
+  private parseAnalysisResponse(response: string): any {
     try {
-      console.log('📡 Raw Azure AI response length:', response.length);
-      console.log('📡 Raw Azure AI response preview:', response.substring(0, 300) + '...');
+      console.log('📡 Raw AI response length:', response.length);
+      console.log('📡 Raw AI response preview:', response.substring(0, 300) + '...');
       
-      // Strategy 1: Try parsing as-is first
+      // Strategy 0: First check if response is wrapped in markdown code blocks
+      let cleanedResponse = response.trim();
+      
+      // Remove markdown code block wrapper if present
+      if (cleanedResponse.startsWith('```json')) {
+        cleanedResponse = cleanedResponse.substring(7); // Remove ```json
+      } else if (cleanedResponse.startsWith('```')) {
+        cleanedResponse = cleanedResponse.substring(3); // Remove ```
+      }
+      
+      if (cleanedResponse.endsWith('```')) {
+        cleanedResponse = cleanedResponse.substring(0, cleanedResponse.length - 3);
+      }
+      
+      cleanedResponse = cleanedResponse.trim();
+      
+      // Strategy 1: Try parsing cleaned response first
       try {
-        const parsed = JSON.parse(response);
-        console.log('✅ JSON parsed successfully without sanitization');
+        const parsed = JSON.parse(cleanedResponse);
+        console.log('✅ JSON parsed successfully after cleaning markdown');
         
         if (this.validateAnalysisResponse(parsed)) {
           return parsed;
@@ -425,7 +516,19 @@ Return ONLY a JSON object with this structure:
           console.warn('⚠️ Parsed JSON but validation failed:', parsed);
         }
       } catch (directParseError) {
-        console.log('❌ Direct JSON parse failed:', directParseError);
+        console.log('❌ Direct JSON parse failed after cleaning:', directParseError);
+        
+        // Try original response as fallback
+        try {
+          const parsed = JSON.parse(response);
+          console.log('✅ JSON parsed successfully without cleaning');
+          
+          if (this.validateAnalysisResponse(parsed)) {
+            return parsed;
+          }
+        } catch (originalError) {
+          console.log('❌ Original response parse also failed:', originalError);
+        }
       }
 
       // Strategy 2: Extract JSON from text
@@ -512,17 +615,35 @@ Return ONLY a JSON object with this structure:
    * Conservative JSON sanitization - only fixes the most common, safe issues
    */
   private conservativeSanitizeJSON(jsonStr: string): string {
-    return jsonStr
+    let result = jsonStr
       .trim()
       // Remove any leading/trailing non-JSON content
       .replace(/^[^{]*/, '')
-      .replace(/[^}]*$/, '')
-      // Fix trailing commas (most common issue)
-      .replace(/,(\s*[}\]])/g, '$1')
-      // Fix obvious unquoted property names
-      .replace(/(\w+)(\s*:)/g, '"$1"$2')
-      // Fix single quotes to double quotes
-      .replace(/'/g, '"');
+      .replace(/[^}]*$/, '');
+    
+    // Check if the JSON seems to be incomplete (missing closing braces)
+    const openBraces = (result.match(/{/g) || []).length;
+    const closeBraces = (result.match(/}/g) || []).length;
+    
+    if (openBraces > closeBraces) {
+      console.log(`🔧 Fixing incomplete JSON: ${openBraces} open braces, ${closeBraces} close braces`);
+      // Add missing closing braces
+      const missingBraces = openBraces - closeBraces;
+      for (let i = 0; i < missingBraces; i++) {
+        result += '}';
+      }
+    }
+    
+    // Fix trailing commas (most common issue)
+    result = result.replace(/,(\s*[}\]])/g, '$1');
+    
+    // Fix unquoted property names (but be careful with already quoted ones)
+    result = result.replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)(\s*:)/g, '$1"$2"$3');
+    
+    // Don't touch apostrophes - they're valid in JSON strings
+    // The issue is likely something else
+    
+    return result;
   }
 
   /**
@@ -532,20 +653,75 @@ Return ONLY a JSON object with this structure:
     // Start with conservative fixes
     jsonStr = this.conservativeSanitizeJSON(jsonStr);
     
+    // Additional check: if JSON appears truncated, try to complete it with minimal structure
+    // Look for the last complete property
+    if (jsonStr.includes('"userInteractionStyle"') && !jsonStr.includes('"conversationDynamics"')) {
+      console.log('🔧 JSON appears truncated after userInteractionStyle, attempting to complete structure');
+      // Try to complete with minimal valid structure
+      const lastCompleteObject = jsonStr.lastIndexOf('}');
+      if (lastCompleteObject > -1) {
+        // Check if we're inside an object that needs completion
+        const afterLastObject = jsonStr.substring(lastCompleteObject + 1).trim();
+        if (afterLastObject && !afterLastObject.startsWith(',') && !afterLastObject.startsWith('}')) {
+          // We're likely in the middle of an incomplete structure
+          jsonStr = jsonStr.substring(0, lastCompleteObject + 1);
+          
+          // Add minimal completion for missing properties
+          const openBraces = (jsonStr.match(/{/g) || []).length;
+          const closeBraces = (jsonStr.match(/}/g) || []).length;
+          
+          if (openBraces > closeBraces) {
+            const missingBraces = openBraces - closeBraces;
+            for (let i = 0; i < missingBraces; i++) {
+              jsonStr += '}';
+            }
+          }
+        }
+      }
+    }
+    
+    // Fix common Gemini-specific issues
+    // Look for patterns like: "user's goal" and similar unescaped quotes
+    jsonStr = jsonStr.replace(/"([^"]*)'([^"]*)"/g, (match, before, after) => {
+      // Replace unescaped apostrophes with escaped ones or remove them
+      return `"${before}${after}"`;
+    });
+    
     // More aggressive fixes
     jsonStr = jsonStr
       // Fix boolean values that might be quoted
       .replace(/:\s*"(true|false|null)"/g, ': $1')
       // Fix number values that might be quoted
       .replace(/:\s*"(\d+(?:\.\d+)?)"/g, ': $1')
-      // Fix array syntax issues
+      // Fix array syntax issues - be more careful with the content
       .replace(/\[\s*([^\[\]]*?)\s*\]/g, (match, content) => {
         if (!content.trim()) return '[]';
         
-        // Simple array item cleanup
-        const items = content.split(',').map((item: string) => {
-          item = item.trim();
-          if (!item) return '""';
+        // Handle arrays more carefully
+        // Split by comma but be aware of commas inside quotes
+        const items: string[] = [];
+        let current = '';
+        let inQuotes = false;
+        
+        for (let i = 0; i < content.length; i++) {
+          const char = content[i];
+          if (char === '"' && (i === 0 || content[i-1] !== '\\')) {
+            inQuotes = !inQuotes;
+          }
+          if (char === ',' && !inQuotes) {
+            items.push(current.trim());
+            current = '';
+          } else {
+            current += char;
+          }
+        }
+        if (current.trim()) {
+          items.push(current.trim());
+        }
+        
+        // Process each item
+        const processedItems = items.map((item: string) => {
+          if (!item) return null;
           
           // If already quoted properly, keep as is
           if ((item.startsWith('"') && item.endsWith('"')) || 
@@ -554,11 +730,12 @@ Return ONLY a JSON object with this structure:
             return item;
           }
           
-          // Quote everything else
-          return `"${item.replace(/"/g, '\\"')}"`;
-        }).filter((item: string) => item !== '""');
+          // Quote everything else, removing problematic characters
+          const cleaned = item.replace(/['"]/g, '');
+          return `"${cleaned}"`;
+        }).filter(item => item !== null);
         
-        return `[${items.join(', ')}]`;
+        return `[${processedItems.join(', ')}]`;
       })
       // Try to fix unquoted string values (very carefully)
       .replace(/:\s*([a-zA-Z][a-zA-Z0-9_\-]*)\s*([,}\]])/g, ': "$1"$2');

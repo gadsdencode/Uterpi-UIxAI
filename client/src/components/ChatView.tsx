@@ -468,7 +468,7 @@ const RippleButton = React.forwardRef<
   HTMLButtonElement,
   {
     children: React.ReactNode;
-    onClick?: () => void;
+    onClick?: (e?: React.MouseEvent<HTMLButtonElement>) => void;
     className?: string;
     disabled?: boolean;
     'aria-label'?: string;
@@ -493,7 +493,7 @@ const RippleButton = React.forwardRef<
     if (onClick && typeof onClick === 'function') {
       try {
         // Forward the original event so upstream handlers can access defaultPrevented, etc.
-        onClick();
+        onClick(e);
       } catch (error) {
         console.error('Error in onClick handler:', error);
         console.error('onClick handler failed:', error);

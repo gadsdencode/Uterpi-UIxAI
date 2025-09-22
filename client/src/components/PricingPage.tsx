@@ -235,6 +235,64 @@ const PricingPage: React.FC = () => {
     }
   };
 
+  const handlePurchaseCredits = async (credits: number) => {
+    if (!user) {
+      // Redirect to login page for unauthenticated users
+      navigateTo('/login');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // Map credits amount to package ID
+      const packageMap: { [key: number]: string } = {
+        100: 'credits_100',
+        500: 'credits_500',
+        1000: 'credits_1000',
+        5000: 'credits_5000',
+      };
+      
+      const packageId = packageMap[credits];
+      if (!packageId) {
+        throw new Error('Invalid credit package');
+      }
+      
+      // Create Stripe Checkout Session for AI Credits
+      const response = await fetch('/api/checkout/credits', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          packageId,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to create checkout session');
+      }
+
+      const data = await response.json();
+      
+      // Redirect to Stripe Checkout
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        throw new Error('No checkout URL returned');
+      }
+    } catch (error) {
+      console.error('Error purchasing credits:', error);
+      toast({
+        title: 'Checkout Error',
+        description: error instanceof Error ? error.message : 'Failed to start checkout. Please try again.',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-muted/20 py-12">
       <div className="container mx-auto px-4">
@@ -387,17 +445,37 @@ const PricingPage: React.FC = () => {
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <Button variant="outline" onClick={() => navigateTo('/settings/billing/credits')}>
-                100 Credits - $1.99
+              <Button 
+                variant="outline" 
+                disabled={loading}
+                onClick={() => handlePurchaseCredits(100)}
+                data-testid="button-buy-credits-100"
+              >
+                {!user ? 'Sign In to Purchase' : '100 Credits - $1.99'}
               </Button>
-              <Button variant="outline" onClick={() => navigateTo('/settings/billing/credits')}>
-                500 Credits - $8.99
+              <Button 
+                variant="outline" 
+                disabled={loading}
+                onClick={() => handlePurchaseCredits(500)}
+                data-testid="button-buy-credits-500"
+              >
+                {!user ? 'Sign In to Purchase' : '500 Credits - $8.99'}
               </Button>
-              <Button variant="outline" onClick={() => navigateTo('/settings/billing/credits')}>
-                1,000 Credits - $15.99
+              <Button 
+                variant="outline" 
+                disabled={loading}
+                onClick={() => handlePurchaseCredits(1000)}
+                data-testid="button-buy-credits-1000"
+              >
+                {!user ? 'Sign In to Purchase' : '1,000 Credits - $15.99'}
               </Button>
-              <Button variant="outline" onClick={() => navigateTo('/settings/billing/credits')}>
-                5,000 Credits - $69.99
+              <Button 
+                variant="outline" 
+                disabled={loading}
+                onClick={() => handlePurchaseCredits(5000)}
+                data-testid="button-buy-credits-5000"
+              >
+                {!user ? 'Sign In to Purchase' : '5,000 Credits - $69.99'}
               </Button>
             </div>
           </CardContent>

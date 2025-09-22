@@ -108,7 +108,7 @@ export interface LLMModel {
   contextLength: number;
   description: string;
   category: "text" | "code" | "multimodal" | "reasoning";
-  tier: "free" | "pro" | "enterprise";
+  tier: "free" | "pro" | "enterprise" | "standard";
   isFavorite: boolean;
   capabilities?: {
     supportsVision?: boolean;

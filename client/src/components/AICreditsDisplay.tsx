@@ -28,6 +28,7 @@ import {
 } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '@/hooks/useAuth';
 
 interface CreditTransaction {
   id: number;
@@ -55,6 +56,7 @@ export const AICreditsDisplay: React.FC<AICreditsDisplayProps> = ({
   showPurchaseOption = true,
   onCreditsUpdate,
 }) => {
+  const { user } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
@@ -66,10 +68,12 @@ export const AICreditsDisplay: React.FC<AICreditsDisplayProps> = ({
   const [purchasingPackage, setPurchasingPackage] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchCreditBalance();
-    fetchCreditPackages();
-    fetchSubscriptionDetails();
-  }, []);
+    if (user) {
+      fetchCreditBalance();
+      fetchCreditPackages();
+      fetchSubscriptionDetails();
+    }
+  }, [user]);
 
   const fetchCreditBalance = async () => {
     try {
@@ -92,6 +96,10 @@ export const AICreditsDisplay: React.FC<AICreditsDisplayProps> = ({
   };
 
   const fetchSubscriptionDetails = async () => {
+    if (!user) {
+      return; // Don't fetch if user is not authenticated
+    }
+
     try {
       const response = await fetch('/api/subscription/details', {
         credentials: 'include',
@@ -100,6 +108,10 @@ export const AICreditsDisplay: React.FC<AICreditsDisplayProps> = ({
       if (response.ok) {
         const data = await response.json();
         setMonthlyLimit(data.features.monthlyAiCredits);
+      } else if (response.status === 401) {
+        // User not authenticated, just return without error
+        console.log('User not authenticated for subscription details');
+        return;
       }
     } catch (error) {
       console.error('Error fetching subscription details:', error);

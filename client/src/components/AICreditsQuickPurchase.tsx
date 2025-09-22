@@ -18,6 +18,7 @@ import { Badge } from './ui/badge';
 import { toast } from 'sonner';
 import { cn } from '../lib/utils';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '@/hooks/useAuth';
 
 interface CreditPackage {
   credits: number;
@@ -44,6 +45,7 @@ export const AICreditsQuickPurchase: React.FC<AICreditsQuickPurchaseProps> = ({
   isCompact = false,
   onPurchaseComplete,
 }) => {
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
   const [balance, setBalance] = useState(currentBalance);
@@ -53,10 +55,16 @@ export const AICreditsQuickPurchase: React.FC<AICreditsQuickPurchaseProps> = ({
   const [isFreemium, setIsFreemium] = useState(false);
 
   useEffect(() => {
-    fetchBalance();
-  }, []);
+    if (user) {
+      fetchBalance();
+    }
+  }, [user]);
 
   const fetchBalance = async () => {
+    if (!user) {
+      return; // Don't fetch if user is not authenticated
+    }
+
     try {
       const response = await fetch('/api/credits/balance', {
         credentials: 'include',
@@ -78,6 +86,10 @@ export const AICreditsQuickPurchase: React.FC<AICreditsQuickPurchaseProps> = ({
         if (subData.tier === 'freemium') {
           setMessagesRemaining(subData.features.monthlyMessageAllowance - (subData.messagesUsed || 0));
         }
+      } else if (subResponse.status === 401) {
+        // User not authenticated, just return without error
+        console.log('User not authenticated for subscription details');
+        return;
       }
     } catch (error) {
       console.error('Error fetching balance:', error);

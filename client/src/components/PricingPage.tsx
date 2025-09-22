@@ -45,10 +45,16 @@ const PricingPage: React.FC = () => {
 
   // Fetch current subscription details
   useEffect(() => {
-    fetchSubscriptionDetails();
-  }, []);
+    if (user) {
+      fetchSubscriptionDetails();
+    }
+  }, [user]);
 
   const fetchSubscriptionDetails = async () => {
+    if (!user) {
+      return; // Don't fetch if user is not authenticated
+    }
+
     try {
       const response = await fetch('/api/subscription/details', {
         credentials: 'include',
@@ -58,6 +64,19 @@ const PricingPage: React.FC = () => {
         const data = await response.json();
         setCurrentPlan(data.tier);
         setIsGrandfathered(data.grandfather?.isGrandfathered || false);
+      } else if (response.status === 401) {
+        // User not authenticated, just return without error
+        console.log('User not authenticated for subscription details');
+        return;
+      } else {
+        // Try to parse error response
+        const contentType = response.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          const errorData = await response.json();
+          console.error('Error fetching subscription details:', errorData.error || 'Unknown error');
+        } else {
+          console.error('Error fetching subscription details: Server returned non-JSON response');
+        }
       }
     } catch (error) {
       console.error('Error fetching subscription details:', error);

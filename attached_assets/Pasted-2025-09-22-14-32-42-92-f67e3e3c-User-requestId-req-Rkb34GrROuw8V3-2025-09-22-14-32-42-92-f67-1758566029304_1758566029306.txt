@@ -1,0 +1,172 @@
+2025-09-22 14:32:42.92
+f67e3e3c
+User
+requestId: 'req_Rkb34GrROuw8V3'
+2025-09-22 14:32:42.92
+f67e3e3c
+User
+},
+2025-09-22 14:32:42.92
+f67e3e3c
+User
+rawType: 'invalid_request_error',
+2025-09-22 14:32:42.92
+f67e3e3c
+User
+code: 'customer_tax_location_invalid',
+2025-09-22 14:32:42.92
+f67e3e3c
+User
+doc_url: 'https://stripe.com/docs/error-codes/customer-tax-location-invalid',
+2025-09-22 14:32:42.92
+f67e3e3c
+User
+param: undefined,
+2025-09-22 14:32:42.92
+f67e3e3c
+User
+detail: undefined,
+2025-09-22 14:32:42.92
+f67e3e3c
+User
+headers: {
+2025-09-22 14:32:42.92
+f67e3e3c
+User
+server: 'nginx',
+2025-09-22 14:32:42.92
+f67e3e3c
+User
+date: 'Mon, 22 Sep 2025 18:32:42 GMT',
+2025-09-22 14:32:42.92
+f67e3e3c
+User
+'content-type': 'application/json',
+2025-09-22 14:32:42.92
+f67e3e3c
+User
+'content-length': '561',
+2025-09-22 14:32:42.92
+f67e3e3c
+User
+connection: 'keep-alive',
+2025-09-22 14:32:42.92
+f67e3e3c
+User
+'access-control-allow-credentials': 'true',
+2025-09-22 14:32:42.92
+f67e3e3c
+User
+'access-control-allow-methods': 'GET, HEAD, PUT, PATCH, POST, DELETE',
+2025-09-22 14:32:42.92
+f67e3e3c
+User
+'access-control-allow-origin': '*',
+2025-09-22 14:32:42.92
+f67e3e3c
+User
+'access-control-expose-headers': 'Request-Id, Stripe-Manage-Version, Stripe-Should-Retry, X-Stripe-External-Auth-Required, X-Stripe-Privileged-Session-Required',
+2025-09-22 14:32:42.92
+f67e3e3c
+User
+'access-control-max-age': '300',
+2025-09-22 14:32:42.92
+f67e3e3c
+User
+'cache-control': 'no-cache, no-store',
+2025-09-22 14:32:42.92
+f67e3e3c
+User
+'content-security-policy': "base-uri 'none'; default-src 'none'; form-action 'none'; frame-ancestors 'none'; img-src 'self'; script-src 'self' 'report-sample'; style-src 'self'; worker-src 'none'; upgrade-insecure-requests; report-uri https://q.stripe.com/csp-violation?q=Vh1CYy_vBuywiPtSWQ1EZ7ybf_8ae_v2J0Ek-0IF-GA8tb8Z-vK0x24Dl1fIIwdZ-vGulKvaAmMBnxoN",
+2025-09-22 14:32:42.92
+f67e3e3c
+User
+'idempotency-key': 'stripe-node-retry-7da203c0-04a0-4caf-8d93-0b2f9dd15067',
+2025-09-22 14:32:42.92
+f67e3e3c
+User
+'original-request': 'req_Rkb34GrROuw8V3',
+2025-09-22 14:32:42.92
+f67e3e3c
+User
+'request-id': 'req_Rkb34GrROuw8V3',
+2025-09-22 14:32:42.92
+f67e3e3c
+User
+'stripe-should-retry': 'false',
+2025-09-22 14:32:42.92
+f67e3e3c
+User
+'stripe-version': '2024-06-20',
+2025-09-22 14:32:42.92
+f67e3e3c
+User
+vary: 'Origin',
+2025-09-22 14:32:42.92
+f67e3e3c
+User
+'x-stripe-priority-routing-enabled': 'true',
+2025-09-22 14:32:42.92
+f67e3e3c
+User
+'x-stripe-routing-context-priority-tier': 'livemode-critical',
+2025-09-22 14:32:42.92
+f67e3e3c
+User
+'x-wc': 'ABGHIJ',
+2025-09-22 14:32:42.92
+f67e3e3c
+User
+'strict-transport-security': 'max-age=63072000; includeSubDomains; preload'
+2025-09-22 14:32:42.92
+f67e3e3c
+User
+},
+2025-09-22 14:32:42.92
+f67e3e3c
+User
+requestId: 'req_Rkb34GrROuw8V3',
+2025-09-22 14:32:42.92
+f67e3e3c
+User
+statusCode: 400,
+2025-09-22 14:32:42.92
+f67e3e3c
+User
+userMessage: undefined,
+2025-09-22 14:32:42.92
+f67e3e3c
+User
+charge: undefined,
+2025-09-22 14:32:42.92
+f67e3e3c
+User
+decline_code: undefined,
+2025-09-22 14:32:42.92
+f67e3e3c
+User
+payment_intent: undefined,
+2025-09-22 14:32:42.92
+f67e3e3c
+User
+payment_method: undefined,
+2025-09-22 14:32:42.92
+f67e3e3c
+User
+payment_method_type: undefined,
+2025-09-22 14:32:42.92
+f67e3e3c
+User
+setup_intent: undefined,
+2025-09-22 14:32:42.92
+f67e3e3c
+User
+source: undefined
+2025-09-22 14:32:42.92
+f67e3e3c
+User
+}
+2025-09-22 14:32:42.95
+f67e3e3c
+User
+6:32:42 PM [express] POST /api/checkout/credits 500 in 225ms :: {"error":"Automatic tax calculation …

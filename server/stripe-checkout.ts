@@ -10,7 +10,7 @@ import { eq } from 'drizzle-orm';
 import { STRIPE_PRODUCTS, CREDIT_PACKAGES } from './stripe-enhanced';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2024-06-20',
+  // Using default API version to avoid type conflicts
 });
 
 /**
@@ -37,7 +37,7 @@ export async function createSubscriptionCheckoutSession(params: {
   if (!customerId) {
     const customer = await stripe.customers.create({
       email: user.email,
-      name: user.username,
+      name: user.username || user.email.split('@')[0],
       metadata: {
         userId: params.userId.toString(),
         tier: params.tier,
@@ -104,8 +104,9 @@ export async function createSubscriptionCheckoutSession(params: {
       memberEmails: params.memberEmails?.join(',') || '',
     },
     
-    // Tax collection
-    automatic_tax: { enabled: true },
+    // Tax collection disabled to prevent customer_tax_location_invalid errors
+    // Enable this after implementing proper address validation
+    // automatic_tax: { enabled: true },
     
     // Customer update options
     customer_update: {
@@ -147,7 +148,7 @@ export async function createCreditsCheckoutSession(params: {
   if (!customerId) {
     const customer = await stripe.customers.create({
       email: user.email,
-      name: user.username,
+      name: user.username || user.email.split('@')[0],
       metadata: {
         userId: params.userId.toString(),
       }
@@ -187,8 +188,9 @@ export async function createCreditsCheckoutSession(params: {
       amount: creditPackage.price.toString(),
     },
     
-    // Tax collection
-    automatic_tax: { enabled: true },
+    // Tax collection disabled to prevent customer_tax_location_invalid errors
+    // Enable this after implementing proper address validation  
+    // automatic_tax: { enabled: true },
   };
 
   return await stripe.checkout.sessions.create(sessionParams);
@@ -283,11 +285,11 @@ export async function handleCreditsCheckoutSuccess(session: Stripe.Checkout.Sess
       throw new Error('User not found');
     }
 
-    const newBalance = (user.aiCreditsBalance || 0) + credits;
+    const newBalance = (user.ai_credits_balance || 0) + credits;
     
     // Update user balance
     await db.update(users)
-      .set({ aiCreditsBalance: newBalance })
+      .set({ ai_credits_balance: newBalance })
       .where(eq(users.id, userId));
 
     // Create transaction record

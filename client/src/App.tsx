@@ -620,11 +620,7 @@ const AuthenticatedApp: React.FC = () => {
 };
 
 function App() {
-  return (
-    <AuthProvider>
-      <AuthenticatedApp />
-    </AuthProvider>
-  );
+  return <AuthenticatedApp />;
 }
 
 export default App

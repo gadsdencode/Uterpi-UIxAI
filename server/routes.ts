@@ -14,11 +14,10 @@ import { handleStripeWebhook, rawBodyParser } from "./webhooks";
 import { fileStorage } from "./file-storage";
 import subscriptionRoutes from "./subscription-routes";
 import multer from 'multer';
-// Temporarily commented out to fix startup issues
-// import ModelClient from "@azure-rest/ai-inference";
-// import { AzureKeyCredential } from "@azure/core-auth";
-// import { GoogleGenerativeAI } from "@google/generative-ai";
-// import OpenAI from "openai";
+import ModelClient from "@azure-rest/ai-inference";
+import { AzureKeyCredential } from "@azure/core-auth";
+import { GoogleGenerativeAI } from "@google/generative-ai";
+import OpenAI from "openai";
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -252,97 +251,97 @@ function setCachedResponse(cacheKey: string, response: any, ttlMinutes: number =
   }
 }
 
-// Create AI client based on provider - TEMPORARILY DISABLED
-// export function createAIClient(provider: string = 'gemini', userApiKey?: string): { client: any; config: any } {
-//   switch (provider.toLowerCase()) {
-//     case 'gemini': {
-//       const apiKey = userApiKey || process.env.VITE_GEMINI_API_KEY;
-//       if (!apiKey) {
-//         throw new Error("Gemini API key missing. Please provide an API key or set VITE_GEMINI_API_KEY environment variable.");
-//       }
-//       const genAI = new GoogleGenerativeAI(apiKey);
-//       return {
-//         client: genAI,
-//         config: { 
-//           modelName: 'gemini-1.5-flash',
-//           apiKey 
-//         }
-//       };
-//     }
-//     
-//     case 'openai': {
-//       const apiKey = userApiKey || process.env.VITE_OPENAI_API_KEY;
-//       if (!apiKey) {
-//         throw new Error("OpenAI API key missing. Please provide an API key or set VITE_OPENAI_API_KEY environment variable.");
-//       }
-//       const openai = new OpenAI({ apiKey });
-//       return {
-//         client: openai,
-//         config: {
-//           modelName: 'gpt-4-turbo-preview',
-//           apiKey
-//         }
-//       };
-//     }
-//     
-//     case 'azure':
-//     case 'azureai': {
-//       const endpoint = process.env.VITE_AZURE_AI_ENDPOINT;
-//       const apiKey = userApiKey || process.env.VITE_AZURE_AI_API_KEY;
-//       const modelName = process.env.VITE_AZURE_AI_MODEL_NAME || "ministral-3b";
-//       
-//       if (!endpoint || !apiKey) {
-//         throw new Error("Azure AI configuration missing. Please set VITE_AZURE_AI_ENDPOINT and VITE_AZURE_AI_API_KEY environment variables.");
-//       }
-//       
-//       const credential = new AzureKeyCredential(apiKey);
-//       const client = ModelClient(endpoint, credential);
-//       
-//       return {
-//         client,
-//         config: {
-//           endpoint,
-//           apiKey,
-//           modelName,
-//           maxRetries: 3,
-//           retryDelay: 1000,
-//           cacheEnabled: true
-//         }
-//       };
-//     }
-//     
-//     default:
-//       throw new Error(`Unsupported AI provider: ${provider}`);
-//   }
-// }
+// Create AI client based on provider
+export function createAIClient(provider: string = 'gemini', userApiKey?: string): { client: any; config: any } {
+  switch (provider.toLowerCase()) {
+    case 'gemini': {
+      const apiKey = userApiKey || process.env.VITE_GEMINI_API_KEY;
+      if (!apiKey) {
+        throw new Error("Gemini API key missing. Please provide an API key or set VITE_GEMINI_API_KEY environment variable.");
+      }
+      const genAI = new GoogleGenerativeAI(apiKey);
+      return {
+        client: genAI,
+        config: { 
+          modelName: 'gemini-1.5-flash',
+          apiKey 
+        }
+      };
+    }
+    
+    case 'openai': {
+      const apiKey = userApiKey || process.env.VITE_OPENAI_API_KEY;
+      if (!apiKey) {
+        throw new Error("OpenAI API key missing. Please provide an API key or set VITE_OPENAI_API_KEY environment variable.");
+      }
+      const openai = new OpenAI({ apiKey });
+      return {
+        client: openai,
+        config: {
+          modelName: 'gpt-4-turbo-preview',
+          apiKey
+        }
+      };
+    }
+    
+    case 'azure':
+    case 'azureai': {
+      const endpoint = process.env.VITE_AZURE_AI_ENDPOINT;
+      const apiKey = userApiKey || process.env.VITE_AZURE_AI_API_KEY;
+      const modelName = process.env.VITE_AZURE_AI_MODEL_NAME || "ministral-3b";
+      
+      if (!endpoint || !apiKey) {
+        throw new Error("Azure AI configuration missing. Please set VITE_AZURE_AI_ENDPOINT and VITE_AZURE_AI_API_KEY environment variables.");
+      }
+      
+      const credential = new AzureKeyCredential(apiKey);
+      const client = ModelClient(endpoint, credential);
+      
+      return {
+        client,
+        config: {
+          endpoint,
+          apiKey,
+          modelName,
+          maxRetries: 3,
+          retryDelay: 1000,
+          cacheEnabled: true
+        }
+      };
+    }
+    
+    default:
+      throw new Error(`Unsupported AI provider: ${provider}`);
+  }
+}
 
-// Initialize Azure AI client (kept for backwards compatibility) - TEMPORARILY DISABLED
-// export function createAzureAIClient(): { client: any; config: AzureAIConfig } {
-//   const endpoint = process.env.VITE_AZURE_AI_ENDPOINT;
-//   const apiKey = process.env.VITE_AZURE_AI_API_KEY;
-//   const modelName = process.env.VITE_AZURE_AI_MODEL_NAME || "ministral-3b";
+// Initialize Azure AI client (kept for backwards compatibility)
+export function createAzureAIClient(): { client: any; config: AzureAIConfig } {
+  const endpoint = process.env.VITE_AZURE_AI_ENDPOINT;
+  const apiKey = process.env.VITE_AZURE_AI_API_KEY;
+  const modelName = process.env.VITE_AZURE_AI_MODEL_NAME || "ministral-3b";
 
-//   if (!endpoint || !apiKey) {
-//     throw new Error(
-//       "Azure AI configuration missing. Please set VITE_AZURE_AI_ENDPOINT and VITE_AZURE_AI_API_KEY environment variables."
-//     );
-//   }
+  if (!endpoint || !apiKey) {
+    throw new Error(
+      "Azure AI configuration missing. Please set VITE_AZURE_AI_ENDPOINT and VITE_AZURE_AI_API_KEY environment variables."
+    );
+  }
 
-//   const config: AzureAIConfig = { 
-//     endpoint, 
-//     apiKey, 
-//     modelName,
-//     maxRetries: 3,
-//     retryDelay: 1000,
-//     cacheEnabled: true
-//   };
+  const config: AzureAIConfig = { 
+    endpoint, 
+    apiKey, 
+    modelName,
+    maxRetries: 3,
+    retryDelay: 1000,
+    cacheEnabled: true
+  };
   
-//   const client = ModelClient(endpoint, new AzureKeyCredential(apiKey));
+  const client = ModelClient(endpoint, new AzureKeyCredential(apiKey));
   
-//   console.log(`🚀 Azure AI client initialized with model: ${modelName}`);
+  console.log(`🚀 Azure AI client initialized with model: ${modelName}`);
   
-//   return { client, config };
-// }
+  return { client, config };
+}
 
 // Configure multer for file uploads
 const upload = multer({

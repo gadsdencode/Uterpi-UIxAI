@@ -4,8 +4,9 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Alert, AlertDescription } from '../ui/alert';
-import { Loader2, Lock, Mail, Eye, EyeOff } from 'lucide-react';
+import { Loader2, Lock, Mail, Eye, EyeOff, CheckCircle } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
+import { toast } from 'sonner';
 
 interface LoginFormProps {
   onSwitchToRegister?: () => void;
@@ -400,6 +401,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSwitchToRegister, onForg
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [isSuccess, setIsSuccess] = useState(false);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -411,6 +413,14 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSwitchToRegister, onForg
     if (error) setError('');
   };
 
+  // Test toast functionality (for debugging)
+  const testToast = () => {
+    toast.success('Test notification', {
+      description: 'This is a test to verify toast functionality.',
+      duration: 3000,
+    });
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting || loading) return;
@@ -420,9 +430,29 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSwitchToRegister, onForg
 
     try {
       await login(formData.email, formData.password);
-      onSuccess?.();
+      
+      // Set success state for visual feedback
+      setIsSuccess(true);
+      
+      // Show success toast
+      toast.success('Welcome back!', {
+        description: 'You have successfully signed in.',
+        duration: 2000,
+      });
+      
+      // Brief delay to show success message before redirect
+      setTimeout(() => {
+        onSuccess?.();
+      }, 1500);
     } catch (err: any) {
-      setError(err.message || 'Login failed');
+      const errorMessage = err.message || 'Login failed';
+      setError(errorMessage);
+      
+      // Show error toast for better visibility
+      toast.error('Sign In Failed', {
+        description: errorMessage,
+        duration: 4000,
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -457,6 +487,14 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSwitchToRegister, onForg
             <p className="text-slate-300">
               Sign in to continue
             </p>
+            {/* Temporary test button for debugging */}
+            <button 
+              type="button" 
+              onClick={testToast}
+              className="text-xs text-violet-400 hover:text-violet-300 underline mt-2"
+            >
+              Test Notification
+            </button>
           </div>
           
           <form onSubmit={handleSubmit} className="space-y-6">
@@ -539,8 +577,17 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSwitchToRegister, onForg
               >
                 {isSubmitting ? (
                   <div className="flex items-center justify-center gap-2">
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Signing In...
+                    {isSuccess ? (
+                      <>
+                        <CheckCircle className="w-4 h-4 text-green-400" />
+                        Success! Redirecting...
+                      </>
+                    ) : (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Signing In...
+                      </>
+                    )}
                   </div>
                 ) : (
                   'Sign In'

@@ -616,7 +616,6 @@ const AuthenticatedApp: React.FC = () => {
       >
         <FuturisticAIChat />
       </SubscriptionGuard>
-      <Toaster />
     </main>
   );
 };

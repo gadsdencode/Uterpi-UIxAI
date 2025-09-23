@@ -7,6 +7,7 @@ import { AuthProvider } from '../hooks/useAuth';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { AlertCircle } from 'lucide-react';
+import { Toaster } from './ui/sonner';
 
 interface RouteState {
   path: string;
@@ -100,6 +101,9 @@ export function Router() {
 
       {/* Default to main app */}
       {route.path === '/' && <App />}
+      
+      {/* Global toast notifications */}
+      <Toaster />
     </AuthProvider>
   );
 } 

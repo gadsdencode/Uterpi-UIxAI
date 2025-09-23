@@ -148,6 +148,33 @@ export const useAI = <TService = any>(
   // Load persisted model selection on mount
   useEffect(() => {
     const savedModel = localStorage.getItem(config.selectedModelKey);
+    
+    // Special handling for LM Studio to force nomadic-icdu-v8 as default
+    if (config.providerName === 'LM Studio') {
+      // Check if we need to force reset to nomadic-icdu-v8
+      if (savedModel) {
+        try {
+          const parsedModel: LLMModel = JSON.parse(savedModel);
+          // If the saved model is not nomadic-icdu-v8, force reset to default
+          if (parsedModel.id !== 'nomadic-icdu-v8') {
+            console.log(`🔄 Forcing LM Studio default model reset from ${parsedModel.id} to nomadic-icdu-v8`);
+            setDefaultModel();
+            return;
+          }
+          setSelectedLLMModel(parsedModel);
+          setCurrentModel(parsedModel.id);
+        } catch (err) {
+          console.warn(`Failed to parse saved ${config.providerName} model:`, err);
+          localStorage.removeItem(config.selectedModelKey);
+          setDefaultModel();
+        }
+      } else {
+        setDefaultModel();
+      }
+      return;
+    }
+    
+    // Standard logic for other providers
     if (savedModel) {
       try {
         const parsedModel: LLMModel = JSON.parse(savedModel);

@@ -65,7 +65,7 @@ export class LMStudioService {
   }
 
   static getAvailableModels(): LLMModel[] {
-    // Models available through LM Studio - matches server configuration
+    // Models available through LM Studio - nomadic-icdu-v8 is the ONLY default
     return [
       {
         id: "nomadic-icdu-v8", // Model ID as shown in LM Studio
@@ -79,19 +79,6 @@ export class LMStudioService {
         category: "text",
         tier: "freemium",
         isFavorite: true
-      },
-      {
-        id: "Pragmanic0/Nomadic-ICDU-v8", // Legacy ID for compatibility
-        name: "Uterpi AI",
-        provider: "Uterpi AI",
-        performance: 99,
-        cost: 0,
-        latency: 250,
-        contextLength: 128000,
-        description: "Uterpi AI served through LM Studio (OpenAI-compatible)",
-        category: "text",
-        tier: "freemium",
-        isFavorite: false
       }
     ];
   }

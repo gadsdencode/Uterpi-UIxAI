@@ -4,8 +4,9 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Alert, AlertDescription } from '../ui/alert';
-import { Loader2, Lock, Mail, Eye, EyeOff, User } from 'lucide-react';
+import { Loader2, Lock, Mail, Eye, EyeOff, User, CheckCircle } from 'lucide-react';
 import { useAuth, RegisterData } from '../../hooks/useAuth';
+import { toast } from 'sonner';
 
 interface RegisterFormProps {
   onSwitchToLogin?: () => void;
@@ -404,6 +405,7 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin, onS
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [isSuccess, setIsSuccess] = useState(false);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -427,12 +429,22 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin, onS
 
     // Validation
     if (formData.password !== confirmPassword) {
-      setError('Passwords do not match');
+      const errorMessage = 'Passwords do not match';
+      setError(errorMessage);
+      toast.error('Validation Error', {
+        description: errorMessage,
+        duration: 3000,
+      });
       return;
     }
 
     if (formData.password.length < 8) {
-      setError('Password must be at least 8 characters long');
+      const errorMessage = 'Password must be at least 8 characters long';
+      setError(errorMessage);
+      toast.error('Validation Error', {
+        description: errorMessage,
+        duration: 3000,
+      });
       return;
     }
 
@@ -456,9 +468,29 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin, onS
       }
 
       await register(submitData);
-      onSuccess?.();
+      
+      // Set success state for visual feedback
+      setIsSuccess(true);
+      
+      // Show success toast
+      toast.success('Welcome to Uterpi!', {
+        description: 'Your account has been created successfully.',
+        duration: 2000,
+      });
+      
+      // Brief delay to show success message before redirect
+      setTimeout(() => {
+        onSuccess?.();
+      }, 1500);
     } catch (err: any) {
-      setError(err.message || 'Registration failed');
+      const errorMessage = err.message || 'Registration failed';
+      setError(errorMessage);
+      
+      // Show error toast for better visibility
+      toast.error('Registration Failed', {
+        description: errorMessage,
+        duration: 4000,
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -648,8 +680,17 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin, onS
               >
                 {isSubmitting ? (
                   <div className="flex items-center justify-center gap-2">
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Creating Account...
+                    {isSuccess ? (
+                      <>
+                        <CheckCircle className="w-4 h-4 text-green-400" />
+                        Account Created! Redirecting...
+                      </>
+                    ) : (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Creating Account...
+                      </>
+                    )}
                   </div>
                 ) : (
                   'Create Account'

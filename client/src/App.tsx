@@ -536,7 +536,7 @@ const AuthenticatedApp: React.FC = () => {
                   <p className="text-xs text-slate-400">10 Messages Included Monthly + Bring Your Own AI API Keys</p>
                 </RippleButton>
                 <p className="text-xs text-slate-400 text-center">
-                  ⚠️ Some LLM models may have parameters that are not currently supported by Uterpi.
+                  ⚠️ Some LLMs may have parameters that are not currently supported by Uterpi.
                 </p>
               </div>
             </HolographicBubble>

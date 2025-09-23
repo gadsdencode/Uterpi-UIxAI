@@ -27,7 +27,7 @@ export class LMStudioService {
     this.config = {
       ...config,
       // Default to backend proxy to avoid CORS/mixed-content issues
-      baseUrl: config.baseUrl || "/lmstudio"
+      baseUrl: config.baseUrl || "https://lmstudio.uterpi.com"
     };
   }
 
@@ -295,14 +295,14 @@ export class LMStudioService {
     const apiKey = import.meta.env.VITE_LMSTUDIO_API_KEY || "lm-studio";
     const modelName = import.meta.env.VITE_LMSTUDIO_MODEL_NAME || "nomadai-lcdu-v8";
     // Default to backend proxy path
-    const baseUrl = import.meta.env.VITE_LMSTUDIO_BASE_URL || "/lmstudio";
+    const baseUrl = import.meta.env.VITE_LMSTUDIO_BASE_URL || "https://lmstudio.uterpi.com";
     return { apiKey, modelName, baseUrl };
   }
 
   // Helper method to list available models from LM Studio
   async listModels(): Promise<any> {
     try {
-      const response = await fetch(`${this.config.baseUrl || "/lmstudio"}/v1/models`, {
+      const response = await fetch(`${this.config.baseUrl || "https://lmstudio.uterpi.com"}/v1/models`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${this.config.apiKey || "lm-studio"}`

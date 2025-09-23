@@ -32,13 +32,11 @@ const lmStudioConfig: AIProviderConfig<LMStudioService> = {
       options.baseUrl ||
       localStorage.getItem('lmstudio-base-url') ||
       (import.meta as any).env?.VITE_LMSTUDIO_BASE_URL ||
-      undefined;
+      'https://lmstudio.uterpi.com';
     
-    return {
-      apiKey,
-      modelName: selectedLLMModel?.id || LMStudioService.getAvailableModels()[0].id,
-      baseUrl
-    };
+      const modelName = selectedLLMModel?.id || lmStudioConfig.defaultModel.id;
+
+      return { apiKey, baseUrl, modelName };
   },
   
   updateServiceModel: (service: LMStudioService, modelId: string) => {

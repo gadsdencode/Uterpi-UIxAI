@@ -18,6 +18,11 @@ interface AuthenticatedRequest extends Request {
       operationType: string;
       currentBalance: number;
     };
+    /**
+     * Flag set by checkFreemiumLimit() when this request consumed a free message.
+     * When true, downstream credit checks must be skipped for this request only.
+     */
+    freeMessageUsed?: boolean;
   };
 }
 
@@ -532,29 +537,43 @@ export function checkFreemiumLimit() {
         
         // Check for freemium users
         if (subscriptionDetails.tier === 'freemium') {
-          // Check if user has reached their limit BEFORE incrementing
-          if (subscriptionDetails.features.messagesRemaining <= 0) {
-            return {
-              success: false,
-              error: {
-                error: 'Monthly message limit reached',
-                code: 'MESSAGE_LIMIT_EXCEEDED',
-                messagesUsed: subscriptionDetails.features.messagesUsedThisMonth,
-                monthlyAllowance: subscriptionDetails.features.monthlyMessageAllowance,
-                upgradeUrl: '/pricing',
-                purchaseCreditsUrl: '/settings/billing/credits',
-                message: 'You have used all your free messages this month. Upgrade to Pro or purchase AI Credits to continue.',
-              }
-            };
+          const { messagesRemaining, currentCreditsBalance } = subscriptionDetails.features;
+
+          // If free messages remain, consume one and mark flag to skip credit deduction for this request
+          if (messagesRemaining > 0) {
+            // Atomically increment message usage
+            await tx.update(users)
+              .set({
+                messages_used_this_month: sql`${users.messages_used_this_month} + 1`,
+                updatedAt: new Date(),
+              })
+              .where(eq(users.id, req.user.id));
+
+            // Signal downstream middleware to skip credit checks for this request
+            req.user.freeMessageUsed = true;
+
+            return { success: true };
           }
-          
-          // Atomically increment message usage
-          await tx.update(users)
-            .set({
-              messages_used_this_month: sql`${users.messages_used_this_month} + 1`,
-              updatedAt: new Date(),
-            })
-            .where(eq(users.id, req.user.id));
+
+          // If no free messages remain, allow the request to continue only if user has credits.
+          // The downstream requireCredits() will properly deduct them.
+          if (currentCreditsBalance > 0) {
+            return { success: true };
+          }
+
+          // Otherwise, block with message-limit error
+          return {
+            success: false,
+            error: {
+              error: 'Monthly message limit reached',
+              code: 'MESSAGE_LIMIT_EXCEEDED',
+              messagesUsed: subscriptionDetails.features.messagesUsedThisMonth,
+              monthlyAllowance: subscriptionDetails.features.monthlyMessageAllowance,
+              upgradeUrl: '/pricing',
+              purchaseCreditsUrl: '/settings/billing/credits',
+              message: 'You have used all your free messages this month. Upgrade to Pro or purchase AI Credits to continue.',
+            }
+          };
         }
 
         // For paid tiers, check if they have credits
@@ -655,6 +674,11 @@ export function requireCredits(creditsRequired: number, operationType: string) {
           error: 'Authentication required',
           code: 'NOT_AUTHENTICATED',
         });
+      }
+
+      // If a free message was consumed upstream (freemium), skip credit check/deduction for this request
+      if (req.user.freeMessageUsed) {
+        return next();
       }
 
       const creditCheck = await checkCreditBalance(req.user.id, creditsRequired);

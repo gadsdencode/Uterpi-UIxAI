@@ -68,7 +68,7 @@ export class LMStudioService {
     // Models available through LM Studio - matches server configuration
     return [
       {
-        id: "nomadai-lcdu-v8", // Model ID as shown in LM Studio
+        id: "nomadic-icdu-v8", // Model ID as shown in LM Studio
         name: "Nomadic ICDU v8 (Uterpi AI)",
         provider: "Uterpi AI via LM Studio",
         performance: 99,

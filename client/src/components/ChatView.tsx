@@ -397,8 +397,8 @@ const HolographicBubble: React.FC<{
     className={`
       relative p-4 rounded-2xl backdrop-blur-xl border overflow-hidden
       ${isUser 
-        ? "bg-gradient-to-br from-violet-500/20 to-purple-600/20 border-violet-400/30 ml-12" 
-        : "bg-gradient-to-br from-slate-800/40 to-slate-900/40 border-slate-600/30 mr-12"
+        ? "bg-gradient-to-br from-violet-500/20 to-purple-600/20 border-violet-400/30 ml-4 sm:ml-12" 
+        : "bg-gradient-to-br from-slate-800/40 to-slate-900/40 border-slate-600/30 mr-4 sm:mr-12"
       }
       ${className}
     `}
@@ -1626,7 +1626,7 @@ const FuturisticAIChat: React.FC = () => {
       <div className="relative z-10 flex flex-col h-screen">
         {/* Header */}
         <motion.header
-          className="p-6 border-b border-slate-800/50 backdrop-blur-xl"
+          className="p-4 sm:p-6 border-b border-slate-800/50 backdrop-blur-xl"
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
         >
@@ -1636,7 +1636,7 @@ const FuturisticAIChat: React.FC = () => {
                 <img 
                   src="/images/uterpi_logo.png" 
                   alt="Uterpi Logo" 
-                  className="w-24 h-24 rounded-full"
+                  className="w-16 h-16 sm:w-24 sm:h-24 rounded-full"
                 />
                 <motion.div
                   className="absolute inset-0 bg-violet-400/20 rounded-full blur-lg"
@@ -1646,14 +1646,15 @@ const FuturisticAIChat: React.FC = () => {
               </div>
             </div>
             
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 sm:gap-2 overflow-x-auto">
               {/* Credit Status Indicator */}
               {user && (
-                <div className="flex items-center gap-2 px-3 py-2 bg-slate-800/50 rounded-lg border border-slate-700/50">
+                <div className="flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-2 bg-slate-800/50 rounded-lg border border-slate-700/50 flex-shrink-0">
                   {isFreemium ? (
-                    <div className="flex items-center gap-3 text-sm">
+                    <div className="flex items-center gap-2 sm:gap-3 text-xs sm:text-sm">
                       <div className="flex items-center gap-1">
-                        <span className="text-slate-300">Free:</span>
+                        <span className="text-slate-300 hidden sm:inline">Free:</span>
+                        <span className="text-slate-300 sm:hidden">F:</span>
                         <span className={`font-medium ${
                           (messagesRemaining || 0) === 0 
                             ? 'text-red-400' 
@@ -1664,17 +1665,19 @@ const FuturisticAIChat: React.FC = () => {
                           {messagesRemaining || 0}
                         </span>
                       </div>
-                      <div className="h-4 w-px bg-slate-600"></div>
+                      <div className="h-3 sm:h-4 w-px bg-slate-600"></div>
                       <div className="flex items-center gap-1">
-                        <span className="text-slate-300">Credits:</span>
+                        <span className="text-slate-300 hidden sm:inline">Credits:</span>
+                        <span className="text-slate-300 sm:hidden">C:</span>
                         <span className={`font-medium ${(creditBalance || 0) === 0 ? 'text-red-400' : (creditBalance || 0) < 50 ? 'text-yellow-400' : 'text-green-400'}`}>
                           {creditBalance || 0}
                         </span>
                       </div>
                     </div>
                   ) : (
-                    <div className="flex items-center gap-2 text-sm">
-                      <span className="text-slate-300">Credits:</span>
+                    <div className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
+                      <span className="text-slate-300 hidden sm:inline">Credits:</span>
+                      <span className="text-slate-300 sm:hidden">C:</span>
                       <span className={`font-medium ${(creditBalance || 0) === 0 ? 'text-red-400' : (creditBalance || 0) < 50 ? 'text-yellow-400' : 'text-green-400'}`}>
                         {creditBalance || 0}
                       </span>
@@ -1705,10 +1708,11 @@ const FuturisticAIChat: React.FC = () => {
                       ]);
                       toast.success("Started new conversation!");
                     }}
-                    className="px-3 py-2 bg-slate-800/50 hover:bg-slate-700/50 rounded-lg border border-slate-700/50 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                    className="px-2 sm:px-3 py-2 bg-slate-800/50 hover:bg-slate-700/50 rounded-lg border border-slate-700/50 text-xs sm:text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 flex-shrink-0"
                     aria-label="New Chat (Ctrl+N)"
                   >
-                    New Chat
+                    <span className="hidden sm:inline">New Chat</span>
+                    <Plus className="w-4 h-4 sm:hidden" />
                   </RippleButton>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -1721,10 +1725,10 @@ const FuturisticAIChat: React.FC = () => {
                 <TooltipTrigger asChild>
                   <RippleButton
                     onClick={() => setShowShareModal(true)}
-                    className="p-2 bg-slate-800/50 hover:bg-slate-700/50 rounded-lg border border-slate-700/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                    className="p-2 bg-slate-800/50 hover:bg-slate-700/50 rounded-lg border border-slate-700/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 flex-shrink-0"
                     aria-label="Share or export conversation"
                   >
-                    <Share2 className="w-4 h-4" />
+                    <Share2 className="w-3 h-3 sm:w-4 sm:h-4" />
                   </RippleButton>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -1733,16 +1737,16 @@ const FuturisticAIChat: React.FC = () => {
               </Tooltip>
               {/* Mic status indicator and Speech Settings */}
               {speechAvailable && (
-                <div className="flex items-center gap-2">
+                <div className="hidden sm:flex items-center gap-2">
                   <MicPermissionBadge />
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <RippleButton
                         onClick={() => setShowEditModal(true)}
-                        className="p-2 bg-slate-800/50 hover:bg-slate-700/50 rounded-lg border border-slate-700/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                        className="p-2 bg-slate-800/50 hover:bg-slate-700/50 rounded-lg border border-slate-700/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 flex-shrink-0"
                         aria-label="Speech settings"
                       >
-                        <Volume2 className="w-4 h-4" />
+                        <Volume2 className="w-3 h-3 sm:w-4 sm:h-4" />
                       </RippleButton>
                     </TooltipTrigger>
                     <TooltipContent>
@@ -1755,10 +1759,10 @@ const FuturisticAIChat: React.FC = () => {
                 <TooltipTrigger asChild>
                   <RippleButton
                     onClick={() => setShowEditModal(true)}
-                    className="p-2 bg-slate-800/50 hover:bg-slate-700/50 rounded-lg border border-slate-700/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                    className="p-2 bg-slate-800/50 hover:bg-slate-700/50 rounded-lg border border-slate-700/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 flex-shrink-0"
                     aria-label="Open AI provider settings"
                   >
-                    <Settings className="w-4 h-4" />
+                    <Settings className="w-3 h-3 sm:w-4 sm:h-4" />
                   </RippleButton>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -1809,8 +1813,8 @@ const FuturisticAIChat: React.FC = () => {
         </motion.header>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-6">
-          <div className="max-w-4xl mx-auto space-y-6">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+          <div className="max-w-4xl mx-auto space-y-4 sm:space-y-6">
             <AnimatePresence>
               {messages.map((message) => (
                 <motion.div
@@ -1885,7 +1889,7 @@ const FuturisticAIChat: React.FC = () => {
 
         {/* Input Area */}
         <motion.div
-          className="p-6 border-t border-slate-800/50 backdrop-blur-xl"
+          className="p-4 sm:p-6 border-t border-slate-800/50 backdrop-blur-xl"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
         >
@@ -2043,20 +2047,23 @@ const FuturisticAIChat: React.FC = () => {
 
             {/* Input */}
             <div className="relative">
-              <div className="flex items-end gap-4 p-4 bg-slate-900/50 backdrop-blur-xl rounded-2xl border border-slate-700/50">
-                <div className="flex gap-2 items-center">
+              <div className="flex flex-col sm:flex-row sm:items-end gap-3 sm:gap-4 p-4 bg-slate-900/50 backdrop-blur-xl rounded-2xl border border-slate-700/50">
+                {/* Action Buttons Row - Mobile: Top row, Desktop: Left side */}
+                <div className="flex gap-2 items-center justify-start pb-2 sm:pb-0">
                   {/* Quick Provider & Model Selector */}
-                  <AIProviderQuickSelector />
-                  <div className="w-px h-8 bg-slate-700" /> {/* Divider */}
+                  <div className="flex-shrink-0">
+                    <AIProviderQuickSelector />
+                  </div>
+                  <div className="w-px h-6 sm:h-8 bg-slate-700 flex-shrink-0" /> {/* Divider */}
                   
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <RippleButton
                         onClick={() => setShowCommands(!showCommands)}
-                        className="p-2 text-slate-400 hover:text-violet-400 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                        className="p-2 text-slate-400 hover:text-violet-400 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 flex-shrink-0"
                         aria-label="Toggle quick commands"
                       >
-                        <Command className="w-5 h-5" />
+                        <Command className="w-4 h-4 sm:w-5 sm:h-5" />
                       </RippleButton>
                     </TooltipTrigger>
                     <TooltipContent>
@@ -2067,10 +2074,10 @@ const FuturisticAIChat: React.FC = () => {
                     <TooltipTrigger asChild>
                       <RippleButton
                         onClick={() => setShowSystemMessageModal(true)}
-                        className="p-2 text-slate-400 hover:text-violet-400 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                        className="p-2 text-slate-400 hover:text-violet-400 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 flex-shrink-0"
                         aria-label="Change AI personality"
                       >
-                        <Brain className="w-5 h-5" />
+                        <Brain className="w-4 h-4 sm:w-5 sm:h-5" />
                       </RippleButton>
                     </TooltipTrigger>
                     <TooltipContent>
@@ -2081,79 +2088,81 @@ const FuturisticAIChat: React.FC = () => {
                     <TooltipTrigger asChild>
                       <RippleButton
                         onClick={() => setShowFileManager(true)}
-                        className="p-2 text-slate-400 hover:text-violet-400 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                        className="p-2 text-slate-400 hover:text-violet-400 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 flex-shrink-0"
                         aria-label="Open file manager"
                       >
-                        <Files className="w-5 h-5" />
+                        <Files className="w-4 h-4 sm:w-5 sm:h-5" />
                       </RippleButton>
                     </TooltipTrigger>
                     <TooltipContent>
                       <p>Manage files & uploads</p>
                     </TooltipContent>
                   </Tooltip>
-
                 </div>
                 
-                <div className="flex-1">
-                  <textarea
-                    ref={inputRef}
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyPress={handleKeyPress}
-                    placeholder="Type your message or use / for commands..."
-                    className="w-full bg-transparent text-white placeholder-slate-400 resize-none focus:outline-none min-h-[40px] max-h-32"
-                    rows={1}
-                    disabled={isLoading}
-                  />
-                </div>
-                
-                {/* Voice Input Button */}
-                {speechAvailable && (
+                {/* Input Row - Mobile: Bottom row, Desktop: Center + Right */}
+                <div className="flex items-end gap-3 flex-1">
+                  <div className="flex-1">
+                    <textarea
+                      ref={inputRef}
+                      value={input}
+                      onChange={(e) => setInput(e.target.value)}
+                      onKeyPress={handleKeyPress}
+                      placeholder="Type your message or use / for commands..."
+                      className="w-full bg-transparent text-white placeholder-slate-400 resize-none focus:outline-none min-h-[40px] max-h-32"
+                      rows={1}
+                      disabled={isLoading}
+                    />
+                  </div>
+                  
+                  {/* Voice Input Button */}
+                  {speechAvailable && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <RippleButton
+                          onClick={handleVoiceInput}
+                          className={`p-2 ${isRecording ? 'text-red-400 animate-pulse' : 'text-slate-400 hover:text-violet-400'} transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 flex-shrink-0`}
+                          aria-label={isRecording ? "Stop recording" : "Start voice input"}
+                        >
+                          {isRecording ? (
+                            <MicOff className="w-4 h-4 sm:w-5 sm:h-5" />
+                          ) : (
+                            <Mic className="w-4 h-4 sm:w-5 sm:h-5" />
+                          )}
+                        </RippleButton>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>
+                          {isRecording ? "Stop recording" : "Start voice input"}
+                          {!isHTTPS && microphonePermission !== 'granted' && (
+                            <span className="block text-xs text-yellow-400 mt-1">
+                              ⚠️ HTTPS required for continuous access
+                            </span>
+                          )}
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+                  
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <RippleButton
-                        onClick={handleVoiceInput}
-                        className={`p-2 ${isRecording ? 'text-red-400 animate-pulse' : 'text-slate-400 hover:text-violet-400'} transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950`}
-                        aria-label={isRecording ? "Stop recording" : "Start voice input"}
+                        onClick={handleSend}
+                        disabled={(!input.trim() && attachments.length === 0) || isLoading}
+                        className="p-3 bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700 rounded-xl transition-all duration-200 flex-shrink-0"
                       >
-                        {isRecording ? (
-                          <MicOff className="w-5 h-5" />
+                        {isLoading ? (
+                          <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" />
                         ) : (
-                          <Mic className="w-5 h-5" />
+                          <Send className="w-4 h-4 sm:w-5 sm:h-5" />
                         )}
                       </RippleButton>
                     </TooltipTrigger>
                     <TooltipContent>
-                      <p>
-                        {isRecording ? "Stop recording" : "Start voice input"}
-                        {!isHTTPS && microphonePermission !== 'granted' && (
-                          <span className="block text-xs text-yellow-400 mt-1">
-                            ⚠️ HTTPS required for continuous access
-                          </span>
-                        )}
-                      </p>
+                      <p>{isLoading ? "AI is thinking..." : "Send message (Enter)"}</p>
                     </TooltipContent>
                   </Tooltip>
-                )}
-                
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <RippleButton
-                      onClick={handleSend}
-                      disabled={(!input.trim() && attachments.length === 0) || isLoading}
-                      className="p-3 bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700 rounded-xl transition-all duration-200"
-                    >
-                      {isLoading ? (
-                        <Loader2 className="w-5 h-5 animate-spin" />
-                      ) : (
-                        <Send className="w-5 h-5" />
-                      )}
-                    </RippleButton>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>{isLoading ? "AI is thinking..." : "Send message (Enter)"}</p>
-                  </TooltipContent>
-                </Tooltip>
+                </div>
               </div>
             </div>
           </div>

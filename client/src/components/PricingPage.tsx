@@ -459,7 +459,7 @@ const PricingPage: React.FC = () => {
             Choose Your Uterpi Plan
           </h1>
           <p className="text-xl text-slate-200 mb-8 max-w-2xl mx-auto">
-            Unlock the full potential of AI-powered development
+            Unlock the full potential of AI with Uterpi
           </p>
           
           {isGrandfathered && (

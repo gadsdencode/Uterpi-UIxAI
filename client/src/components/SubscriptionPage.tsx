@@ -654,13 +654,13 @@ export const SubscriptionPage: React.FC = () => {
           className="text-center mb-12"
         >
           <h1 className="text-4xl font-bold text-foreground mb-4">
-            Get Started for Just <span className="text-violet-600">$5/month</span>
+            Start your journey with Uterpi for <span className="text-violet-600">free</span>
           </h1>
           <p className="text-xl text-muted-foreground mb-2">
-            Unlock the full power of AI-assisted development
+            Unlock the full power of AI with Uterpi
           </p>
           <p className="text-lg text-violet-600 font-medium">
-            🚀 Less than a cup of coffee - Unlimited AI development assistance
+            🚀 Uterpi is free to get started with 10 messages per month
           </p>
         </motion.div>
 
@@ -726,7 +726,7 @@ export const SubscriptionPage: React.FC = () => {
               💡 Why choose Uterpi Pro?
             </h3>
             <p className="text-muted-foreground mb-4">
-              At just $5/month, you get unlimited access to advanced AI within the Uterpi platform.
+              At just $19 per month, you get access to advanced AI within the Uterpi platform.
             </p>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
               <div className="flex items-center gap-2">

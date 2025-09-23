@@ -2,7 +2,7 @@
  * Multi-tier Pricing Page Component
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Check, X, Sparkles, Users, Building2, CreditCard, ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -11,6 +11,136 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { navigateTo } from './Router';
+
+// Particles component for background effects (copied from ChatView)
+interface ParticlesProps {
+  className?: string;
+  quantity?: number;
+  staticity?: number;
+  ease?: number;
+  size?: number;
+  refresh?: boolean;
+  color?: string;
+  vx?: number;
+  vy?: number;
+}
+
+const Particles: React.FC<ParticlesProps> = ({
+  className = "",
+  quantity = 100,
+  staticity = 50,
+  ease = 50,
+  size = 0.4,
+  refresh = false,
+  color = "#8B5CF6",
+  vx = 0,
+  vy = 0,
+}) => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const canvasContainerRef = useRef<HTMLDivElement>(null);
+  const context = useRef<CanvasRenderingContext2D | null>(null);
+  const circles = useRef<any[]>([]);
+  const canvasSize = useRef<{ w: number; h: number }>({ w: 0, h: 0 });
+  const dpr = typeof window !== "undefined" ? window.devicePixelRatio : 1;
+
+  useEffect(() => {
+    if (canvasRef.current) {
+      context.current = canvasRef.current.getContext("2d");
+    }
+    initCanvas();
+    animate();
+    
+    const handleResize = () => initCanvas();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [color]);
+
+  const initCanvas = () => {
+    resizeCanvas();
+    drawParticles();
+  };
+
+  const resizeCanvas = () => {
+    if (canvasContainerRef.current && canvasRef.current && context.current) {
+      circles.current.length = 0;
+      canvasSize.current.w = canvasContainerRef.current.offsetWidth;
+      canvasSize.current.h = canvasContainerRef.current.offsetHeight;
+      canvasRef.current.width = canvasSize.current.w * dpr;
+      canvasRef.current.height = canvasSize.current.h * dpr;
+      canvasRef.current.style.width = `${canvasSize.current.w}px`;
+      canvasRef.current.style.height = `${canvasSize.current.h}px`;
+      context.current.scale(dpr, dpr);
+    }
+  };
+
+  const circleParams = () => {
+    const x = Math.floor(Math.random() * canvasSize.current.w);
+    const y = Math.floor(Math.random() * canvasSize.current.h);
+    const translateX = 0;
+    const translateY = 0;
+    const pSize = Math.floor(Math.random() * 2) + size;
+    const alpha = 0;
+    const targetAlpha = parseFloat((Math.random() * 0.6 + 0.1).toFixed(1));
+    const dx = (Math.random() - 0.5) * 0.2;
+    const dy = (Math.random() - 0.5) * 0.2;
+    const magnetism = 0.1 + Math.random() * 4;
+    return { x, y, translateX, translateY, size: pSize, alpha, targetAlpha, dx, dy, magnetism };
+  };
+
+  const drawCircle = (circle: any, update = false) => {
+    if (context.current) {
+      const { x, y, translateX, translateY, size, alpha } = circle;
+      context.current.translate(translateX, translateY);
+      context.current.beginPath();
+      context.current.arc(x, y, size, 0, 2 * Math.PI);
+      context.current.fillStyle = color;
+      context.current.globalAlpha = alpha;
+      context.current.fill();
+      context.current.setTransform(dpr, 0, 0, dpr, 0, 0);
+      if (!update) {
+        circles.current.push(circle);
+      }
+    }
+  };
+
+  const clearContext = () => {
+    if (context.current) {
+      context.current.clearRect(0, 0, canvasSize.current.w, canvasSize.current.h);
+    }
+  };
+
+  const drawParticles = () => {
+    clearContext();
+    const particleCount = quantity;
+    for (let i = 0; i < particleCount; i++) {
+      const circle = circleParams();
+      drawCircle(circle);
+    }
+  };
+
+  const animate = () => {
+    clearContext();
+    circles.current.forEach((circle: any, i: number) => {
+      circle.x += circle.dx + vx;
+      circle.y += circle.dy + vy;
+      drawCircle(circle, true);
+      
+      if (circle.x < -circle.size || circle.x > canvasSize.current.w + circle.size ||
+          circle.y < -circle.size || circle.y > canvasSize.current.h + circle.size) {
+        circles.current.splice(i, 1);
+        const newCircle = circleParams();
+        drawCircle(newCircle);
+      }
+    });
+    window.requestAnimationFrame(animate);
+  };
+
+  return (
+    <div className={className} ref={canvasContainerRef} aria-hidden="true">
+      <canvas ref={canvasRef} className="h-full w-full" />
+    </div>
+  );
+};
 
 interface PlanFeature {
   name: string;
@@ -294,14 +424,29 @@ const PricingPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-background to-muted/20 py-12">
-      <div className="container mx-auto px-4">
+    <div className="min-h-screen bg-slate-950 text-white relative overflow-hidden">
+      {/* Background Effects - Matching ChatView */}
+      <div className="absolute inset-0">
+        <Particles
+          className="absolute inset-0"
+          quantity={150}
+          color="#8B5CF6"
+          size={1}
+          staticity={30}
+        />
+        
+        {/* Holographic Gradients */}
+        <div className="absolute top-0 left-1/4 w-96 h-96 bg-gradient-to-r from-violet-500/10 to-purple-600/10 rounded-full blur-3xl animate-pulse" />
+        <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-gradient-to-r from-blue-500/10 to-indigo-600/10 rounded-full blur-3xl animate-pulse delay-1000" />
+      </div>
+      
+      <div className="container mx-auto px-4 relative z-10 py-12">
         {/* Back Button */}
         <div className="mb-6">
           <Button
             variant="ghost"
             onClick={() => navigateTo('/')}
-            className="flex items-center gap-2 text-muted-foreground hover:text-foreground"
+            className="flex items-center gap-2 text-slate-300 hover:text-white bg-slate-800/50 backdrop-blur-xl border border-slate-700/50 hover:bg-slate-700/50 transition-all duration-200"
           >
             <ArrowLeft className="h-4 w-4" />
             Back to Uterpi
@@ -310,13 +455,15 @@ const PricingPage: React.FC = () => {
 
         {/* Header */}
         <div className="text-center mb-12">
-          <h1 className="text-4xl font-bold mb-4">Choose Your Plan</h1>
-          <p className="text-xl text-muted-foreground mb-6">
+          <h1 className="text-5xl font-bold mb-4 bg-gradient-to-r from-white via-violet-200 to-white bg-clip-text text-transparent drop-shadow-lg">
+            Choose Your Plan
+          </h1>
+          <p className="text-xl text-slate-200 mb-8 max-w-2xl mx-auto">
             Unlock the full potential of AI-powered development
           </p>
           
           {isGrandfathered && (
-            <Badge variant="secondary" className="mb-6">
+            <Badge className="mb-6 bg-gradient-to-r from-violet-500 to-purple-600 text-white border-0">
               <Sparkles className="w-4 h-4 mr-2" />
               You're grandfathered into special pricing!
             </Badge>
@@ -324,11 +471,21 @@ const PricingPage: React.FC = () => {
 
           {/* Billing Toggle */}
           <Tabs value={billingInterval} onValueChange={(v) => setBillingInterval(v as 'month' | 'year')}>
-            <TabsList className="mx-auto">
-              <TabsTrigger value="month">Monthly</TabsTrigger>
-              <TabsTrigger value="year">
+            <TabsList className="mx-auto bg-slate-800/50 backdrop-blur-xl border border-slate-700/50">
+              <TabsTrigger 
+                value="month" 
+                className="data-[state=active]:bg-slate-700 data-[state=active]:text-white text-slate-300"
+              >
+                Monthly
+              </TabsTrigger>
+              <TabsTrigger 
+                value="year"
+                className="data-[state=active]:bg-slate-700 data-[state=active]:text-white text-slate-300"
+              >
                 Annual
-                <Badge className="ml-2" variant="secondary">Save 20%</Badge>
+                <Badge className="ml-2 bg-gradient-to-r from-green-500 to-emerald-600 text-white text-xs">
+                  Save 20%
+                </Badge>
               </TabsTrigger>
             </TabsList>
           </Tabs>
@@ -339,43 +496,50 @@ const PricingPage: React.FC = () => {
           {plans.map((plan) => (
             <Card 
               key={plan.id} 
-              className={`relative ${plan.popular ? 'border-primary shadow-lg scale-105' : ''} 
-                         ${currentPlan === plan.id ? 'ring-2 ring-primary' : ''}`}
+              className={`relative backdrop-blur-xl border transition-all duration-300 hover:scale-105 ${
+                plan.popular 
+                  ? 'bg-gradient-to-br from-slate-800/60 to-slate-900/80 border-violet-400/50 shadow-2xl shadow-violet-500/20 ring-1 ring-violet-400/30 scale-105' 
+                  : 'bg-slate-800/40 border-slate-700/50 hover:bg-slate-800/60'
+              } ${
+                currentPlan === plan.id 
+                  ? 'ring-2 ring-blue-400/50 bg-gradient-to-br from-slate-800/60 to-blue-900/40 border-blue-400/30' 
+                  : ''
+              }`}
             >
               {plan.popular && (
-                <Badge className="absolute -top-3 left-1/2 -translate-x-1/2">
+                <Badge className="absolute -top-3 left-1/2 -translate-x-1/2 bg-gradient-to-r from-violet-500 to-purple-600 text-white border-0 shadow-lg">
                   Most Popular
                 </Badge>
               )}
               
               {currentPlan === plan.id && (
-                <Badge variant="secondary" className="absolute -top-3 right-4">
+                <Badge className="absolute -top-3 right-4 bg-gradient-to-r from-blue-500 to-cyan-600 text-white border-0">
                   Current Plan
                 </Badge>
               )}
 
               <CardHeader>
-                <CardTitle className="flex items-center justify-between">
+                <CardTitle className="flex items-center justify-between text-white font-semibold">
                   {plan.name}
-                  {plan.id === 'team' && <Users className="w-5 h-5" />}
-                  {plan.id === 'enterprise' && <Building2 className="w-5 h-5" />}
+                  {plan.id === 'team' && <Users className="w-5 h-5 text-slate-300" />}
+                  {plan.id === 'enterprise' && <Building2 className="w-5 h-5 text-slate-300" />}
                 </CardTitle>
-                <CardDescription>{plan.description}</CardDescription>
+                <CardDescription className="text-slate-200">{plan.description}</CardDescription>
                 
                 <div className="mt-4">
                   {plan.price === 0 && plan.id !== 'enterprise' ? (
-                    <div className="text-3xl font-bold">Free</div>
+                    <div className="text-3xl font-bold bg-gradient-to-r from-green-400 to-emerald-500 bg-clip-text text-transparent">Free</div>
                   ) : plan.id === 'enterprise' ? (
-                    <div className="text-2xl font-bold">Custom Pricing</div>
+                    <div className="text-2xl font-bold bg-gradient-to-r from-orange-400 to-red-500 bg-clip-text text-transparent">Custom Pricing</div>
                   ) : (
                     <>
-                      <div className="text-3xl font-bold">
+                      <div className="text-3xl font-bold text-white">
                         ${plan.price}
-                        {plan.teamSize && <span className="text-sm font-normal">/user</span>}
-                        <span className="text-sm font-normal">/{plan.interval}</span>
+                        {plan.teamSize && <span className="text-sm font-normal text-slate-300">/user</span>}
+                        <span className="text-sm font-normal text-slate-300">/{plan.interval}</span>
                       </div>
                       {plan.teamSize && (
-                        <p className="text-sm text-muted-foreground mt-1">
+                        <p className="text-sm text-slate-400 mt-1">
                           Minimum {plan.teamSize} users
                         </p>
                       )}
@@ -386,10 +550,10 @@ const PricingPage: React.FC = () => {
 
               <CardContent>
                 {/* AI Credits Highlight */}
-                <div className="mb-4 p-3 bg-muted rounded-lg">
+                <div className="mb-4 p-3 bg-gradient-to-r from-slate-700/40 to-slate-800/40 backdrop-blur-sm rounded-lg border border-violet-400/20">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">AI Credits</span>
-                    <Badge variant="outline">
+                    <span className="text-sm font-medium text-white">AI Credits</span>
+                    <Badge className="bg-gradient-to-r from-violet-500/30 to-purple-600/30 border-violet-400/40 text-violet-200 font-semibold">
                       {plan.aiCredits === 999999 ? 'Unlimited' : plan.aiCredits.toLocaleString()}
                     </Badge>
                   </div>
@@ -400,27 +564,30 @@ const PricingPage: React.FC = () => {
                   {plan.features.map((feature, idx) => (
                     <li key={idx} className="flex items-start text-sm">
                       {feature.included ? (
-                        <Check className="w-4 h-4 text-green-500 mr-2 mt-0.5 flex-shrink-0" />
+                        <Check className="w-4 h-4 text-green-400 mr-2 mt-0.5 flex-shrink-0" />
                       ) : (
-                        <X className="w-4 h-4 text-muted-foreground/50 mr-2 mt-0.5 flex-shrink-0" />
+                        <X className="w-4 h-4 text-slate-500 mr-2 mt-0.5 flex-shrink-0" />
                       )}
-                      <span className={!feature.included ? 'text-muted-foreground/50' : ''}>
+                      <span className={!feature.included ? 'text-slate-500 line-through' : 'text-slate-100'}>
                         {feature.name}
-                        {feature.value && <span className="font-medium"> - {feature.value}</span>}
+                        {feature.value && <span className="font-medium text-white"> - {feature.value}</span>}
                       </span>
                     </li>
                   ))}
                 </ul>
 
                 {/* Support Level */}
-                <div className="text-sm text-muted-foreground mb-4">
-                  Support: <span className="font-medium">{plan.supportLevel}</span>
+                <div className="text-sm text-slate-300 mb-4">
+                  Support: <span className="font-medium text-white">{plan.supportLevel}</span>
                 </div>
 
                 {/* CTA Button */}
                 <Button 
-                  className="w-full"
-                  variant={plan.popular ? 'default' : 'outline'}
+                  className={`w-full transition-all duration-200 ${
+                    plan.popular 
+                      ? 'bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700 text-white border-0 shadow-lg hover:shadow-xl' 
+                      : 'bg-slate-700/50 hover:bg-slate-600/50 border-slate-600/50 text-white hover:border-slate-500/50 backdrop-blur-sm'
+                  }`}
                   disabled={plan.disabled || loading}
                   onClick={() => handleSelectPlan(plan.id)}
                   data-testid={`button-select-${plan.id}`}
@@ -433,20 +600,20 @@ const PricingPage: React.FC = () => {
         </div>
 
         {/* AI Credits Add-ons Section */}
-        <Card className="mb-12">
+        <Card className="mb-12 bg-slate-800/30 backdrop-blur-xl border-slate-700/50">
           <CardHeader>
-            <CardTitle className="flex items-center">
-              <CreditCard className="w-5 h-5 mr-2" />
+            <CardTitle className="flex items-center text-white">
+              <CreditCard className="w-5 h-5 mr-2 text-violet-400" />
               Need More AI Credits?
             </CardTitle>
-            <CardDescription>
+            <CardDescription className="text-slate-300">
               Purchase additional credits anytime. Credits never expire.
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <Button 
-                variant="outline" 
+                className="bg-slate-700/50 hover:bg-slate-600/50 border-slate-600/50 text-white hover:border-slate-500/50 backdrop-blur-sm transition-all duration-200"
                 disabled={loading}
                 onClick={() => handlePurchaseCredits(100)}
                 data-testid="button-buy-credits-100"
@@ -454,7 +621,7 @@ const PricingPage: React.FC = () => {
                 {!user ? 'Sign In to Purchase' : '100 Credits - $1.99'}
               </Button>
               <Button 
-                variant="outline" 
+                className="bg-gradient-to-r from-violet-500/20 to-purple-600/20 hover:from-violet-500/30 hover:to-purple-600/30 border-violet-400/30 text-white backdrop-blur-sm transition-all duration-200"
                 disabled={loading}
                 onClick={() => handlePurchaseCredits(500)}
                 data-testid="button-buy-credits-500"
@@ -462,7 +629,7 @@ const PricingPage: React.FC = () => {
                 {!user ? 'Sign In to Purchase' : '500 Credits - $8.99'}
               </Button>
               <Button 
-                variant="outline" 
+                className="bg-slate-700/50 hover:bg-slate-600/50 border-slate-600/50 text-white hover:border-slate-500/50 backdrop-blur-sm transition-all duration-200"
                 disabled={loading}
                 onClick={() => handlePurchaseCredits(1000)}
                 data-testid="button-buy-credits-1000"
@@ -470,7 +637,7 @@ const PricingPage: React.FC = () => {
                 {!user ? 'Sign In to Purchase' : '1,000 Credits - $15.99'}
               </Button>
               <Button 
-                variant="outline" 
+                className="bg-slate-700/50 hover:bg-slate-600/50 border-slate-600/50 text-white hover:border-slate-500/50 backdrop-blur-sm transition-all duration-200"
                 disabled={loading}
                 onClick={() => handlePurchaseCredits(5000)}
                 data-testid="button-buy-credits-5000"
@@ -482,20 +649,20 @@ const PricingPage: React.FC = () => {
         </Card>
 
         {/* Feature Comparison Table */}
-        <Card>
+        <Card className="bg-slate-800/30 backdrop-blur-xl border-slate-700/50">
           <CardHeader>
-            <CardTitle>Detailed Feature Comparison</CardTitle>
+            <CardTitle className="text-white">Detailed Feature Comparison</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
-                  <tr className="border-b">
-                    <th className="text-left py-2">Feature</th>
-                    <th className="text-center py-2">Free</th>
-                    <th className="text-center py-2">Pro</th>
-                    <th className="text-center py-2">Team</th>
-                    <th className="text-center py-2">Enterprise</th>
+                  <tr className="border-b border-slate-600">
+                    <th className="text-left py-3 text-slate-200 font-semibold">Feature</th>
+                    <th className="text-center py-3 text-slate-200 font-semibold">Free</th>
+                    <th className="text-center py-3 text-slate-200 font-semibold">Pro</th>
+                    <th className="text-center py-3 text-slate-200 font-semibold">Team</th>
+                    <th className="text-center py-3 text-slate-200 font-semibold">Enterprise</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -509,16 +676,16 @@ const PricingPage: React.FC = () => {
                     ['SSO & Audit Logs', '❌', '❌', '❌', '✅'],
                     ['Support', 'Community', 'Email', 'Priority', 'Dedicated'],
                   ].map(([feature, ...values]) => (
-                    <tr key={feature} className="border-b">
-                      <td className="py-2 font-medium">{feature}</td>
+                    <tr key={feature} className="border-b border-slate-700/50">
+                      <td className="py-3 font-medium text-slate-200">{feature}</td>
                       {values.map((value, idx) => (
-                        <td key={idx} className="text-center py-2">
+                        <td key={idx} className="text-center py-3">
                           {value === '✅' ? (
-                            <Check className="w-4 h-4 text-green-500 mx-auto" />
+                            <Check className="w-4 h-4 text-green-400 mx-auto" />
                           ) : value === '❌' ? (
-                            <X className="w-4 h-4 text-muted-foreground/50 mx-auto" />
+                            <X className="w-4 h-4 text-slate-500 mx-auto" />
                           ) : (
-                            value
+                            <span className="text-slate-300">{value}</span>
                           )}
                         </td>
                       ))}

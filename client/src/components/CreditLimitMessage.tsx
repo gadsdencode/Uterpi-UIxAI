@@ -1,14 +1,37 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Message } from '../types';
 import { AICreditsQuickPurchase } from './AICreditsQuickPurchase';
 import { Button } from './ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
-import { CreditCard, Zap, Clock, ArrowUp, AlertTriangle } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu';
+import { Badge } from './ui/badge';
+import { CreditCard, Zap, Clock, ArrowUp, AlertTriangle, ChevronDown, Sparkles } from 'lucide-react';
+
+interface CreditPackage {
+  credits: number;
+  price: number;
+  priceId: string;
+  popular?: boolean;
+}
+
+const CREDIT_PACKAGES: CreditPackage[] = [
+  { credits: 100, price: 1.99, priceId: 'price_credits_100' },
+  { credits: 500, price: 8.99, priceId: 'price_credits_500', popular: true },
+  { credits: 1000, price: 15.99, priceId: 'price_credits_1000' },
+  { credits: 5000, price: 69.99, priceId: 'price_credits_5000' },
+];
 
 interface CreditLimitMessageProps {
   message: Message;
   onUpgrade?: () => void;
-  onPurchaseCredits?: () => void;
+  onPurchaseCredits?: (packageId: string) => void;
 }
 
 export const CreditLimitMessage: React.FC<CreditLimitMessageProps> = ({
@@ -17,6 +40,7 @@ export const CreditLimitMessage: React.FC<CreditLimitMessageProps> = ({
   onPurchaseCredits,
 }) => {
   const { code, currentBalance, messagesUsed, monthlyAllowance, isFreemium, creditsRequired } = message.metadata || {};
+  const [selectedPackage, setSelectedPackage] = useState<CreditPackage>(CREDIT_PACKAGES[1]); // Default to 500 credits (popular)
   
   const isFreemiumLimit = code === 'MESSAGE_LIMIT_EXCEEDED';
   const isCreditLimit = code === 'INSUFFICIENT_CREDITS' || code === 'NO_CREDITS_AVAILABLE';
@@ -108,16 +132,78 @@ export const CreditLimitMessage: React.FC<CreditLimitMessageProps> = ({
                 className={`flex-1 ${styles.button}`}
               >
                 <ArrowUp className="h-4 w-4 mr-2" />
-                Upgrade to Pro
+                Upgrade to Pro ($19/mo)
               </Button>
-              <Button 
-                variant="outline" 
-                onClick={onPurchaseCredits}
-                className={`flex-1 ${styles.outlineButton}`}
-              >
-                <CreditCard className="h-4 w-4 mr-2" />
-                Buy Credits
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button 
+                    variant="outline" 
+                    className={`flex-1 ${styles.outlineButton}`}
+                  >
+                    <CreditCard className="h-4 w-4 mr-2" />
+                    Buy {selectedPackage.credits.toLocaleString()} Credits (${selectedPackage.price})
+                    <ChevronDown className="h-4 w-4 ml-2" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-80 bg-slate-900 border-slate-700 text-white">
+                  <DropdownMenuLabel className="text-slate-300">Select Credit Package</DropdownMenuLabel>
+                  <DropdownMenuSeparator className="bg-slate-700" />
+                  {CREDIT_PACKAGES.map((pkg) => (
+                    <DropdownMenuItem
+                      key={pkg.priceId}
+                      className={`cursor-pointer p-3 hover:bg-slate-800/50 focus:bg-slate-800/50 ${
+                        pkg.popular ? 'border border-violet-400/20 bg-violet-500/5' : ''
+                      }`}
+                      onSelect={() => {
+                        setSelectedPackage(pkg);
+                        if (onPurchaseCredits) {
+                          // Map priceId to packageId for the API
+                          const packageMap: { [key: string]: string } = {
+                            'price_credits_100': 'credits_100',
+                            'price_credits_500': 'credits_500',
+                            'price_credits_1000': 'credits_1000',
+                            'price_credits_5000': 'credits_5000',
+                          };
+                          const packageId = packageMap[pkg.priceId] || 'credits_500';
+                          onPurchaseCredits(packageId);
+                        }
+                      }}
+                    >
+                      <div className="flex items-center justify-between w-full">
+                        <div className="flex items-center gap-3">
+                          <div className={`p-2 rounded-lg ${
+                            pkg.popular 
+                              ? 'bg-violet-500/10 border border-violet-400/20' 
+                              : 'bg-slate-800/50 border border-slate-600/50'
+                          }`}>
+                            <Sparkles className={`w-4 h-4 ${
+                              pkg.popular ? 'text-violet-400' : 'text-slate-400'
+                            }`} />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <p className="text-sm font-medium">
+                                {pkg.credits.toLocaleString()} Credits
+                              </p>
+                              {pkg.popular && (
+                                <Badge variant="secondary" className="h-4 px-1 text-[10px]">
+                                  Popular
+                                </Badge>
+                              )}
+                            </div>
+                            <p className="text-xs text-slate-400">
+                              {(pkg.price / pkg.credits * 100).toFixed(1)}¢ per credit
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-sm font-bold">
+                          ${pkg.price}
+                        </div>
+                      </div>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
         ) : (

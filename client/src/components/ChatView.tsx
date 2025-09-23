@@ -1416,6 +1416,87 @@ const FuturisticAIChat: React.FC = () => {
     }
   };
 
+  // Handle upgrade to Pro subscription
+  const handleUpgradeToPro = async () => {
+    if (!user) {
+      navigateTo('/login');
+      return;
+    }
+
+    try {
+      // Create Stripe Checkout Session for Pro subscription
+      const response = await fetch('/api/checkout/subscription', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          tier: 'pro',
+          interval: 'monthly', // Default to monthly
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to create checkout session');
+      }
+
+      const data = await response.json();
+      
+      // Redirect to Stripe Checkout
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        throw new Error('No checkout URL returned');
+      }
+    } catch (error) {
+      console.error('Error upgrading to Pro:', error);
+      // Fallback to pricing page
+      navigateTo('/pricing');
+    }
+  };
+
+  // Handle purchase credits with dynamic package selection
+  const handlePurchaseCredits = async (packageId: string) => {
+    if (!user) {
+      navigateTo('/login');
+      return;
+    }
+
+    try {
+      // Create Stripe Checkout Session for selected credit package
+      const response = await fetch('/api/checkout/credits', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          packageId,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to create checkout session');
+      }
+
+      const data = await response.json();
+      
+      // Redirect to Stripe Checkout
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        throw new Error('No checkout URL returned');
+      }
+    } catch (error) {
+      console.error('Error purchasing credits:', error);
+      // Fallback to pricing page
+      navigateTo('/pricing');
+    }
+  };
+
   const selectCommand = (command: CommandSuggestion) => {
     // Enhanced functionality - open appropriate modal instead of just inserting text
     setShowCommands(false);
@@ -1726,8 +1807,8 @@ const FuturisticAIChat: React.FC = () => {
                     {message.isCreditLimit ? (
                       <CreditLimitMessage 
                         message={message}
-                        onUpgrade={() => navigateTo('/pricing')}
-                        onPurchaseCredits={() => navigateTo('/settings/billing/credits')}
+                        onUpgrade={handleUpgradeToPro}
+                        onPurchaseCredits={handlePurchaseCredits}
                       />
                     ) : (
                       <HolographicBubble isUser={message.role === 'user'}>

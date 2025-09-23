@@ -866,7 +866,7 @@ const FuturisticAIChat: React.FC = () => {
             aiServiceRef.current = new LMStudioService({ 
               apiKey: 'not-needed', // LM Studio doesn't require an API key
               baseUrl, 
-              modelName: selectedLLMModel?.id || 'local-model' 
+              modelName: selectedLLMModel?.id || 'nomadic-icdu-v8' 
             });
             console.log('✅ LM Studio Service initialized for intelligent toasts');
             return;

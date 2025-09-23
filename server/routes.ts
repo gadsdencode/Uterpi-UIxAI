@@ -681,27 +681,70 @@ export async function registerRoutes(app: Express): Promise<Server> {
             ...otherParams
           };
 
-          response = await fetch(targetUrl, {
+          const lmResponse = await fetch(targetUrl, {
             method: 'POST',
             headers: {
               "Content-Type": "application/json",
               "Authorization": proxyAuth,
-              "Accept": "text/event-stream, application/json"
+              "Accept": stream ? "text/event-stream" : "application/json"
             },
             body: JSON.stringify(requestBody)
           });
 
-          if (!response.ok) {
-            const errText = await response.text();
-            throw new Error(`LM Studio error (${response.status}): ${errText}`);
+          if (!lmResponse.ok) {
+            const errText = await lmResponse.text();
+            throw new Error(`LM Studio error (${lmResponse.status}): ${errText}`);
           }
 
-          // Convert to our expected format
-          const data = await response.json();
-          response = {
-            status: "200",
-            body: data
-          };
+          if (stream) {
+            // Handle streaming response - pass through the stream
+            console.log('🌊 LM Studio: Handling streaming response');
+            res.setHeader('Content-Type', 'text/event-stream');
+            res.setHeader('Cache-Control', 'no-cache');
+            res.setHeader('Connection', 'keep-alive');
+            res.setHeader('Access-Control-Allow-Origin', '*');
+            res.setHeader('Access-Control-Allow-Headers', 'Cache-Control');
+
+            // Pipe the streaming response directly to client
+            const reader = lmResponse.body?.getReader();
+            if (!reader) {
+              throw new Error('No response body for streaming');
+            }
+
+            const decoder = new TextDecoder();
+            try {
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                
+                const chunk = decoder.decode(value, { stream: true });
+                console.log('🌊 LM Studio chunk:', chunk.substring(0, 100) + '...');
+                res.write(chunk);
+              }
+              res.end();
+              return;
+            } finally {
+              reader.releaseLock();
+            }
+          } else {
+            // Handle non-streaming response
+            const responseText = await lmResponse.text();
+            console.log('🔍 LM Studio raw response:', responseText.substring(0, 200) + '...');
+            
+            let data;
+            try {
+              data = JSON.parse(responseText);
+            } catch (parseError) {
+              console.error('❌ Failed to parse LM Studio response as JSON:', parseError);
+              console.error('❌ Raw response text:', responseText);
+              throw new Error(`LM Studio returned invalid JSON: ${responseText.substring(0, 100)}...`);
+            }
+
+            response = {
+              status: "200",
+              body: data
+            };
+          }
           break;
         }
 

@@ -23,6 +23,15 @@ interface AuthenticatedRequest extends Request {
      * When true, downstream credit checks must be skipped for this request only.
      */
     freeMessageUsed?: boolean;
+    /**
+     * Flag set by requireMinimumCredits() when this request needs credit deduction after completion.
+     * Contains info needed for post-completion credit tracking.
+     */
+    needsCreditDeduction?: {
+      operationType: string;
+      currentBalance: number;
+      isTeamPooled: boolean;
+    };
   };
 }
 
@@ -678,9 +687,10 @@ export function requireFeature(featureName: keyof EnhancedSubscriptionCheck['fea
 }
 
 /**
- * Middleware to check and consume AI credits
+ * Middleware to check minimum credit threshold (does not pre-allocate credits)
+ * Credits will be deducted after AI response based on actual token usage
  */
-export function requireCredits(creditsRequired: number, operationType: string) {
+export function requireMinimumCredits(minimumCredits: number = 10, operationType: string = 'chat') {
   return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       if (!req.user?.id) {
@@ -690,34 +700,35 @@ export function requireCredits(creditsRequired: number, operationType: string) {
         });
       }
 
-      // If a free message was consumed upstream (freemium), skip credit check/deduction for this request
+      // If a free message was consumed upstream (freemium), skip credit check for this request
       if (req.user.freeMessageUsed) {
         console.log(`⏭️ Skipping credit check for user ${req.user.id} - free message was used`);
         return next();
       }
 
-      console.log(`💳 Checking credits for user ${req.user.id}: ${creditsRequired} credits required for ${operationType}`);
-      const creditCheck = await checkCreditBalance(req.user.id, creditsRequired);
+      console.log(`💳 Checking minimum credits for user ${req.user.id}: ${minimumCredits} minimum required for ${operationType}`);
+      const creditCheck = await checkCreditBalance(req.user.id, minimumCredits);
 
       if (!creditCheck.hasCredits) {
-        console.log(`🚫 Insufficient credits for user ${req.user.id}: has ${creditCheck.currentBalance}, needs ${creditsRequired}`);
+        console.log(`🚫 Insufficient credits for user ${req.user.id}: has ${creditCheck.currentBalance}, needs minimum ${minimumCredits}`);
         return res.status(402).json({
           error: 'Insufficient AI credits',
           code: 'INSUFFICIENT_CREDITS',
-          creditsRequired,
+          creditsRequired: minimumCredits,
           currentBalance: creditCheck.currentBalance,
           isTeamPooled: creditCheck.isTeamPooled,
           purchaseUrl: '/settings/billing/credits',
+          message: `You need at least ${minimumCredits} AI credits to start this operation. You currently have ${creditCheck.currentBalance} credits.`,
         });
       }
 
-      console.log(`✅ Credit check passed for user ${req.user.id}: has ${creditCheck.currentBalance}, using ${creditsRequired} for ${operationType}`);
+      console.log(`✅ Minimum credit check passed for user ${req.user.id}: has ${creditCheck.currentBalance}, minimum ${minimumCredits} required for ${operationType}`);
 
-      // Attach credit info to request for consumption after successful operation
-      req.user.creditsPending = {
-        amount: creditsRequired,
+      // Mark that this user will need credit deduction after the operation
+      req.user.needsCreditDeduction = {
         operationType,
         currentBalance: creditCheck.currentBalance,
+        isTeamPooled: creditCheck.isTeamPooled,
       };
 
       next();
@@ -730,6 +741,14 @@ export function requireCredits(creditsRequired: number, operationType: string) {
       });
     }
   };
+}
+
+/**
+ * Legacy middleware for backward compatibility - now just checks minimum credits
+ * @deprecated Use requireMinimumCredits instead
+ */
+export function requireCredits(creditsRequired: number, operationType: string) {
+  return requireMinimumCredits(creditsRequired, operationType);
 }
 
 /**

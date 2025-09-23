@@ -10,7 +10,7 @@ import { db } from "./db";
 import { eq, desc, and } from "drizzle-orm";
 import { createStripeCustomer, createSetupIntent, createSubscription, cancelSubscription, reactivateSubscription, createBillingPortalSession, syncSubscriptionFromStripe } from "./stripe";
 import { createSubscriptionCheckoutSession, createCreditsCheckoutSession, getCheckoutSession } from "./stripe-checkout";
-import { requireActiveSubscription, enhanceWithSubscription, requireCredits, checkFreemiumLimit, getEnhancedSubscriptionDetails, requireFeature, requireTeamRole, requireAIProvider, tierBasedRateLimit } from "./subscription-middleware";
+import { requireActiveSubscription, enhanceWithSubscription, requireCredits, requireMinimumCredits, checkFreemiumLimit, getEnhancedSubscriptionDetails, requireFeature, requireTeamRole, requireAIProvider, tierBasedRateLimit } from "./subscription-middleware";
 import { trackAIUsage } from "./stripe-enhanced";
 import { handleStripeWebhook, rawBodyParser } from "./webhooks";
 import { fileStorage } from "./file-storage";
@@ -132,6 +132,59 @@ function trackAIRequest(endpoint: string, success: boolean, responseTime: number
 // Track cache hits
 function trackCacheHit(): void {
   aiMetrics.cacheHits++;
+}
+
+// Helper function to estimate token count from text
+// This is a rough approximation - for production, use proper tokenizer libraries
+function estimateTokenCount(text: string): number {
+  if (!text) return 0;
+  
+  // Rough estimation: 1 token ≈ 4 characters for English text
+  // This varies by model and language, but gives a reasonable approximation
+  const avgCharsPerToken = 4;
+  return Math.ceil(text.length / avgCharsPerToken);
+}
+
+// Helper function to count tokens from messages array
+function countTokensFromMessages(messages: any[]): number {
+  if (!Array.isArray(messages)) return 0;
+  
+  return messages.reduce((total, message) => {
+    const content = message.content || '';
+    return total + estimateTokenCount(content);
+  }, 0);
+}
+
+// Helper function to deduct credits after AI response
+async function deductCreditsAfterResponse(
+  req: any, 
+  inputTokens: number, 
+  outputTokens: number, 
+  modelUsed: string = 'unknown'
+): Promise<void> {
+  if (req.user?.freeMessageUsed) {
+    console.log(`⏭️ Skipping credit deduction for user ${req.user.id} - free message was used`);
+    return;
+  }
+
+  if (req.user?.needsCreditDeduction) {
+    const totalTokens = inputTokens + outputTokens;
+    console.log(`💳 Deducting credits for user ${req.user.id}: ${inputTokens} input + ${outputTokens} output = ${totalTokens} total tokens`);
+    
+    try {
+      const result = await trackAIUsage({
+        userId: req.user.id,
+        operationType: req.user.needsCreditDeduction.operationType as any,
+        modelUsed,
+        tokensConsumed: totalTokens,
+      });
+      
+      console.log(`✅ Credits deducted for user ${req.user.id}: ${result.creditsUsed} credits used, ${result.remainingBalance} remaining`);
+    } catch (error) {
+      console.error(`❌ Error deducting credits for user ${req.user.id}:`, error);
+      // Don't fail the request if credit deduction fails - log and continue
+    }
+  }
 }
 
 // Robust JSON parser for Azure AI responses
@@ -547,7 +600,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // =============================================================================
 
   // Universal AI chat completions endpoint with credit checking for all providers
-  app.post("/ai/v1/chat/completions", requireAuth, checkFreemiumLimit(), requireCredits(1, 'chat'), async (req, res) => {
+  app.post("/ai/v1/chat/completions", requireAuth, checkFreemiumLimit(), requireMinimumCredits(10, 'chat'), async (req, res) => {
     console.log('🚀 Chat endpoint called for user:', req.user?.id);
     try {
       const { provider, messages, model, max_tokens, temperature, top_p, stream, ...otherParams } = req.body;
@@ -906,25 +959,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).json({ error: `Unsupported provider: ${provider}` });
       }
 
-      // Track AI usage and consume credits
-      if ((req as AuthenticatedRequest).user?.creditsPending) {
-        try {
-          await trackAIUsage({
-            userId: (req as AuthenticatedRequest).user!.id,
-            operationType: 'chat',
-            modelUsed: modelName || provider,
-            tokensConsumed: max_tokens || 1024,
-          });
-        } catch (creditError) {
-          console.error('Error tracking AI usage:', creditError);
-          // Don't fail the request if credit tracking fails
-        }
-      }
-
-      // Return the response
+      // Calculate actual token usage and deduct credits
       if ((response as any).status === "200" || (response as any).status === 200) {
-        console.log('🔍 Backend: Returning response body:', JSON.stringify((response as any).body, null, 2));
-        res.json((response as any).body);
+        const responseBody = (response as any).body;
+        console.log('🔍 Backend: Returning response body:', JSON.stringify(responseBody, null, 2));
+        
+        // Calculate actual token usage
+        const inputTokens = countTokensFromMessages(messages || []);
+        const outputContent = responseBody?.choices?.[0]?.message?.content || '';
+        const outputTokens = estimateTokenCount(outputContent);
+        
+        // Deduct credits based on actual token usage
+        await deductCreditsAfterResponse(req, inputTokens, outputTokens, modelName || provider);
+        
+        res.json(responseBody);
       } else {
         const errorDetails = ((response as any).body as any)?.error?.message || 'Unknown AI error';
         console.error('❌ Backend: AI API error:', errorDetails);
@@ -938,7 +986,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Azure AI chat completions endpoint with credit checking (legacy support)
-  app.post("/azure/v1/chat/completions", requireAuth, checkFreemiumLimit(), requireCredits(1, 'chat'), async (req, res) => {
+  app.post("/azure/v1/chat/completions", requireAuth, checkFreemiumLimit(), requireMinimumCredits(10, 'chat'), async (req, res) => {
     try {
       const { messages, model, max_tokens, temperature, top_p, stream } = req.body;
       
@@ -985,20 +1033,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(500).json({ error: `Azure AI API error: ${errorDetails}` });
       }
 
-      // Track AI usage and consume credits
-      if ((req as AuthenticatedRequest).user?.creditsPending) {
-        try {
-          await trackAIUsage({
-            userId: (req as AuthenticatedRequest).user!.id,
-            operationType: 'chat',
-            modelUsed: modelName,
-            tokensConsumed: requestBody.max_tokens || 1024,
-          });
-        } catch (creditError) {
-          console.error('Error tracking AI usage:', creditError);
-          // Don't fail the request if credit tracking fails
-        }
-      }
+      // Calculate actual token usage and deduct credits
+      const inputTokens = countTokensFromMessages(requestBody.messages || []);
+      const outputContent = (response.body as any)?.choices?.[0]?.message?.content || '';
+      const outputTokens = estimateTokenCount(outputContent);
+      
+      // Deduct credits based on actual token usage
+      await deductCreditsAfterResponse(req, inputTokens, outputTokens, modelName);
 
       // Return the response
       res.json(response.body);

@@ -326,26 +326,38 @@ export async function trackAIUsage(data: {
   modelUsed: string;
   tokensConsumed: number;
 }): Promise<{ creditsUsed: number; remainingBalance: number }> {
-  // Calculate credits based on operation type and model
-  const creditCosts = {
-    chat: 1,
-    codebase_analysis: 10,
-    app_generation: 50,
-    code_review: 5,
-    advanced_model: 3, // Multiplier for premium models
+  console.log(`💳 Calculating credits for user ${data.userId}: ${data.tokensConsumed} tokens consumed for ${data.operationType} with model ${data.modelUsed}`);
+  
+  // Base calculation: 1 credit per 100 tokens (adjust this ratio as needed)
+  const tokensPerCredit = 100;
+  let creditsToDeduct = Math.max(1, Math.ceil(data.tokensConsumed / tokensPerCredit));
+  
+  // Operation type multipliers for different complexity levels
+  const operationMultipliers = {
+    chat: 1.0,                    // Standard chat - 1x
+    codebase_analysis: 2.0,       // Complex analysis - 2x
+    app_generation: 3.0,          // App generation - 3x
+    code_review: 1.5,             // Code review - 1.5x
+    advanced_model: 1.0,          // Handled by model multiplier below
   };
 
-  let creditsToDeduct = creditCosts[data.operationType] || 1;
+  // Apply operation multiplier
+  creditsToDeduct = Math.ceil(creditsToDeduct * (operationMultipliers[data.operationType] || 1.0));
   
-  // Apply multiplier for premium models
-  if (data.modelUsed.includes('gpt-4') || data.modelUsed.includes('claude-3')) {
-    creditsToDeduct *= creditCosts.advanced_model;
+  // Apply premium model multipliers
+  let modelMultiplier = 1.0;
+  if (data.modelUsed.includes('gpt-4') || data.modelUsed.includes('claude-3-opus')) {
+    modelMultiplier = 2.0; // Premium models cost 2x
+  } else if (data.modelUsed.includes('claude-3-sonnet') || data.modelUsed.includes('gpt-3.5-turbo-16k')) {
+    modelMultiplier = 1.5; // Mid-tier models cost 1.5x
   }
-
-  // Additional cost for high token usage
-  if (data.tokensConsumed > 10000) {
-    creditsToDeduct += Math.ceil(data.tokensConsumed / 10000);
-  }
+  
+  creditsToDeduct = Math.ceil(creditsToDeduct * modelMultiplier);
+  
+  // Ensure minimum credit usage of 1
+  creditsToDeduct = Math.max(1, creditsToDeduct);
+  
+  console.log(`💳 Credit calculation for user ${data.userId}: ${data.tokensConsumed} tokens → ${creditsToDeduct} credits (${data.operationType} ${operationMultipliers[data.operationType]}x, ${data.modelUsed} ${modelMultiplier}x)`);
 
   return await db.transaction(async (tx) => {
     // Get user and check if part of a team

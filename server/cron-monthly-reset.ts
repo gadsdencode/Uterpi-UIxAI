@@ -11,7 +11,7 @@
  * Or using a scheduler like node-cron within your main application.
  */
 
-import { resetMonthlyMessageCounters } from './subscription-middleware-fixed';
+import { resetMonthlyMessageCounters } from './subscription-middleware';
 
 async function runMonthlyReset() {
   console.log('🔄 Starting monthly message counter reset...');

@@ -1,8 +1,7 @@
-import { useState, useCallback, useRef, useEffect } from "react";
 import { AzureAIService } from "../lib/azureAI";
-import { Message, AzureAIMessage, ChatCompletionOptions, LLMModel, ModelCapabilities } from "../types";
-import { getModelConfiguration } from "../lib/modelConfigurations";
+import { ChatCompletionOptions, LLMModel } from "../types";
 import { User } from "./useAuth";
+import { useAI, AIOptions, AIProviderConfig, UseAIReturn } from "./useAI";
 
 // System message presets for different use cases
 export const SYSTEM_MESSAGE_PRESETS = {
@@ -131,351 +130,74 @@ CORE PRINCIPLES:
 - **Language:** Your tone is upbeat, encouraging, and full of possibility. Focus on creating connection and fun for the user and their partner.`
 } as const;
 
-// User context interface for AI personalization
-export interface UserContext {
-  user?: User | null;
-}
+// Enhanced AI options with user context (extends generic AIOptions)
+export interface AzureAIOptions extends AIOptions {}
 
-// Enhanced AI options with user context
-export interface AzureAIOptions {
-  enableStreaming?: boolean;
-  systemMessage?: string;
-  chatOptions?: ChatCompletionOptions;
-  userContext?: UserContext;
-}
-
-// Function to create personalized system message
-const createPersonalizedSystemMessage = (baseSystemMessage: string, user?: User | null): string => {
-  if (!user) {
-    return baseSystemMessage;
-  }
-
-  // Build user profile repository for EVERY interaction
-  // This ensures the AI always has context about the user
-  const userProfileData = [];
+// Azure AI provider configuration
+const azureAIConfig: AIProviderConfig<AzureAIService> = {
+  selectedModelKey: 'azure-ai-selected-model',
+  providerName: 'Azure AI',
   
-  // Add user's name if available
-  if (user.firstName || user.lastName) {
-    const fullName = [user.firstName, user.lastName].filter(Boolean).join(' ');
-    userProfileData.push(`Name: ${fullName}`);
-  } else if (user.username) {
-    userProfileData.push(`Username: ${user.username}`);
-  }
-
-  // Add age if available
-  if (user.age) {
-    userProfileData.push(`Age: ${user.age}`);
-  }
-
-  // Add bio/interests if available
-  if (user.bio) {
-    userProfileData.push(`Interests: ${user.bio}`);
-  }
-
-  // Add birthday if available
-  if (user.dateOfBirth) {
-    const birthDate = new Date(user.dateOfBirth);
-    const today = new Date();
-    const isToday = birthDate.getMonth() === today.getMonth() && birthDate.getDate() === today.getDate();
-    
-    if (isToday) {
-      userProfileData.push(`Birthday: TODAY! 🎉`);
-    } else {
-      const birthMonth = birthDate.toLocaleDateString('en-US', { month: 'long' });
-      const birthDay = birthDate.getDate();
-      userProfileData.push(`Birthday: ${birthMonth} ${birthDay}`);
+  defaultModel: {
+    id: "ministral-3b",
+    name: "Ministral 3B",
+    provider: "Mistral AI",
+    performance: 78,
+    cost: 0.0001,
+    latency: 300,
+    contextLength: 131072,
+    description: "Compact and efficient Mistral model",
+    category: "text",
+    tier: "freemium",
+    isFavorite: false,
+    capabilities: {
+      supportsVision: false,
+      supportsCodeGeneration: true,
+      supportsAnalysis: true,
+      supportsImageGeneration: false
     }
+  },
+  
+  createService: (config: any) => new AzureAIService(config),
+  
+  buildServiceConfig: (options: AzureAIOptions, selectedLLMModel?: LLMModel | null) => {
+    // Use the model-aware configuration method to handle custom endpoints
+    const modelId = selectedLLMModel?.id || "ministral-3b";
+    return AzureAIService.createWithModel(modelId);
+  },
+  
+  updateServiceModel: (service: AzureAIService, modelId: string) => {
+    // For model switching, we need to reconfigure the service entirely
+    // because different models may need different endpoints (e.g., fine-tuned models)
+    const newConfig = AzureAIService.createWithModel(modelId);
+    service.updateConfiguration(newConfig);
+  },
+  
+  getCurrentModel: (service: AzureAIService) => service.getCurrentModel(),
+  
+  defaultCapabilities: {
+    supportsVision: false,
+    supportsCodeGeneration: true,
+    supportsAnalysis: true,
+    supportsImageGeneration: false,
+    supportsSystemMessages: true,
+    supportsJSONMode: false,
+    supportsFunctionCalling: false,
+    supportsStreaming: true,
+    supportsStop: true,
+    supportsLogitBias: false,
+    supportsFrequencyPenalty: false,
+    supportsPresencePenalty: false
   }
-
-  // Always include user information when available
-  if (userProfileData.length > 0) {
-    const userRepositorySection = `
-
----
-USER PROFILE REPOSITORY:
-${userProfileData.join('\n')}
-
-IMPORTANT CONTEXT GUIDELINES:
-- You have ongoing access to this user's profile information
-- Use this context naturally when relevant to the conversation
-- DO NOT greet the user or introduce yourself repeatedly
-- DO NOT acknowledge having "new" access to their information
-- Simply use the context appropriately as the conversation flows
-- Respond to their actual questions and requests, not their identity`;
-
-    return baseSystemMessage + userRepositorySection;
-  }
-
-  return baseSystemMessage;
 };
 
-interface UseAzureAIReturn {
-  sendMessage: (messages: Message[]) => Promise<string>;
-  sendStreamingMessage: (messages: Message[], onChunk: (chunk: string) => void) => Promise<void>;
-  isLoading: boolean;
-  error: string | null;
-  clearError: () => void;
-  currentModel: string | null;
-  updateModel: (model: LLMModel) => void;
-  selectedLLMModel: LLMModel | null;
-  modelCapabilities: ModelCapabilities | null;
-  isLoadingCapabilities: boolean;
-  refreshCapabilities: () => Promise<void>;
-}
+// Type alias for the return interface
+export type UseAzureAIReturn = UseAIReturn<AzureAIService>;
 
-const SELECTED_MODEL_KEY = 'azure-ai-selected-model';
-
+/**
+ * Azure AI provider hook using the generic useAI implementation.
+ * Provides Azure AI-specific configuration while leveraging shared logic.
+ */
 export const useAzureAI = (options: AzureAIOptions = {}): UseAzureAIReturn => {
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [currentModel, setCurrentModel] = useState<string | null>(null);
-  const [selectedLLMModel, setSelectedLLMModel] = useState<LLMModel | null>(null);
-  const [modelCapabilities, setModelCapabilities] = useState<ModelCapabilities | null>(null);
-  const [isLoadingCapabilities, setIsLoadingCapabilities] = useState(false);
-  const aiServiceRef = useRef<AzureAIService | null>(null);
-
-  // Load persisted model selection on mount
-  useEffect(() => {
-    const savedModel = localStorage.getItem(SELECTED_MODEL_KEY);
-    if (savedModel) {
-      try {
-        const parsedModel: LLMModel = JSON.parse(savedModel);
-        setSelectedLLMModel(parsedModel);
-        setCurrentModel(parsedModel.id);
-      } catch (err) {
-        console.warn("Failed to parse saved model:", err);
-        localStorage.removeItem(SELECTED_MODEL_KEY);
-        // Set default model if no saved model exists
-        setDefaultModel();
-      }
-    } else {
-      // Set default model if no saved model exists
-      setDefaultModel();
-    }
-  }, []);
-
-  // Set default model (Ministral-3B)
-  const setDefaultModel = useCallback(() => {
-    const defaultModel: LLMModel = {
-      id: "ministral-3b",
-      name: "Ministral 3B",
-      provider: "Mistral AI",
-      performance: 78,
-      cost: 0.0001,
-      latency: 300,
-      contextLength: 131072,
-      description: "Compact and efficient Mistral model",
-      category: "text",
-      tier: "freemium",
-      isFavorite: false,
-      capabilities: {
-        supportsVision: false,
-        supportsCodeGeneration: true,
-        supportsAnalysis: true,
-        supportsImageGeneration: false
-      }
-    };
-    
-    setSelectedLLMModel(defaultModel);
-    setCurrentModel(defaultModel.id);
-    localStorage.setItem(SELECTED_MODEL_KEY, JSON.stringify(defaultModel));
-  }, []);
-
-  // Initialize Azure AI service
-  const getAIService = useCallback(() => {
-    if (!aiServiceRef.current) {
-      try {
-        // Use the model-aware configuration method to handle custom endpoints
-        const modelId = selectedLLMModel?.id || "ministral-3b";
-        const config = AzureAIService.createWithModel(modelId);
-        aiServiceRef.current = new AzureAIService(config);
-        
-        setCurrentModel(aiServiceRef.current.getCurrentModel());
-      } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : "Failed to initialize Azure AI service";
-        setError(errorMessage);
-        throw new Error(errorMessage);
-      }
-    }
-    return aiServiceRef.current;
-  }, [selectedLLMModel]);
-
-  // Update model selection
-  const updateModel = useCallback((model: LLMModel) => {
-    try {
-      setSelectedLLMModel(model);
-      setCurrentModel(model.id);
-      
-      // Persist to localStorage
-      localStorage.setItem(SELECTED_MODEL_KEY, JSON.stringify(model));
-      
-      // For model switching, we need to reconfigure the service entirely
-      // because different models may need different endpoints (e.g., fine-tuned models)
-      if (aiServiceRef.current) {
-        const newConfig = AzureAIService.createWithModel(model.id);
-        aiServiceRef.current.updateConfiguration(newConfig);
-      } else {
-        // If service doesn't exist yet, it will be created with the correct config when needed
-        console.log(`Model updated to ${model.id}, service will be configured on next use`);
-      }
-      
-      setError(null);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "Failed to update model";
-      setError(errorMessage);
-    }
-  }, []);
-
-  // Convert app messages to Azure AI format
-  const convertToAzureAIMessages = useCallback((messages: Message[]): AzureAIMessage[] => {
-    const systemContent = options.systemMessage || SYSTEM_MESSAGE_PRESETS.DEFAULT;
-    
-    // Always include user context when available - this aligns with Azure AI best practices
-    // Azure AI models have no memory, so context must be provided with every request
-    const personalizedSystemContent = createPersonalizedSystemMessage(
-      systemContent, 
-      options.userContext?.user
-    );
-      
-    // Add system message with user context
-    const azureMessages: AzureAIMessage[] = [
-      {
-        role: "system",
-        content: personalizedSystemContent
-      }
-    ];
-
-    // Convert user and assistant messages, but exclude the initial welcome message
-    messages.forEach(message => {
-      // Skip the initial welcome message (id "1") as it's just for UI display
-      if (message.id === "1") {
-        return;
-      }
-      
-      if (message.role === "user" || message.role === "assistant") {
-        azureMessages.push({
-          role: message.role,
-          content: message.content
-        });
-      }
-    });
-    
-    return azureMessages;
-  }, [options.systemMessage, options.userContext?.user]);
-
-  // Send non-streaming message
-  const sendMessage = useCallback(async (messages: Message[]): Promise<string> => {
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const aiService = getAIService();
-      const azureMessages = convertToAzureAIMessages(messages);
-      const response = await aiService.sendChatCompletion(azureMessages, options.chatOptions);
-      return response;
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "Failed to send message";
-      setError(errorMessage);
-      throw new Error(errorMessage);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [getAIService, convertToAzureAIMessages, options.chatOptions]);
-
-  // Send streaming message
-  const sendStreamingMessage = useCallback(async (
-    messages: Message[],
-    onChunk: (chunk: string) => void
-  ): Promise<void> => {
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const aiService = getAIService();
-      const azureMessages = convertToAzureAIMessages(messages);
-      await aiService.sendStreamingChatCompletion(azureMessages, onChunk, options.chatOptions);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "Failed to send streaming message";
-      setError(errorMessage);
-      throw new Error(errorMessage);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [getAIService, convertToAzureAIMessages, options.chatOptions]);
-
-  const clearError = useCallback(() => {
-    setError(null);
-  }, []);
-
-  // Fetch model capabilities from the configuration system
-  const fetchCapabilities = useCallback(async (modelId: string) => {
-    setIsLoadingCapabilities(true);
-    try {
-      // Get capabilities from our local model configuration system
-      const modelConfig = getModelConfiguration(modelId);
-      setModelCapabilities(modelConfig.capabilities);
-      
-      // Optionally still check server capabilities as a fallback or validation
-      try {
-        const response = await fetch(`/api/model/capabilities/${encodeURIComponent(modelId)}`);
-        const data = await response.json();
-        
-        if (data.success) {
-          // You could merge server capabilities with local ones here if needed
-          console.log("Server capabilities for", modelId, ":", data.capabilities);
-        }
-      } catch (serverError) {
-        console.warn("Server capability check failed, using local configuration:", serverError);
-      }
-    } catch (err) {
-      console.error("Error fetching model capabilities:", err);
-      // Set comprehensive default capabilities on error
-      setModelCapabilities({
-        supportsVision: false,
-        supportsCodeGeneration: true,
-        supportsAnalysis: true,
-        supportsImageGeneration: false,
-        supportsSystemMessages: true,
-        supportsJSONMode: false,
-        supportsFunctionCalling: false,
-        supportsStreaming: true,
-        supportsStop: true,
-        supportsLogitBias: false,
-        supportsFrequencyPenalty: false,
-        supportsPresencePenalty: false
-      });
-    } finally {
-      setIsLoadingCapabilities(false);
-    }
-  }, []);
-
-  const refreshCapabilities = useCallback(async () => {
-    if (currentModel) {
-      await fetchCapabilities(currentModel);
-    }
-  }, [currentModel, fetchCapabilities]);
-
-  // Fetch capabilities when model changes
-  // ONLY fetch if this provider is actually being used
-  useEffect(() => {
-    // Check if Azure is the active provider by checking localStorage
-    const activeProvider = localStorage.getItem('current-ai-provider');
-    if (currentModel && activeProvider === 'azure') {
-      fetchCapabilities(currentModel);
-    }
-  }, [currentModel, fetchCapabilities]);
-
-  return {
-    sendMessage,
-    sendStreamingMessage,
-    isLoading,
-    error,
-    clearError,
-    currentModel,
-    updateModel,
-    selectedLLMModel,
-    modelCapabilities,
-    isLoadingCapabilities,
-    refreshCapabilities
-  };
+  return useAI(azureAIConfig, options);
 }; 

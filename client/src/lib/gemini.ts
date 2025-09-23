@@ -542,8 +542,8 @@ export class GeminiService {
             const data = JSON.parse(buffer);
             if (data.candidates && data.candidates[0]) {
               const fullText = data.candidates[0].content?.parts?.[0]?.text || '';
-              if (fullText && fullText.length > previousText.length) {
-                const newText = fullText.substring(previousText.length);
+              if (fullText && fullText.length > accumulatedText.length) {
+                const newText = fullText.substring(accumulatedText.length);
                 onChunk(newText);
               }
             }

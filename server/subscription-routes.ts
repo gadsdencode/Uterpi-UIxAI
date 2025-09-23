@@ -9,7 +9,7 @@ import {
   requireCredits, 
   requireTeamRole,
   getEnhancedSubscriptionDetails 
-} from './subscription-middleware-enhanced';
+} from './subscription-middleware';
 import {
   createTeamSubscription,
   purchaseAICredits,

@@ -1,14 +1,27 @@
+/**
+ * Consolidated Subscription Middleware
+ * Combines all subscription-related middleware functionality in one file
+ */
+
 import type { Request, Response, NextFunction } from 'express';
 import { db } from './db';
-import { users, subscriptions } from '@shared/schema';
-import { eq, desc } from 'drizzle-orm';
+import { users, subscriptions, subscriptionFeatures, teams, aiCreditsTransactions } from '@shared/schema';
+import { eq, desc, and, gte, sql } from 'drizzle-orm';
 import { storage } from './storage';
+import { checkCreditBalance } from './stripe-enhanced';
 
 // Extend Request type to include user
 interface AuthenticatedRequest extends Request {
-  user?: any; // Use any to avoid type conflicts with existing auth system
+  user?: any & {
+    creditsPending?: {
+      amount: number;
+      operationType: string;
+      currentBalance: number;
+    };
+  };
 }
 
+// Basic subscription check result
 export interface SubscriptionCheckResult {
   hasAccess: boolean;
   reason: 'active_subscription' | 'trial_period' | 'admin_override' | 'no_subscription' | 'expired' | 'payment_failed';
@@ -17,8 +30,97 @@ export interface SubscriptionCheckResult {
   upgradeRequired?: boolean;
 }
 
+// Enhanced subscription check with detailed features
+export interface EnhancedSubscriptionCheck {
+  hasAccess: boolean;
+  tier: string;
+  status: string;
+  features: {
+    unlimitedChat: boolean;
+    monthlyMessageAllowance: number;
+    messagesUsedThisMonth: number;
+    messagesRemaining: number;
+    aiProvidersAccess: string[];
+    monthlyAICredits: number;
+    currentCreditsBalance: number;
+    maxProjects: number;
+    fullCodebaseContext: boolean;
+    gitIntegration: boolean;
+    aiCodeReviewsPerMonth: number;
+    aiCodeReviewsUsed: number;
+    teamFeaturesEnabled: boolean;
+    sharedWorkspaces: boolean;
+    ssoEnabled: boolean;
+    auditLogs: boolean;
+    supportLevel: string;
+  };
+  team?: {
+    id: number;
+    name: string;
+    role: string;
+    members: number;
+    maxMembers: number;
+  };
+  isGrandfathered: boolean;
+  grandfatheredFrom?: string;
+}
+
 /**
- * Check if a user has valid subscription access
+ * Check if monthly reset is needed and perform it atomically
+ */
+async function checkAndPerformMonthlyReset(userId: number): Promise<void> {
+  const now = new Date();
+  const startOfCurrentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  
+  // Use a transaction to atomically check and reset if needed
+  await db.transaction(async (tx) => {
+    const [user] = await tx.select({
+      id: users.id,
+      messagesResetAt: users.messages_reset_at,
+      messagesUsedThisMonth: users.messages_used_this_month
+    }).from(users).where(eq(users.id, userId));
+
+    if (!user) return;
+
+    // If messages_reset_at is null or before the start of current month, reset
+    if (!user.messagesResetAt || user.messagesResetAt < startOfCurrentMonth) {
+      await tx.update(users)
+        .set({
+          messages_used_this_month: 0,
+          messages_reset_at: startOfCurrentMonth,
+          updatedAt: now
+        })
+        .where(eq(users.id, userId));
+    }
+  });
+}
+
+/**
+ * Helper function to get monthly usage for a specific operation type
+ */
+async function getMonthlyUsage(userId: number, operationType: string): Promise<number> {
+  const startOfMonth = new Date();
+  startOfMonth.setDate(1);
+  startOfMonth.setHours(0, 0, 0, 0);
+
+  const result = await db
+    .select({
+      count: sql`COUNT(*)::int`
+    })
+    .from(aiCreditsTransactions)
+    .where(
+      and(
+        eq(aiCreditsTransactions.userId, userId),
+        eq(aiCreditsTransactions.operationType, operationType),
+        gte(aiCreditsTransactions.createdAt, startOfMonth)
+      )
+    );
+
+  return Number(result[0]?.count) || 0;
+}
+
+/**
+ * Check if a user has valid subscription access (basic check)
  */
 export async function checkSubscriptionAccess(userId: number): Promise<SubscriptionCheckResult> {
   try {
@@ -51,6 +153,15 @@ export async function checkSubscriptionAccess(userId: number): Promise<Subscript
           tier: user.subscriptionTier || 'premium'
         };
       }
+    }
+
+    // Check for grandfathered users - they always have access
+    if (user.is_grandfathered && user.grandfathered_from_tier) {
+      return {
+        hasAccess: true,
+        reason: 'admin_override', // Treat as admin override since they have special status
+        tier: user.subscriptionTier || 'pro' // Default to pro for grandfathered users
+      };
     }
 
     // Check subscription status
@@ -106,6 +217,167 @@ export async function checkSubscriptionAccess(userId: number): Promise<Subscript
       reason: 'no_subscription',
       upgradeRequired: false
     };
+  }
+}
+
+/**
+ * Get comprehensive subscription details including features and credits
+ * 
+ * This function handles special cases for grandfathered users:
+ * - Grandfathered users get Pro tier features regardless of their current subscription tier
+ * - They maintain their original pricing (e.g., $5/month for NomadAI Pro users)
+ * - They receive enhanced credit benefits and minimum credit guarantees
+ * - Friends & Family users get Pro tier features as a special benefit
+ * 
+ * The function uses an "effective tier" concept where grandfathered users
+ * get Pro tier features while maintaining their original tier for billing purposes.
+ */
+export async function getEnhancedSubscriptionDetails(
+  userId: number
+): Promise<EnhancedSubscriptionCheck> {
+  try {
+    // First, check and perform monthly reset if needed
+    await checkAndPerformMonthlyReset(userId);
+
+    // Get user with team info
+    const [user] = await db.select().from(users).where(eq(users.id, userId));
+    
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    const tier = user.subscriptionTier || 'freemium';
+    
+    // Handle grandfathered plans - they get enhanced features regardless of current tier
+    let effectiveTier = tier;
+    if (user.is_grandfathered && user.grandfathered_from_tier) {
+      // Grandfathered users get Pro tier features regardless of their original tier
+      // This includes:
+      // - NomadAI Pro users ($5/month) -> Pro tier features at original pricing
+      // - Friends & Family users -> Pro tier features as a benefit
+      // - Other legacy users -> Enhanced features based on migration logic
+      effectiveTier = 'pro';
+    }
+    
+    // Get feature configuration for the effective tier
+    const [features] = await db.select()
+      .from(subscriptionFeatures)
+      .where(eq(subscriptionFeatures.tierName, effectiveTier));
+
+    if (!features) {
+      // Create default features based on effective tier
+      const defaultFeatures = effectiveTier === 'pro' ? {
+        tierName: 'pro',
+        unlimitedChat: true,
+        monthlyMessageAllowance: 1000,
+        aiProvidersAccess: ['openai', 'anthropic', 'azure'],
+        monthlyAICredits: 100,
+        maxProjects: 10,
+        fullCodebaseContext: true,
+        gitIntegration: true,
+        aiCodeReviewsPerMonth: 50,
+        teamFeaturesEnabled: false,
+        sharedWorkspaces: false,
+        ssoEnabled: false,
+        auditLogs: false,
+        supportLevel: 'email'
+      } : {
+        tierName: 'freemium',
+        unlimitedChat: false,
+        monthlyMessageAllowance: 10,
+        aiProvidersAccess: ['basic'],
+        monthlyAICredits: 0,
+        maxProjects: 1,
+        fullCodebaseContext: false,
+        gitIntegration: false,
+        aiCodeReviewsPerMonth: 0,
+        teamFeaturesEnabled: false,
+        sharedWorkspaces: false,
+        ssoEnabled: false,
+        auditLogs: false,
+        supportLevel: 'community'
+      };
+
+      await db.insert(subscriptionFeatures).values(defaultFeatures).onConflictDoNothing();
+      
+      throw new Error(`No features defined for tier: ${effectiveTier}. Default features created.`);
+    }
+
+    // Get current credits balance
+    let creditsBalance = user.ai_credits_balance || 0;
+    let teamInfo = undefined;
+
+    // If user is part of a team, get team details
+    if (user.teamId) {
+      const [team] = await db.select().from(teams).where(eq(teams.id, user.teamId));
+      if (team) {
+        creditsBalance = team.pooledAiCredits || 0;
+        teamInfo = {
+          id: team.id,
+          name: team.name,
+          role: user.teamRole || 'member',
+          members: team.currentMembers || 1,
+          maxMembers: team.maxMembers || 3,
+        };
+      }
+    }
+
+    // Handle special grandfathered user benefits
+    if (user.is_grandfathered && user.grandfathered_from_tier) {
+      // Grandfathered users get enhanced credit benefits
+      // Based on migration logic, they received bonus credits during migration
+      // and maintain Pro tier features at their original pricing
+      
+      // Ensure grandfathered users have minimum credit balance for Pro features
+      // This is a safety net to ensure they can use Pro features even if credits run low
+      const minGrandfatheredCredits = 50; // Minimum credits for grandfathered users
+      if (creditsBalance < minGrandfatheredCredits && !user.teamId) {
+        creditsBalance = Math.max(creditsBalance, minGrandfatheredCredits);
+      }
+    }
+
+    // Calculate AI code reviews used this month
+    const aiCodeReviewsUsed = await getMonthlyUsage(userId, 'code_review');
+
+    // Calculate messages remaining for freemium users
+    const monthlyMessageAllowance = features.monthlyMessageAllowance || 0;
+    const messagesUsed = user.messages_used_this_month || 0;
+    const messagesRemaining = Math.max(0, monthlyMessageAllowance - messagesUsed);
+
+    // Determine access - grandfathered users always have access
+    const hasAccess = user.is_grandfathered || 
+                     ['active', 'trialing', 'freemium'].includes(user.subscriptionStatus || 'freemium');
+
+    return {
+      hasAccess,
+      tier,
+      status: user.subscriptionStatus || 'freemium',
+      features: {
+        unlimitedChat: features.unlimitedChat || false,
+        monthlyMessageAllowance,
+        messagesUsedThisMonth: messagesUsed,
+        messagesRemaining,
+        aiProvidersAccess: Array.isArray(features.aiProvidersAccess) ? features.aiProvidersAccess : ['basic'],
+        monthlyAICredits: features.monthlyAiCredits || 0,
+        currentCreditsBalance: creditsBalance,
+        maxProjects: features.maxProjects || 1,
+        fullCodebaseContext: features.fullCodebaseContext || false,
+        gitIntegration: features.gitIntegration || false,
+        aiCodeReviewsPerMonth: features.aiCodeReviewsPerMonth || 0,
+        aiCodeReviewsUsed,
+        teamFeaturesEnabled: features.teamFeaturesEnabled || false,
+        sharedWorkspaces: features.sharedWorkspaces || false,
+        ssoEnabled: features.ssoEnabled || false,
+        auditLogs: features.auditLogs || false,
+        supportLevel: features.supportLevel || 'community',
+      },
+      team: teamInfo,
+      isGrandfathered: user.is_grandfathered || false,
+      grandfatheredFrom: user.grandfathered_from_tier || undefined,
+    };
+  } catch (error) {
+    console.error('Error getting subscription details:', error);
+    throw error;
   }
 }
 
@@ -238,6 +510,334 @@ export function enhanceWithSubscription() {
 }
 
 /**
+ * Middleware to check freemium message allowance with atomic increment
+ */
+export function checkFreemiumLimit() {
+  return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user?.id) {
+        return res.status(401).json({
+          error: 'Authentication required',
+          code: 'NOT_AUTHENTICATED',
+        });
+      }
+
+      // Use database transaction to atomically check and increment
+      const result = await db.transaction(async (tx) => {
+        // First, check and perform monthly reset if needed
+        await checkAndPerformMonthlyReset(req.user.id);
+
+        // Get fresh subscription details after potential reset
+        const subscriptionDetails = await getEnhancedSubscriptionDetails(req.user.id);
+        
+        // Check for freemium users
+        if (subscriptionDetails.tier === 'freemium') {
+          // Check if user has reached their limit BEFORE incrementing
+          if (subscriptionDetails.features.messagesRemaining <= 0) {
+            return {
+              success: false,
+              error: {
+                error: 'Monthly message limit reached',
+                code: 'MESSAGE_LIMIT_EXCEEDED',
+                messagesUsed: subscriptionDetails.features.messagesUsedThisMonth,
+                monthlyAllowance: subscriptionDetails.features.monthlyMessageAllowance,
+                upgradeUrl: '/pricing',
+                purchaseCreditsUrl: '/settings/billing/credits',
+                message: 'You have used all your free messages this month. Upgrade to Pro or purchase AI Credits to continue.',
+              }
+            };
+          }
+          
+          // Atomically increment message usage
+          await tx.update(users)
+            .set({
+              messages_used_this_month: sql`${users.messages_used_this_month} + 1`,
+              updatedAt: new Date(),
+            })
+            .where(eq(users.id, req.user.id));
+        }
+
+        // For paid tiers, check if they have credits
+        if (subscriptionDetails.tier !== 'freemium' && subscriptionDetails.features.currentCreditsBalance <= 0) {
+          return {
+            success: false,
+            error: {
+              error: 'No AI credits available',
+              code: 'NO_CREDITS_AVAILABLE',
+              currentBalance: 0,
+              purchaseUrl: '/settings/billing/credits',
+              message: 'Purchase AI Credits to continue using the service.',
+            }
+          };
+        }
+
+        return { success: true };
+      });
+
+      if (!result.success) {
+        return res.status(402).json(result.error);
+      }
+
+      next();
+    } catch (error) {
+      console.error('Freemium limit check error:', error);
+      res.status(500).json({
+        error: 'Unable to verify message allowance',
+        code: 'LIMIT_CHECK_FAILED',
+      });
+    }
+  };
+}
+
+/**
+ * Middleware to check for specific feature access
+ */
+export function requireFeature(featureName: keyof EnhancedSubscriptionCheck['features']) {
+  return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user?.id) {
+        return res.status(401).json({
+          error: 'Authentication required',
+          code: 'NOT_AUTHENTICATED',
+        });
+      }
+
+      const subscriptionDetails = await getEnhancedSubscriptionDetails(req.user.id);
+
+      // Check if user has access to the feature
+      const featureValue = subscriptionDetails.features[featureName];
+      
+      // Handle boolean features
+      if (typeof featureValue === 'boolean' && !featureValue) {
+        return res.status(403).json({
+          error: `This feature requires a higher subscription tier`,
+          code: 'FEATURE_NOT_AVAILABLE',
+          feature: featureName,
+          currentTier: subscriptionDetails.tier,
+          upgradeUrl: '/pricing',
+        });
+      }
+
+      // Handle numeric limits (e.g., maxProjects)
+      if (typeof featureValue === 'number' && featureValue === 0) {
+        return res.status(403).json({
+          error: `You have reached the limit for this feature`,
+          code: 'FEATURE_LIMIT_REACHED',
+          feature: featureName,
+          limit: featureValue,
+          currentTier: subscriptionDetails.tier,
+          upgradeUrl: '/pricing',
+        });
+      }
+
+      // Attach subscription details to request
+      req.user.subscription = subscriptionDetails;
+      next();
+
+    } catch (error) {
+      console.error('Feature check error:', error);
+      res.status(500).json({
+        error: 'Unable to verify feature access',
+        code: 'FEATURE_CHECK_FAILED',
+      });
+    }
+  };
+}
+
+/**
+ * Middleware to check and consume AI credits
+ */
+export function requireCredits(creditsRequired: number, operationType: string) {
+  return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user?.id) {
+        return res.status(401).json({
+          error: 'Authentication required',
+          code: 'NOT_AUTHENTICATED',
+        });
+      }
+
+      const creditCheck = await checkCreditBalance(req.user.id, creditsRequired);
+
+      if (!creditCheck.hasCredits) {
+        return res.status(402).json({
+          error: 'Insufficient AI credits',
+          code: 'INSUFFICIENT_CREDITS',
+          creditsRequired,
+          currentBalance: creditCheck.currentBalance,
+          isTeamPooled: creditCheck.isTeamPooled,
+          purchaseUrl: '/settings/billing/credits',
+        });
+      }
+
+      // Attach credit info to request for consumption after successful operation
+      req.user.creditsPending = {
+        amount: creditsRequired,
+        operationType,
+        currentBalance: creditCheck.currentBalance,
+      };
+
+      next();
+
+    } catch (error) {
+      console.error('Credit check error:', error);
+      res.status(500).json({
+        error: 'Unable to verify credit balance',
+        code: 'CREDIT_CHECK_FAILED',
+      });
+    }
+  };
+}
+
+/**
+ * Middleware to check team permissions
+ */
+export function requireTeamRole(allowedRoles: Array<'owner' | 'admin' | 'member'>) {
+  return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user?.id) {
+        return res.status(401).json({
+          error: 'Authentication required',
+          code: 'NOT_AUTHENTICATED',
+        });
+      }
+
+      const [user] = await db.select().from(users).where(eq(users.id, req.user.id));
+
+      if (!user.teamId) {
+        return res.status(403).json({
+          error: 'This feature requires team membership',
+          code: 'TEAM_REQUIRED',
+        });
+      }
+
+      const userRole = user.teamRole || 'member';
+      
+      if (!allowedRoles.includes(userRole as any)) {
+        return res.status(403).json({
+          error: 'Insufficient team permissions',
+          code: 'INSUFFICIENT_TEAM_PERMISSIONS',
+          requiredRoles: allowedRoles,
+          currentRole: userRole,
+        });
+      }
+
+      req.user.teamId = user.teamId;
+      req.user.teamRole = userRole;
+      next();
+
+    } catch (error) {
+      console.error('Team role check error:', error);
+      res.status(500).json({
+        error: 'Unable to verify team permissions',
+        code: 'TEAM_CHECK_FAILED',
+      });
+    }
+  };
+}
+
+/**
+ * Check if user has access to a specific AI provider
+ */
+export function requireAIProvider(provider: string) {
+  return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user?.id) {
+        return res.status(401).json({
+          error: 'Authentication required',
+          code: 'NOT_AUTHENTICATED',
+        });
+      }
+
+      const subscriptionDetails = await getEnhancedSubscriptionDetails(req.user.id);
+      const allowedProviders = subscriptionDetails.features.aiProvidersAccess;
+
+      if (!allowedProviders.includes(provider) && !allowedProviders.includes('all')) {
+        return res.status(403).json({
+          error: `Access to ${provider} requires a higher subscription tier`,
+          code: 'AI_PROVIDER_NOT_AVAILABLE',
+          provider,
+          allowedProviders,
+          currentTier: subscriptionDetails.tier,
+          upgradeUrl: '/pricing',
+        });
+      }
+
+      next();
+
+    } catch (error) {
+      console.error('AI provider check error:', error);
+      res.status(500).json({
+        error: 'Unable to verify AI provider access',
+        code: 'PROVIDER_CHECK_FAILED',
+      });
+    }
+  };
+}
+
+/**
+ * Rate limiting based on subscription tier
+ */
+export function tierBasedRateLimit() {
+  const limits: Record<string, { requests: number; window: number }> = {
+    freemium: { requests: 10, window: 60 * 1000 }, // 10 requests per minute
+    pro: { requests: 60, window: 60 * 1000 }, // 60 requests per minute
+    team: { requests: 120, window: 60 * 1000 }, // 120 requests per minute
+    enterprise: { requests: 999999, window: 60 * 1000 }, // Effectively unlimited
+  };
+
+  const requestCounts = new Map<string, { count: number; resetTime: number }>();
+
+  return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    if (!req.user?.id) {
+      return next(); // Skip rate limiting for unauthenticated requests
+    }
+
+    try {
+      const [user] = await db.select().from(users).where(eq(users.id, req.user.id));
+      const tier = user.subscriptionTier || 'freemium';
+      const limit = limits[tier] || limits.freemium;
+
+      const key = `${req.user.id}-${req.path}`;
+      const now = Date.now();
+      
+      let requestData = requestCounts.get(key);
+      
+      if (!requestData || requestData.resetTime < now) {
+        requestData = { count: 0, resetTime: now + limit.window };
+        requestCounts.set(key, requestData);
+      }
+
+      requestData.count++;
+
+      if (requestData.count > limit.requests) {
+        const retryAfter = Math.ceil((requestData.resetTime - now) / 1000);
+        
+        return res.status(429).json({
+          error: 'Rate limit exceeded',
+          code: 'RATE_LIMIT_EXCEEDED',
+          tier,
+          limit: limit.requests,
+          window: limit.window / 1000,
+          retryAfter,
+        });
+      }
+
+      // Add rate limit headers
+      res.setHeader('X-RateLimit-Limit', limit.requests.toString());
+      res.setHeader('X-RateLimit-Remaining', (limit.requests - requestData.count).toString());
+      res.setHeader('X-RateLimit-Reset', requestData.resetTime.toString());
+
+      next();
+
+    } catch (error) {
+      console.error('Rate limit check error:', error);
+      next(); // Continue on error rather than blocking
+    }
+  };
+}
+
+/**
  * Grant admin override for a user
  */
 export async function grantAccessOverride(
@@ -282,4 +882,31 @@ export async function removeAccessOverride(userId: number): Promise<void> {
     console.error('Error removing access override:', error);
     throw new Error('Failed to remove access override');
   }
-} 
+}
+
+/**
+ * Scheduled task to reset monthly message counters (should be run via cron)
+ */
+export async function resetMonthlyMessageCounters(): Promise<void> {
+  try {
+    const startOfCurrentMonth = new Date();
+    startOfCurrentMonth.setDate(1);
+    startOfCurrentMonth.setHours(0, 0, 0, 0);
+
+    // Reset all users whose reset date is before the current month
+    const result = await db.update(users)
+      .set({
+        messages_used_this_month: 0,
+        messages_reset_at: startOfCurrentMonth,
+        updatedAt: new Date()
+      })
+      .where(
+        sql`${users.messages_reset_at} < ${startOfCurrentMonth} OR ${users.messages_reset_at} IS NULL`
+      );
+
+    console.log(`Monthly reset completed. Updated users: ${result.rowCount}`);
+  } catch (error) {
+    console.error('Error during monthly reset:', error);
+    throw error;
+  }
+}

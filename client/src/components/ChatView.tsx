@@ -1651,11 +1651,26 @@ const FuturisticAIChat: React.FC = () => {
               {user && (
                 <div className="flex items-center gap-2 px-3 py-2 bg-slate-800/50 rounded-lg border border-slate-700/50">
                   {isFreemium ? (
-                    <div className="flex items-center gap-2 text-sm">
-                      <span className="text-slate-300">Free Plan:</span>
-                      <span className={`font-medium ${(messagesRemaining || 0) <= 2 ? 'text-amber-400' : 'text-green-400'}`}>
-                        {messagesRemaining || 0} messages left
-                      </span>
+                    <div className="flex items-center gap-3 text-sm">
+                      <div className="flex items-center gap-1">
+                        <span className="text-slate-300">Free:</span>
+                        <span className={`font-medium ${
+                          (messagesRemaining || 0) === 0 
+                            ? 'text-red-400' 
+                            : (messagesRemaining || 0) <= 2 
+                              ? 'text-amber-400' 
+                              : 'text-green-400'
+                        }`}>
+                          {messagesRemaining || 0}
+                        </span>
+                      </div>
+                      <div className="h-4 w-px bg-slate-600"></div>
+                      <div className="flex items-center gap-1">
+                        <span className="text-slate-300">Credits:</span>
+                        <span className={`font-medium ${(creditBalance || 0) === 0 ? 'text-red-400' : (creditBalance || 0) < 50 ? 'text-yellow-400' : 'text-green-400'}`}>
+                          {creditBalance || 0}
+                        </span>
+                      </div>
                     </div>
                   ) : (
                     <div className="flex items-center gap-2 text-sm">
@@ -1752,7 +1767,7 @@ const FuturisticAIChat: React.FC = () => {
               </Tooltip>
               
               {/* DEV: Test Credit Purchase Button */}
-              <Tooltip>
+              {/*<Tooltip>
                 <TooltipTrigger asChild>
                   <RippleButton
                     onClick={() => {
@@ -1788,7 +1803,7 @@ const FuturisticAIChat: React.FC = () => {
                 <TooltipContent>
                   <p>Test credit purchase popup (DEV)</p>
                 </TooltipContent>
-              </Tooltip>
+              </Tooltip>*/}
             </div>
           </div>
         </motion.header>

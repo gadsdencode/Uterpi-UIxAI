@@ -488,16 +488,16 @@ const AuthenticatedApp: React.FC = () => {
                   <div className="flex flex-col gap-3 mb-3">
                     <div className="p-2 bg-gradient-to-r from-green-500/10 to-emerald-500/10 rounded-lg border border-green-400/20">
                       <p className="text-green-400 font-bold text-sm">Start Today</p>
-                      <p className="text-xs text-slate-300">10 messages/month to try Uterpi</p>
+                      <p className="text-xs text-slate-300">10 free messages per month to start your journey with Uterpi</p>
                     </div>
                     <div className="flex flex-col sm:flex-row gap-2">
                       <div className="flex-1 text-center">
                         <p className="text-violet-400 font-bold text-base">$19<span className="text-xs font-normal">/mo</span></p>
-                        <p className="text-xs text-slate-400">Pro • Unlimited</p>
+                        <p className="text-xs text-slate-400">Pro • Higher Message Limit • More AI Credits</p>
                       </div>
                       <div className="flex-1 text-center border-l-0 sm:border-l border-violet-400/20">
                         <p className="text-violet-400 font-bold text-base">$49<span className="text-xs font-normal">/user</span></p>
-                        <p className="text-xs text-slate-400">Team • Shared</p>
+                        <p className="text-xs text-slate-400">Team • Shared AI Credits</p>
                       </div>
                       <div className="flex-1 text-center border-l-0 sm:border-l border-violet-400/20">
                         <p className="text-blue-400 font-bold text-sm">Pay as you go</p>
@@ -531,7 +531,9 @@ const AuthenticatedApp: React.FC = () => {
                   }}
                   className="w-full py-3 bg-slate-800/50 hover:bg-slate-700/50 border border-slate-600/50 rounded-xl text-white font-medium transition-all duration-200"
                 >
-                  Start Free - 10 Messages Included
+                  <p className="text-md font-bold bg-gradient-to-r from-violet-500 to-purple-600 bg-clip-text text-transparent">Start your journey with Uterpi for free!</p>
+                  <br />
+                  <p className="text-xs text-slate-400">10 Messages Included Monthly + Bring Your Own AI API Keys</p>
                 </RippleButton>
                 <p className="text-xs text-slate-400 text-center">
                   ⚠️ Some LLM models may have parameters that are not currently supported by Uterpi.

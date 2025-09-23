@@ -137,6 +137,53 @@ export const AICreditsQuickPurchase: React.FC<AICreditsQuickPurchaseProps> = ({
     }
   };
 
+  const handleUpgradeToPro = async () => {
+    if (!user) {
+      setIsOpen(false);
+      navigateTo('/login');
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      
+      // Create Stripe Checkout Session for Pro subscription
+      const response = await fetch('/api/checkout/subscription', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          tier: 'pro',
+          interval: 'monthly', // Default to monthly
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to create checkout session');
+      }
+
+      const data = await response.json();
+      
+      // Redirect to Stripe Checkout
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        throw new Error('No checkout URL returned');
+      }
+    } catch (error) {
+      console.error('Error upgrading to Pro:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to start upgrade. Please try again.');
+      // Fallback to pricing page
+      setIsOpen(false);
+      navigateTo('/pricing');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const getBalanceColor = () => {
     if (balance === 0) return 'text-red-500';
     if (balance < 50) return 'text-yellow-500';
@@ -345,12 +392,17 @@ export const AICreditsQuickPurchase: React.FC<AICreditsQuickPurchaseProps> = ({
             <Button
               size="sm"
               className="w-full h-8 text-xs bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700"
-              onClick={() => {
-                setIsOpen(false);
-                navigateTo('/checkout?plan=pro');
-              }}
+              onClick={handleUpgradeToPro}
+              disabled={isLoading}
             >
-              Upgrade to Pro - $19/month
+              {isLoading ? (
+                <>
+                  <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                  Processing...
+                </>
+              ) : (
+                'Upgrade to Pro - $19/month'
+              )}
             </Button>
           )}
 

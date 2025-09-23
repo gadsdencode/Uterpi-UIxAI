@@ -216,7 +216,7 @@ const PricingPage: React.FC = () => {
   const plans: SubscriptionPlan[] = [
     {
       id: 'freemium',
-      name: 'Freemium',
+      name: 'Base Plan',
       description: 'Get started with basic AI assistance',
       price: 0,
       interval: billingInterval,
@@ -238,7 +238,7 @@ const PricingPage: React.FC = () => {
     },
     {
       id: 'pro',
-      name: 'Pro',
+      name: 'Pro Plan',
       description: 'Perfect for individual developers',
       price: billingInterval === 'month' ? 19 : 190,
       interval: billingInterval,
@@ -261,19 +261,19 @@ const PricingPage: React.FC = () => {
     },
     {
       id: 'team',
-      name: 'Team',
+      name: 'Team Plan',
       description: 'Built for growing teams',
       price: billingInterval === 'month' ? 49 : 490,
       interval: billingInterval,
       aiCredits: 5000,
-      maxProjects: 10,
-      teamSize: 3,
+      maxProjects: 5,
+      teamSize: 5,
       supportLevel: 'Priority Email',
       ctaText: 'Upgrade to Team',
       features: [
         { name: 'Everything in Pro', included: true },
         { name: 'AI Credits per User', included: true, value: '5,000/month' },
-        { name: 'Projects per User', included: true, value: '10' },
+        { name: 'Projects per User', included: true, value: '5' },
         { name: 'Shared Workspaces', included: true },
         { name: 'Team Personas', included: true },
         { name: 'AI Code Reviews', included: true, value: '100/user/month' },
@@ -283,8 +283,8 @@ const PricingPage: React.FC = () => {
     },
     {
       id: 'enterprise',
-      name: 'Enterprise',
-      description: 'Advanced features for organizations',
+      name: 'Enterprise Plan',
+      description: 'Advanced features & support for organizations',
       price: 0, // Custom pricing
       interval: billingInterval,
       aiCredits: 999999,
@@ -320,7 +320,7 @@ const PricingPage: React.FC = () => {
     if (planId === 'freemium') {
       // Freemium tier - no payment needed
       toast({
-        title: 'Already on Free Plan',
+        title: 'Already on Base Plan',
         description: 'You are currently on the free plan. Upgrade to Pro or Team for more features.',
       });
       return;
@@ -456,7 +456,7 @@ const PricingPage: React.FC = () => {
         {/* Header */}
         <div className="text-center mb-12">
           <h1 className="text-5xl font-bold mb-4 bg-gradient-to-r from-white via-violet-200 to-white bg-clip-text text-transparent drop-shadow-lg">
-            Choose Your Plan
+            Choose Your Uterpi Plan
           </h1>
           <p className="text-xl text-slate-200 mb-8 max-w-2xl mx-auto">
             Unlock the full potential of AI-powered development
@@ -508,13 +508,13 @@ const PricingPage: React.FC = () => {
             >
               {plan.popular && (
                 <Badge className="absolute -top-3 left-1/2 -translate-x-1/2 bg-gradient-to-r from-violet-500 to-purple-600 text-white border-0 shadow-lg">
-                  Most Popular
+                  Most Popular Uterpi Plan
                 </Badge>
               )}
               
               {currentPlan === plan.id && (
                 <Badge className="absolute -top-3 right-4 bg-gradient-to-r from-blue-500 to-cyan-600 text-white border-0">
-                  Current Plan
+                  Current Uterpi Plan
                 </Badge>
               )}
 

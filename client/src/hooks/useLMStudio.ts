@@ -15,10 +15,25 @@ const lmStudioConfig: AIProviderConfig<LMStudioService> = {
   baseUrlKey: 'lmstudio-base-url',
   providerName: 'LM Studio',
   
-  defaultModel: (() => {
-    const models = LMStudioService.getAvailableModels();
-    return models[0];
-  })(),
+  defaultModel: {
+    id: "nomadic-icdu-v8",
+    name: "Nomadic ICDU v8 (Uterpi AI)",
+    provider: "Uterpi AI via LM Studio",
+    performance: 99,
+    cost: 0,
+    latency: 250,
+    contextLength: 128000,
+    description: "Uterpi AI served through LM Studio (OpenAI-compatible endpoint)",
+    category: "text",
+    tier: "freemium",
+    isFavorite: true,
+    capabilities: {
+      supportsVision: false,
+      supportsCodeGeneration: true,
+      supportsAnalysis: true,
+      supportsImageGeneration: false
+    }
+  },
   
   createService: (config: any) => new LMStudioService(config),
   

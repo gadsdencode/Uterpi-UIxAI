@@ -53,6 +53,29 @@ function determineDefaultProvider(): AIProvider {
 }
 
 export const useAIProvider = (options: AIProviderOptions = {}): UseAIProviderReturn => {
+  // One-time migration: Clear cached LM Studio model if it's not nomadic-icdu-v8
+  useEffect(() => {
+    const migrationKey = 'lmstudio-model-migration-v1';
+    const hasMigrated = localStorage.getItem(migrationKey);
+    
+    if (!hasMigrated) {
+      const cachedModel = localStorage.getItem('lmstudio-selected-model');
+      if (cachedModel) {
+        try {
+          const parsedModel = JSON.parse(cachedModel);
+          if (parsedModel.id !== 'nomadic-icdu-v8') {
+            console.log(`🔄 Migration: Clearing cached LM Studio model (${parsedModel.id}) to force nomadic-icdu-v8 default`);
+            localStorage.removeItem('lmstudio-selected-model');
+          }
+        } catch (err) {
+          console.log('🔄 Migration: Clearing invalid cached LM Studio model');
+          localStorage.removeItem('lmstudio-selected-model');
+        }
+      }
+      localStorage.setItem(migrationKey, 'true');
+    }
+  }, []);
+
   // Load saved provider or compute default by configuration
   const [currentProvider, setCurrentProvider] = useState<AIProvider>(() => {
     const saved = localStorage.getItem(CURRENT_PROVIDER_KEY);

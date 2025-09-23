@@ -11,6 +11,8 @@ import { SubscriptionGuard } from './components/SubscriptionGuard'
 import { Button } from './components/ui/button'
 import { Card, CardContent } from './components/ui/card'
 import { Loader2, Zap } from 'lucide-react'
+// Import model migration utilities for debugging
+import './lib/modelMigration'
 
 interface ParticlesProps {
   className?: string;

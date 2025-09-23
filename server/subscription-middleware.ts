@@ -539,8 +539,17 @@ export function checkFreemiumLimit() {
         if (subscriptionDetails.tier === 'freemium') {
           const { messagesRemaining, currentCreditsBalance } = subscriptionDetails.features;
 
+          console.log(`🔍 Freemium limit check for user ${req.user.id}:`, {
+            messagesRemaining,
+            currentCreditsBalance,
+            messagesUsed: subscriptionDetails.features.messagesUsedThisMonth,
+            monthlyAllowance: subscriptionDetails.features.monthlyMessageAllowance
+          });
+
           // If free messages remain, consume one and mark flag to skip credit deduction for this request
           if (messagesRemaining > 0) {
+            console.log(`✅ Using free message for user ${req.user.id} (${messagesRemaining} remaining)`);
+            
             // Atomically increment message usage
             await tx.update(users)
               .set({
@@ -555,13 +564,16 @@ export function checkFreemiumLimit() {
             return { success: true };
           }
 
-          // If no free messages remain, allow the request to continue only if user has credits.
-          // The downstream requireCredits() will properly deduct them.
+          // If no free messages remain, check if user has purchased AI credits
           if (currentCreditsBalance > 0) {
+            console.log(`💳 Free messages exhausted for user ${req.user.id}, using AI credits (${currentCreditsBalance} available)`);
+            // Allow the request to continue to requireCredits() middleware which will deduct credits
+            // DO NOT set freeMessageUsed flag - we want credits to be deducted
             return { success: true };
           }
 
-          // Otherwise, block with message-limit error
+          // No free messages and no credits - block the request
+          console.log(`🚫 Blocking user ${req.user.id}: no free messages (${messagesRemaining}) and no credits (${currentCreditsBalance})`);
           return {
             success: false,
             error: {
@@ -569,6 +581,7 @@ export function checkFreemiumLimit() {
               code: 'MESSAGE_LIMIT_EXCEEDED',
               messagesUsed: subscriptionDetails.features.messagesUsedThisMonth,
               monthlyAllowance: subscriptionDetails.features.monthlyMessageAllowance,
+              currentCreditsBalance: currentCreditsBalance,
               upgradeUrl: '/pricing',
               purchaseCreditsUrl: '/settings/billing/credits',
               message: 'You have used all your free messages this month. Upgrade to Pro or purchase AI Credits to continue.',
@@ -578,12 +591,13 @@ export function checkFreemiumLimit() {
 
         // For paid tiers, check if they have credits
         if (subscriptionDetails.tier !== 'freemium' && subscriptionDetails.features.currentCreditsBalance <= 0) {
+          console.log(`🚫 Paid tier user ${req.user.id} has no credits: ${subscriptionDetails.features.currentCreditsBalance}`);
           return {
             success: false,
             error: {
               error: 'No AI credits available',
               code: 'NO_CREDITS_AVAILABLE',
-              currentBalance: 0,
+              currentBalance: subscriptionDetails.features.currentCreditsBalance,
               purchaseUrl: '/settings/billing/credits',
               message: 'Purchase AI Credits to continue using the service.',
             }
@@ -678,12 +692,15 @@ export function requireCredits(creditsRequired: number, operationType: string) {
 
       // If a free message was consumed upstream (freemium), skip credit check/deduction for this request
       if (req.user.freeMessageUsed) {
+        console.log(`⏭️ Skipping credit check for user ${req.user.id} - free message was used`);
         return next();
       }
 
+      console.log(`💳 Checking credits for user ${req.user.id}: ${creditsRequired} credits required for ${operationType}`);
       const creditCheck = await checkCreditBalance(req.user.id, creditsRequired);
 
       if (!creditCheck.hasCredits) {
+        console.log(`🚫 Insufficient credits for user ${req.user.id}: has ${creditCheck.currentBalance}, needs ${creditsRequired}`);
         return res.status(402).json({
           error: 'Insufficient AI credits',
           code: 'INSUFFICIENT_CREDITS',
@@ -693,6 +710,8 @@ export function requireCredits(creditsRequired: number, operationType: string) {
           purchaseUrl: '/settings/billing/credits',
         });
       }
+
+      console.log(`✅ Credit check passed for user ${req.user.id}: has ${creditCheck.currentBalance}, using ${creditsRequired} for ${operationType}`);
 
       // Attach credit info to request for consumption after successful operation
       req.user.creditsPending = {

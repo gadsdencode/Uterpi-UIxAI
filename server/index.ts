@@ -1,17 +1,19 @@
 import express, { type Request, Response, NextFunction } from "express";
 import session from "express-session";
 import ConnectPgSimple from "connect-pg-simple";
-import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
-import passport from "./auth";
 import dotenv from "dotenv";
 import fs from "fs";
 
-// Load environment variables from multiple sources
+// Load environment variables from multiple sources FIRST
 if (fs.existsSync(".env.local")) {
   dotenv.config({ path: ".env.local" });
 }
 dotenv.config(); // Also load from .env if it exists
+
+// Now import modules that depend on environment variables
+import { registerRoutes } from "./routes";
+import passport from "./auth";
 
 const app = express();
 app.use(express.json());

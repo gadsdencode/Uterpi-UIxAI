@@ -303,6 +303,15 @@ export class GeminiService {
       });
       console.log('🔍 FULL RESPONSE DATA:', JSON.stringify(data, null, 2));
       
+      // Extract credit information if present and emit update
+      if (data.uterpi_credit_info) {
+        const { emitCreditUpdate } = await import('../hooks/useCreditUpdates');
+        emitCreditUpdate({
+          creditsUsed: data.uterpi_credit_info.credits_used,
+          remainingBalance: data.uterpi_credit_info.remaining_balance
+        });
+      }
+      
       // Check for error in response
       if (data.error) {
         console.error('❌ Gemini API returned error:', data.error);

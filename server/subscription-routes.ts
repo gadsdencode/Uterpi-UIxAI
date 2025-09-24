@@ -3,6 +3,7 @@
  */
 
 import { Router } from 'express';
+import type { Request, Response } from 'express';
 import { requireAuth } from './auth';
 import { 
   requireFeature, 
@@ -32,6 +33,16 @@ import { grandfatherExistingUsers, verifyGrandfatherStatus } from './grandfather
 
 const router = Router();
 
+// Extend Express User interface to include team properties
+declare global {
+  namespace Express {
+    interface User {
+      teamId?: number;
+      teamRole?: string;
+    }
+  }
+}
+
 // =============================================================================
 // SUBSCRIPTION INFORMATION ENDPOINTS
 // =============================================================================
@@ -39,8 +50,12 @@ const router = Router();
 /**
  * Get current subscription details with features and credits
  */
-router.get('/subscription/details', requireAuth, async (req, res) => {
+router.get('/subscription/details', requireAuth, async (req: Request, res: Response) => {
   try {
+    if (!req.user?.id) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    
     const details = await getEnhancedSubscriptionDetails(req.user.id);
     
     // Add grandfather status if applicable
@@ -93,8 +108,12 @@ router.get('/subscription/plans', async (req, res) => {
 /**
  * Get current AI credits balance and usage
  */
-router.get('/credits/balance', requireAuth, async (req, res) => {
+router.get('/credits/balance', requireAuth, async (req: Request, res: Response) => {
   try {
+    if (!req.user?.id) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    
     const creditCheck = await checkCreditBalance(req.user.id, 0);
     
     // Get usage history for current month
@@ -106,7 +125,7 @@ router.get('/credits/balance', requireAuth, async (req, res) => {
       .from(aiCreditsTransactions)
       .where(
         and(
-          eq(aiCreditsTransactions.userId, req.user.id),
+          eq(aiCreditsTransactions.userId, req.user.id!),
           gte(aiCreditsTransactions.createdAt, startOfMonth)
         )
       )
@@ -127,15 +146,19 @@ router.get('/credits/balance', requireAuth, async (req, res) => {
 /**
  * Get available credit packages for purchase
  */
-router.get('/credits/packages', requireAuth, async (req, res) => {
+router.get('/credits/packages', requireAuth, async (req: Request, res: Response) => {
   res.json({ packages: CREDIT_PACKAGES });
 });
 
 /**
  * Purchase additional AI credits
  */
-router.post('/credits/purchase', requireAuth, async (req, res) => {
+router.post('/credits/purchase', requireAuth, async (req: Request, res: Response) => {
   try {
+    if (!req.user?.id) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    
     const { packageId, paymentMethodId } = req.body;
     
     const creditPackage = CREDIT_PACKAGES.find(p => p.priceId === packageId);
@@ -167,8 +190,12 @@ router.post('/credits/purchase', requireAuth, async (req, res) => {
 /**
  * Track AI usage (called internally by AI operations)
  */
-router.post('/credits/track-usage', requireAuth, async (req, res) => {
+router.post('/credits/track-usage', requireAuth, async (req: Request, res: Response) => {
   try {
+    if (!req.user?.id) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    
     const { operationType, modelUsed, tokensConsumed } = req.body;
 
     const result = await trackAIUsage({
@@ -179,9 +206,9 @@ router.post('/credits/track-usage', requireAuth, async (req, res) => {
     });
 
     res.json(result);
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Error tracking AI usage:', error);
-    if (error.message === 'Insufficient AI credits') {
+    if (error instanceof Error && error.message === 'Insufficient AI credits') {
       res.status(402).json({ 
         error: 'Insufficient AI credits',
         code: 'INSUFFICIENT_CREDITS',
@@ -199,8 +226,12 @@ router.post('/credits/track-usage', requireAuth, async (req, res) => {
 /**
  * Create a new team subscription
  */
-router.post('/team/create', requireAuth, async (req, res) => {
+router.post('/team/create', requireAuth, async (req: Request, res: Response) => {
   try {
+    if (!req.user?.id || !req.user?.email) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    
     const { 
       teamName, 
       tier, 
@@ -230,17 +261,22 @@ router.post('/team/create', requireAuth, async (req, res) => {
         status: result.subscription.status,
       },
     });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Error creating team:', error);
-    res.status(500).json({ error: error.message || 'Failed to create team' });
+    const message = error instanceof Error ? error.message : 'Failed to create team';
+    res.status(500).json({ error: message });
   }
 });
 
 /**
  * Get team details
  */
-router.get('/team/details', requireAuth, requireTeamRole(['owner', 'admin', 'member']), async (req, res) => {
+router.get('/team/details', requireAuth, requireTeamRole(['owner', 'admin', 'member']), async (req: Request, res: Response) => {
   try {
+    if (!req.user?.teamId) {
+      return res.status(400).json({ error: 'No team associated with user' });
+    }
+    
     const [team] = await db.select()
       .from(teams)
       .where(eq(teams.id, req.user.teamId));
@@ -276,8 +312,12 @@ router.get('/team/details', requireAuth, requireTeamRole(['owner', 'admin', 'mem
 /**
  * Update team seats (add/remove members)
  */
-router.post('/team/update-seats', requireAuth, requireTeamRole(['owner']), async (req, res) => {
+router.post('/team/update-seats', requireAuth, requireTeamRole(['owner']), async (req: Request, res: Response) => {
   try {
+    if (!req.user?.teamId) {
+      return res.status(400).json({ error: 'No team associated with user' });
+    }
+    
     const { newSeatCount } = req.body;
 
     if (newSeatCount < 3) {
@@ -303,8 +343,12 @@ router.post('/team/update-seats', requireAuth, requireTeamRole(['owner']), async
 /**
  * Invite team member
  */
-router.post('/team/invite', requireAuth, requireTeamRole(['owner', 'admin']), async (req, res) => {
+router.post('/team/invite', requireAuth, requireTeamRole(['owner', 'admin']), async (req: Request, res: Response) => {
   try {
+    if (!req.user?.teamId) {
+      return res.status(400).json({ error: 'No team associated with user' });
+    }
+    
     const { email, role = 'member' } = req.body;
 
     const [team] = await db.select()
@@ -315,11 +359,11 @@ router.post('/team/invite', requireAuth, requireTeamRole(['owner', 'admin']), as
       return res.status(404).json({ error: 'Team not found' });
     }
 
-    if (team.currentMembers >= team.maxMembers) {
+    if ((team.currentMembers || 0) >= (team.maxMembers || 3)) {
       return res.status(400).json({ 
         error: 'Team has reached maximum member limit',
-        currentMembers: team.currentMembers,
-        maxMembers: team.maxMembers,
+        currentMembers: team.currentMembers || 0,
+        maxMembers: team.maxMembers || 3,
       });
     }
 
@@ -342,8 +386,12 @@ router.post('/team/invite', requireAuth, requireTeamRole(['owner', 'admin']), as
 /**
  * Get usage analytics for the current month
  */
-router.get('/usage/analytics', requireAuth, async (req, res) => {
+router.get('/usage/analytics', requireAuth, async (req: Request, res: Response) => {
   try {
+    if (!req.user?.id) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    
     const startOfMonth = new Date();
     startOfMonth.setDate(1);
     startOfMonth.setHours(0, 0, 0, 0);
@@ -401,10 +449,18 @@ router.get('/usage/analytics', requireAuth, async (req, res) => {
 /**
  * Run grandfather migration (admin only)
  */
-router.post('/admin/grandfather-migration', requireAuth, async (req, res) => {
+router.post('/admin/grandfather-migration', requireAuth, async (req: Request, res: Response) => {
   try {
+    if (!req.user?.id) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    
     // Check if user is admin (you should implement proper admin check)
     const [user] = await db.select().from(users).where(eq(users.id, req.user.id));
+    
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
     
     // For now, check if user email is admin email
     const adminEmails = process.env.ADMIN_EMAILS?.split(',') || [];

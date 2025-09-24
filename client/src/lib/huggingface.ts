@@ -112,6 +112,16 @@ export class HuggingFaceService {
       }
 
       const data = await response.json();
+      
+      // Extract credit information if present and emit update
+      if (data.uterpi_credit_info) {
+        const { emitCreditUpdate } = await import('../hooks/useCreditUpdates');
+        emitCreditUpdate({
+          creditsUsed: data.uterpi_credit_info.credits_used,
+          remainingBalance: data.uterpi_credit_info.remaining_balance
+        });
+      }
+      
       return data.choices[0]?.message?.content || "";
     }
 

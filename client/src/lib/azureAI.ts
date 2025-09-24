@@ -428,6 +428,16 @@ export class AzureAIService {
       }
 
       const responseData = await response.json();
+      
+      // Extract credit information if present and emit update
+      if (responseData.uterpi_credit_info) {
+        const { emitCreditUpdate } = await import('../hooks/useCreditUpdates');
+        emitCreditUpdate({
+          creditsUsed: responseData.uterpi_credit_info.credits_used,
+          remainingBalance: responseData.uterpi_credit_info.remaining_balance
+        });
+      }
+      
       const content = responseData.choices[0]?.message?.content || "";
       console.log('✅ Azure AI response received:', content.substring(0, 100) + '...');
       return content;

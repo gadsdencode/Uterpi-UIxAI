@@ -54,6 +54,7 @@ import {
 import { CreditLimitMessage } from './CreditLimitMessage';
 import { AICreditsQuickPurchase } from './AICreditsQuickPurchase';
 import { navigateTo } from './Router';
+import { useCreditUpdates } from '../hooks/useCreditUpdates';
 
 interface ParticlesProps {
   className?: string;
@@ -588,6 +589,17 @@ const FuturisticAIChat: React.FC = () => {
   const [creditBalance, setCreditBalance] = useState<number | null>(null);
   const [isFreemium, setIsFreemium] = useState(false);
   const [messagesRemaining, setMessagesRemaining] = useState<number | null>(null);
+
+  // Listen for real-time credit updates from AI responses
+  const creditUpdate = useCreditUpdates();
+
+  // Update credit balance when we receive real-time updates
+  useEffect(() => {
+    if (creditUpdate) {
+      console.log('💳 Real-time credit update received:', creditUpdate);
+      setCreditBalance(creditUpdate.remainingBalance);
+    }
+  }, [creditUpdate]);
 
   // Fetch credit status on component mount
   useEffect(() => {
@@ -1329,8 +1341,7 @@ const FuturisticAIChat: React.FC = () => {
       
       console.log(`📊 Message sent. Total messages: ${updatedMessages.length}, Response time: ${responseTime}ms, Estimated tokens: ${estimatedTokens}`);
       
-      // Refresh credit status after successful message
-      fetchCreditStatus();
+      // Credit balance will be updated automatically via real-time updates from AI response
       
       // Track message sending and analyze conversation - reduced threshold for earlier analysis
       if (updatedMessages.length >= 2) { // Temporarily reduced to 2 for immediate testing

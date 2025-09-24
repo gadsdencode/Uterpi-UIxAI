@@ -161,10 +161,10 @@ async function deductCreditsAfterResponse(
   inputTokens: number, 
   outputTokens: number, 
   modelUsed: string = 'unknown'
-): Promise<void> {
+): Promise<{ creditsUsed: number; remainingBalance: number } | null> {
   if (req.user?.freeMessageUsed) {
     console.log(`⏭️ Skipping credit deduction for user ${req.user.id} - free message was used`);
-    return;
+    return null;
   }
 
   if (req.user?.needsCreditDeduction) {
@@ -180,16 +180,20 @@ async function deductCreditsAfterResponse(
       });
       
       console.log(`✅ Credits deducted for user ${req.user.id}: ${result.creditsUsed} credits used, ${result.remainingBalance} remaining`);
+      return result;
     } catch (error) {
       console.error(`❌ Error deducting credits for user ${req.user.id}:`, error);
       // Don't fail the request if credit deduction fails - log and continue
+      return null;
     }
   }
+  
+  return null;
 }
 
 // Robust JSON parser for Azure AI responses
 // Enhanced error extraction with detailed logging
-function extractAzureAIError(error: any): string {
+export function extractAzureAIError(error: any): string {
   if (!error) return "Unknown Azure AI error";
   
   // Log full error for debugging
@@ -970,7 +974,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const outputTokens = estimateTokenCount(outputContent);
         
         // Deduct credits based on actual token usage
-        await deductCreditsAfterResponse(req, inputTokens, outputTokens, modelName || provider);
+        const creditInfo = await deductCreditsAfterResponse(req, inputTokens, outputTokens, modelName || provider);
+        
+        // Include credit information in response for real-time updates
+        if (creditInfo) {
+          responseBody.uterpi_credit_info = {
+            credits_used: creditInfo.creditsUsed,
+            remaining_balance: creditInfo.remainingBalance
+          };
+        }
         
         res.json(responseBody);
       } else {
@@ -1039,10 +1051,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const outputTokens = estimateTokenCount(outputContent);
       
       // Deduct credits based on actual token usage
-      await deductCreditsAfterResponse(req, inputTokens, outputTokens, modelName);
+      const creditInfo = await deductCreditsAfterResponse(req, inputTokens, outputTokens, modelName);
+
+      // Include credit information in response for real-time updates
+      const responseBody = response.body as any;
+      if (creditInfo) {
+        responseBody.uterpi_credit_info = {
+          credits_used: creditInfo.creditsUsed,
+          remaining_balance: creditInfo.remainingBalance
+        };
+      }
 
       // Return the response
-      res.json(response.body);
+      res.json(responseBody);
 
     } catch (error) {
       console.error('Azure AI proxy error:', error);

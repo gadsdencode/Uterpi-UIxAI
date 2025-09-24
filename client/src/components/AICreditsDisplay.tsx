@@ -82,10 +82,22 @@ export const AICreditsDisplay: React.FC<AICreditsDisplayProps> = ({
       
       if (response.ok) {
         const data = await response.json();
-        setBalance(data.balance);
-        setIsTeamPooled(data.isTeamPooled);
+        setBalance(data.balance || 0);
+        setIsTeamPooled(data.isTeamPooled || false);
         setTransactions(data.recentTransactions || []);
-        onCreditsUpdate?.(data.balance);
+        onCreditsUpdate?.(data.balance || 0);
+      } else {
+        // If credits/balance fails, try subscription details
+        const subResponse = await fetch('/api/subscription/details', {
+          credentials: 'include',
+        });
+        
+        if (subResponse.ok) {
+          const subData = await subResponse.json();
+          const credits = subData.features?.currentCreditsBalance || 0;
+          setBalance(credits);
+          onCreditsUpdate?.(credits);
+        }
       }
     } catch (error) {
       console.error('Error fetching credit balance:', error);

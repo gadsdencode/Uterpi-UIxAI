@@ -168,6 +168,15 @@ export class LMStudioService {
 
     const data = await response.json();
     
+    // Extract credit information if present and emit update
+    if (data.uterpi_credit_info) {
+      const { emitCreditUpdate } = await import('../hooks/useCreditUpdates');
+      emitCreditUpdate({
+        creditsUsed: data.uterpi_credit_info.credits_used,
+        remainingBalance: data.uterpi_credit_info.remaining_balance
+      });
+    }
+    
     // Handle tool calls if present
     if (data.choices?.[0]?.message?.tool_calls) {
       console.log("Tool calls detected:", data.choices[0].message.tool_calls);

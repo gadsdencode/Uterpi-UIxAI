@@ -10,6 +10,60 @@ import { eq, desc, and, gte, sql } from 'drizzle-orm';
 import { storage } from './storage';
 import { checkCreditBalance } from './stripe-enhanced';
 
+// Estimate required credits based on message complexity and context
+export function estimateRequiredCredits(messages: any[], enableContext: boolean = false, hasAttachments: boolean = false, model: string = ''): number {
+  if (!messages || messages.length === 0) {
+    return 2; // Minimum for any request
+  }
+
+  // Get the latest user message for analysis
+  const latestMessage = messages[messages.length - 1];
+  const content = typeof latestMessage?.content === 'string' ? latestMessage.content : '';
+  
+  // Base estimation on message length and complexity
+  let estimatedCredits = 2; // Base minimum
+  
+  // Message length analysis
+  if (content.length < 50) {
+    // Short messages like "Hi", "Thanks", "Yes" - very low cost
+    estimatedCredits = 2;
+  } else if (content.length < 200) {
+    // Medium messages - moderate cost
+    estimatedCredits = 3;
+  } else if (content.length < 500) {
+    // Longer messages - higher cost
+    estimatedCredits = 5;
+  } else {
+    // Very long messages - highest cost
+    estimatedCredits = 8;
+  }
+
+  // Add buffer for context enhancement (but not for very simple messages)
+  if (enableContext && content.length > 10) {
+    estimatedCredits += 2;
+  }
+
+  // Add buffer for attachments
+  if (hasAttachments) {
+    estimatedCredits += 3;
+  }
+
+  // Add buffer for premium models
+  if (model.includes('gpt-4') || model.includes('claude-3-opus')) {
+    estimatedCredits = Math.ceil(estimatedCredits * 1.5);
+  }
+
+  // Consider conversation history length (more context = more tokens)
+  if (messages.length > 10) {
+    estimatedCredits += 2;
+  } else if (messages.length > 5) {
+    estimatedCredits += 1;
+  }
+
+  // Cap the maximum to prevent excessive requirements
+  return Math.min(estimatedCredits, 10);
+}
+
 // Extend Request type to include user
 interface AuthenticatedRequest extends Request {
   user?: any & {
@@ -735,6 +789,66 @@ export function requireMinimumCredits(minimumCredits: number = 10, operationType
 
     } catch (error) {
       console.error('Credit check error:', error);
+      res.status(500).json({
+        error: 'Unable to verify credit balance',
+        code: 'CREDIT_CHECK_FAILED',
+      });
+    }
+  };
+}
+
+/**
+ * Dynamic middleware to check minimum credit threshold based on message analysis
+ * Credits will be deducted after AI response based on actual token usage
+ */
+export function requireDynamicCredits(estimateFunction: (req: any) => number, operationType: string = 'chat') {
+  return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user?.id) {
+        return res.status(401).json({
+          error: 'Authentication required',
+          code: 'NOT_AUTHENTICATED',
+        });
+      }
+
+      // If a free message was consumed upstream (freemium), skip credit check for this request
+      if (req.user.freeMessageUsed) {
+        console.log(`⏭️ Skipping credit check for user ${req.user.id} - free message was used`);
+        return next();
+      }
+
+      // Calculate dynamic minimum based on message analysis
+      const minimumCredits = estimateFunction(req);
+      
+      console.log(`💳 Checking dynamic credits for user ${req.user.id}: ${minimumCredits} minimum required for ${operationType}`);
+      const creditCheck = await checkCreditBalance(req.user.id, minimumCredits);
+
+      if (!creditCheck.hasCredits) {
+        console.log(`🚫 Insufficient credits for user ${req.user.id}: has ${creditCheck.currentBalance}, needs minimum ${minimumCredits}`);
+        return res.status(402).json({
+          error: 'Insufficient AI credits',
+          code: 'INSUFFICIENT_CREDITS',
+          creditsRequired: minimumCredits,
+          currentBalance: creditCheck.currentBalance,
+          isTeamPooled: creditCheck.isTeamPooled,
+          purchaseUrl: '/settings/billing/credits',
+          message: `You need at least ${minimumCredits} AI credits to start this operation. You currently have ${creditCheck.currentBalance} credits.`,
+        });
+      }
+
+      console.log(`✅ Dynamic credit check passed for user ${req.user.id}: has ${creditCheck.currentBalance}, minimum ${minimumCredits} required for ${operationType}`);
+
+      // Mark that this user will need credit deduction after the operation
+      req.user.needsCreditDeduction = {
+        operationType,
+        currentBalance: creditCheck.currentBalance,
+        isTeamPooled: creditCheck.isTeamPooled,
+      };
+
+      next();
+
+    } catch (error) {
+      console.error('Dynamic credit check error:', error);
       res.status(500).json({
         error: 'Unable to verify credit balance',
         code: 'CREDIT_CHECK_FAILED',

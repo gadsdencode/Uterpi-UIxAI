@@ -10,7 +10,7 @@ import { db } from "./db";
 import { eq, desc, and } from "drizzle-orm";
 import { createStripeCustomer, createSetupIntent, createSubscription, cancelSubscription, reactivateSubscription, createBillingPortalSession, syncSubscriptionFromStripe } from "./stripe";
 import { createSubscriptionCheckoutSession, createCreditsCheckoutSession, getCheckoutSession } from "./stripe-checkout";
-import { requireActiveSubscription, enhanceWithSubscription, requireCredits, requireMinimumCredits, checkFreemiumLimit, getEnhancedSubscriptionDetails, requireFeature, requireTeamRole, requireAIProvider, tierBasedRateLimit } from "./subscription-middleware";
+import { requireActiveSubscription, enhanceWithSubscription, requireCredits, requireMinimumCredits, requireDynamicCredits, checkFreemiumLimit, getEnhancedSubscriptionDetails, requireFeature, requireTeamRole, requireAIProvider, tierBasedRateLimit, estimateRequiredCredits } from "./subscription-middleware";
 import { trackAIUsage } from "./stripe-enhanced";
 import { handleStripeWebhook, rawBodyParser } from "./webhooks";
 import { fileStorage } from "./file-storage";
@@ -157,6 +157,7 @@ function countTokensFromMessages(messages: any[]): number {
     return total + estimateTokenCount(content);
   }, 0);
 }
+
 
 // Helper function to deduct credits after AI response
 async function deductCreditsAfterResponse(
@@ -600,17 +601,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // LM Studio proxy endpoints (OpenAI-compatible)
   
   // Chat completions endpoint (with streaming support)
-  app.post("/lmstudio/v1/chat/completions", async (req, res) => {
+  app.post("/lmstudio/v1/chat/completions", requireAuth, checkFreemiumLimit(), requireDynamicCredits((req) => {
+    const { messages, model } = req.body;
+    const hasAttachments = messages?.some((msg: any) => msg.attachments && msg.attachments.length > 0);
+    return estimateRequiredCredits(messages || [], false, hasAttachments, model || '');
+  }, 'chat'), async (req, res) => {
     await proxyLMStudioRequest(req, res, "/v1/chat/completions");
   });
 
   // Text completions endpoint (non-chat)
-  app.post("/lmstudio/v1/completions", async (req, res) => {
+  app.post("/lmstudio/v1/completions", requireAuth, checkFreemiumLimit(), requireDynamicCredits((req) => {
+    const { prompt, model } = req.body;
+    const messages = [{ content: prompt || '' }];
+    return estimateRequiredCredits(messages, false, false, model || '');
+  }, 'completion'), async (req, res) => {
     await proxyLMStudioRequest(req, res, "/v1/completions");
   });
 
   // Embeddings endpoint
-  app.post("/lmstudio/v1/embeddings", async (req, res) => {
+  app.post("/lmstudio/v1/embeddings", requireAuth, checkFreemiumLimit(), requireDynamicCredits((req) => {
+    const { input } = req.body;
+    const inputText = Array.isArray(input) ? input.join(' ') : (input || '');
+    const messages = [{ content: inputText }];
+    return Math.max(1, Math.ceil(estimateRequiredCredits(messages, false, false, '') * 0.5)); // Embeddings typically cost less
+  }, 'embedding'), async (req, res) => {
     await proxyLMStudioRequest(req, res, "/v1/embeddings");
   });
 
@@ -719,8 +733,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // UNIVERSAL AI PROXY WITH CREDIT CHECKING
   // =============================================================================
 
-  // Universal AI chat completions endpoint with credit checking for all providers
-  app.post("/ai/v1/chat/completions", requireAuth, checkFreemiumLimit(), requireMinimumCredits(10, 'chat'), async (req, res) => {
+  // Universal AI chat completions endpoint with dynamic credit checking for all providers
+  app.post("/ai/v1/chat/completions", requireAuth, checkFreemiumLimit(), requireDynamicCredits((req) => {
+    const { messages, enableContext = true, model } = req.body;
+    const hasAttachments = messages?.some((msg: any) => msg.attachments && msg.attachments.length > 0);
+    return estimateRequiredCredits(messages || [], enableContext, hasAttachments, model || '');
+  }, 'chat'), async (req, res) => {
     console.log('🚀 Chat endpoint called for user:', req.user?.id);
     try {
       const { provider, messages, model, max_tokens, temperature, top_p, stream, sessionId, enableContext = true, ...otherParams } = req.body;
@@ -1216,8 +1234,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Azure AI chat completions endpoint with credit checking (legacy support)
-  app.post("/azure/v1/chat/completions", requireAuth, checkFreemiumLimit(), requireMinimumCredits(10, 'chat'), async (req, res) => {
+  // Azure AI chat completions endpoint with dynamic credit checking (legacy support)
+  app.post("/azure/v1/chat/completions", requireAuth, checkFreemiumLimit(), requireDynamicCredits((req) => {
+    const { messages, model } = req.body;
+    const hasAttachments = messages?.some((msg: any) => msg.attachments && msg.attachments.length > 0);
+    return estimateRequiredCredits(messages || [], false, hasAttachments, model || '');
+  }, 'chat'), async (req, res) => {
     try {
       const { messages, model, max_tokens, temperature, top_p, stream } = req.body;
       
@@ -2530,7 +2552,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // AI Template Generation Endpoint
-  app.post("/api/ai/generate-templates", requireAuth, checkFreemiumLimit(), requireMinimumCredits(5, 'template-generation'), async (req, res) => {
+  app.post("/api/ai/generate-templates", requireAuth, checkFreemiumLimit(), requireDynamicCredits((req) => {
+    const { prompt, templateType, complexity } = req.body;
+    const messages = [{ content: prompt || 'Generate templates' }];
+    return Math.max(5, estimateRequiredCredits(messages, false, false, ''));
+  }, 'template-generation'), async (req, res) => {
     console.log('🎨 AI Template Generation called for user:', req.user?.id);
     try {
       const { description, provider, model } = req.body;
@@ -2691,7 +2717,11 @@ Focus on practical, implementable templates that match the user's requirements. 
   });
 
   // AI Suggestions Endpoint
-  app.post("/api/ai/generate-suggestions", requireAuth, checkFreemiumLimit(), requireMinimumCredits(2, 'suggestion-generation'), async (req, res) => {
+  app.post("/api/ai/generate-suggestions", requireAuth, checkFreemiumLimit(), requireDynamicCredits((req) => {
+    const { context, type } = req.body;
+    const messages = [{ content: context || 'Generate suggestions' }];
+    return Math.max(2, estimateRequiredCredits(messages, false, false, ''));
+  }, 'suggestion-generation'), async (req, res) => {
     console.log('💡 AI Suggestions called for user:', req.user?.id);
     try {
       const { input, context, provider, model } = req.body;
@@ -2841,7 +2871,13 @@ Focus on practical suggestions that would enhance the user's page concept.`;
   });
 
   // AI Page Generation Endpoint
-  app.post("/api/ai/generate-page", requireAuth, checkFreemiumLimit(), requireMinimumCredits(15, 'page-generation'), async (req, res) => {
+  app.post("/api/ai/generate-page", requireAuth, checkFreemiumLimit(), requireDynamicCredits((req) => {
+    const { description, features, complexity } = req.body;
+    const messages = [{ content: description || 'Generate page' }];
+    const baseCredits = estimateRequiredCredits(messages, false, false, '');
+    // Page generation is complex, so ensure minimum of 15 credits
+    return Math.max(15, baseCredits * 2);
+  }, 'page-generation'), async (req, res) => {
     console.log('🚀 AI Page Generation called for user:', req.user?.id);
     try {
       const { template, requirements, style, aiConfig, userContext } = req.body;
@@ -3090,10 +3126,15 @@ Generate production-ready, modern React code with TypeScript, proper error handl
     }
   });
 
-  // Enhanced Clone UI endpoints (requires subscription)
+  // Enhanced Clone UI endpoints (requires subscription and credits)
   app.post("/api/clone-ui/analyze", requireActiveSubscription({
     customMessage: "AI-powered UI analysis requires a paid subscription"
-  }), upload.single('image'), async (req: MulterRequest, res) => {
+  }), requireDynamicCredits((req) => {
+    const { description, complexity } = req.body;
+    const messages = [{ content: description || 'Analyze UI image' }];
+    const baseCredits = estimateRequiredCredits(messages, false, true, ''); // Has image attachment
+    return Math.max(8, baseCredits); // UI analysis is complex
+  }, 'ui-analysis'), upload.single('image'), async (req: MulterRequest, res) => {
     const startTime = Date.now();
     try {
       if (!req.file) {
@@ -3324,10 +3365,15 @@ You MUST respond with ONLY valid JSON in this exact structure. No markdown, no e
     }
   });
 
-  // Enhanced Create Page endpoints (requires subscription)
+  // Enhanced Create Page endpoints (requires subscription and credits)
   app.post("/api/create-page/generate", requireActiveSubscription({
     customMessage: "AI-powered page generation requires a paid subscription"
-  }), async (req, res) => {
+  }), requireDynamicCredits((req) => {
+    const { template, requirements, style } = req.body;
+    const messages = [{ content: `${template} ${requirements} ${style}` || 'Generate page' }];
+    const baseCredits = estimateRequiredCredits(messages, false, false, '');
+    return Math.max(12, baseCredits * 2); // Page generation is complex
+  }, 'page-creation'), async (req, res) => {
     try {
       const { template, requirements, style } = req.body;
       
@@ -3412,10 +3458,15 @@ You MUST respond with ONLY valid JSON in this exact structure. No markdown, no e
     });
   });
 
-  // Improve functionality endpoints (requires subscription)
+  // Improve functionality endpoints (requires subscription and credits)
   app.post("/api/improve/analyze", requireActiveSubscription({
     customMessage: "AI-powered code analysis requires a paid subscription"
-  }), upload.single('codeFile'), async (req: MulterRequest, res) => {
+  }), requireDynamicCredits((req) => {
+    const { code, context } = req.body;
+    const messages = [{ content: `${code || ''} ${context || ''}` || 'Analyze code' }];
+    const baseCredits = estimateRequiredCredits(messages, false, true, ''); // Has file attachment
+    return Math.max(6, baseCredits); // Code analysis is moderately complex
+  }, 'code-analysis'), upload.single('codeFile'), async (req: MulterRequest, res) => {
     try {
       const { code, component, provider, apiKey } = req.body;
       let codeToAnalyze = code;
@@ -3448,10 +3499,15 @@ You MUST respond with ONLY valid JSON in this exact structure. No markdown, no e
     }
   });
 
-  // Analyze functionality endpoints (requires subscription)
+  // Analyze functionality endpoints (requires subscription and credits)
   app.post("/api/analyze/performance", requireActiveSubscription({
     customMessage: "AI-powered performance analysis requires a paid subscription"
-  }), async (req, res) => {
+  }), requireDynamicCredits((req) => {
+    const { code, component } = req.body;
+    const messages = [{ content: `${code || ''} ${component || ''}` || 'Analyze performance' }];
+    const baseCredits = estimateRequiredCredits(messages, false, false, '');
+    return Math.max(7, baseCredits); // Performance analysis is complex
+  }, 'performance-analysis'), async (req, res) => {
     try {
       const { projectPath, metrics } = req.body;
 
@@ -3489,7 +3545,12 @@ You MUST respond with ONLY valid JSON in this exact structure. No markdown, no e
 
   app.post("/api/analyze/design-patterns", requireActiveSubscription({
     customMessage: "AI-powered design pattern analysis requires a paid subscription"
-  }), async (req, res) => {
+  }), requireDynamicCredits((req) => {
+    const { code, patterns } = req.body;
+    const messages = [{ content: `${code || ''} ${patterns || ''}` || 'Analyze design patterns' }];
+    const baseCredits = estimateRequiredCredits(messages, false, false, '');
+    return Math.max(6, baseCredits); // Design pattern analysis is moderately complex
+  }, 'design-analysis'), async (req, res) => {
     try {
       const { codebase } = req.body;
       const { client, config } = createAzureAIClient();
@@ -3812,10 +3873,15 @@ You MUST respond with ONLY valid JSON in this exact structure. No markdown, no e
     }
   });
 
-  // AI Analysis endpoint (requires subscription)
+  // AI Analysis endpoint (requires subscription and credits)
   app.post("/api/files/:fileId/analyze", requireActiveSubscription({
     customMessage: "AI-powered file analysis requires a paid subscription"
-  }), async (req, res) => {
+  }), requireDynamicCredits((req) => {
+    const { analysisType, context } = req.body;
+    const messages = [{ content: `${analysisType || ''} ${context || ''}` || 'Analyze file' }];
+    const baseCredits = estimateRequiredCredits(messages, false, true, ''); // Has file attachment
+    return Math.max(5, baseCredits); // File analysis is moderately complex
+  }, 'file-analysis'), async (req, res) => {
     try {
       const fileId = validateFileId(req.params.fileId);
       const user = req.user as any;

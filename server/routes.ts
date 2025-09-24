@@ -551,15 +551,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         const decoder = new TextDecoder();
+        let streamedContent = '';
         try {
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
             const chunk = decoder.decode(value, { stream: true });
+            
+            // Collect streamed content for credit calculation
+            try {
+              const lines = chunk.split('\n');
+              for (const line of lines) {
+                if (line.startsWith('data: ') && !line.includes('[DONE]')) {
+                  const dataStr = line.substring(6).trim();
+                  if (dataStr && dataStr !== '[DONE]') {
+                    try {
+                      const parsed = JSON.parse(dataStr);
+                      const content = parsed?.choices?.[0]?.delta?.content || '';
+                      streamedContent += content;
+                    } catch (e) {
+                      // Ignore parsing errors for individual chunks
+                    }
+                  }
+                }
+              }
+            } catch (e) {
+              // Ignore content collection errors
+            }
+            
             res.write(chunk);
           }
         } finally {
           res.end();
+          
+          // Deduct credits after streaming is complete (only for chat/completions endpoints)
+          if (endpoint.includes('/chat/completions') || endpoint.includes('/completions')) {
+            try {
+              const messages = req.body?.messages || (req.body?.prompt ? [{ content: req.body.prompt }] : []);
+              const inputTokens = countTokensFromMessages(messages);
+              const outputTokens = estimateTokenCount(streamedContent);
+              console.log(`💳 Post-stream credit deduction (LM Studio Proxy): ${inputTokens} input + ${outputTokens} output tokens for content: "${streamedContent.substring(0, 100)}..."`);
+              await deductCreditsAfterResponse(req as any, inputTokens, outputTokens, req.body?.model || 'lmstudio');
+            } catch (creditError) {
+              console.error('❌ Error deducting credits after LM Studio proxy streaming:', creditError);
+            }
+          }
         }
         return;
       }
@@ -568,6 +604,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const text = await response.text();
       console.log(`[LMStudio Proxy] Response ${response.status} ${contentType}`);
       res.status(response.status);
+      
+      // Deduct credits for non-streaming completions responses
+      if (response.ok && (endpoint.includes('/chat/completions') || endpoint.includes('/completions'))) {
+        try {
+          const messages = req.body?.messages || (req.body?.prompt ? [{ content: req.body.prompt }] : []);
+          const inputTokens = countTokensFromMessages(messages);
+          let outputContent = '';
+          
+          if (contentType.includes("application/json")) {
+            try {
+              const parsed = JSON.parse(text);
+              outputContent = parsed?.choices?.[0]?.message?.content || parsed?.choices?.[0]?.text || '';
+            } catch (e) {
+              // Ignore parsing errors
+            }
+          }
+          
+          const outputTokens = estimateTokenCount(outputContent);
+          console.log(`💳 Credit deduction (LM Studio Proxy non-streaming): ${inputTokens} input + ${outputTokens} output tokens`);
+          await deductCreditsAfterResponse(req as any, inputTokens, outputTokens, req.body?.model || 'lmstudio');
+        } catch (creditError) {
+          console.error('❌ Error deducting credits after LM Studio proxy non-streaming:', creditError);
+        }
+      }
       
       if (contentType.includes("application/json")) {
         res.type("application/json").send(text);
@@ -962,6 +1022,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
 
             const decoder = new TextDecoder();
+            let streamedContent = '';
             try {
               while (true) {
                 const { done, value } = await reader.read();
@@ -969,9 +1030,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 
                 const chunk = decoder.decode(value, { stream: true });
                 console.log('🌊 LM Studio chunk:', chunk.substring(0, 100) + '...');
+                
+                // Collect streamed content for credit calculation
+                try {
+                  const lines = chunk.split('\n');
+                  for (const line of lines) {
+                    if (line.startsWith('data: ') && !line.includes('[DONE]')) {
+                      const dataStr = line.substring(6).trim();
+                      if (dataStr && dataStr !== '[DONE]') {
+                        try {
+                          const parsed = JSON.parse(dataStr);
+                          const content = parsed?.choices?.[0]?.delta?.content || '';
+                          streamedContent += content;
+                        } catch (e) {
+                          // Ignore parsing errors for individual chunks
+                        }
+                      }
+                    }
+                  }
+                } catch (e) {
+                  // Ignore content collection errors
+                }
+                
                 res.write(chunk);
               }
               res.end();
+              
+              // Deduct credits after streaming is complete
+              try {
+                const inputTokens = countTokensFromMessages(messages || []);
+                const outputTokens = estimateTokenCount(streamedContent);
+                console.log(`💳 Post-stream credit deduction: ${inputTokens} input + ${outputTokens} output tokens for streamed content: "${streamedContent.substring(0, 100)}..."`);
+                await deductCreditsAfterResponse(req, inputTokens, outputTokens, model || 'lmstudio');
+              } catch (creditError) {
+                console.error('❌ Error deducting credits after streaming:', creditError);
+              }
+              
               return;
             } finally {
               reader.releaseLock();
@@ -1058,10 +1152,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           };
 
           if (stream) {
-            console.log('🌊 Gemini: Handling streaming request');
+            console.log('🌊 Gemini: Handling REAL streaming request');
             
-            // For streaming, we'll simulate it by getting the full response and chunking it
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model || "gemini-2.5-flash"}:generateContent?key=${apiKey}`, {
+            // Use the REAL Gemini streaming API endpoint
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model || "gemini-2.5-flash"}:streamGenerateContent?key=${apiKey}`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json'
@@ -1074,48 +1168,85 @@ export async function registerRoutes(app: Express): Promise<Server> {
               throw new Error(`Gemini streaming error (${response.status}): ${errText}`);
             }
 
-            const data = await response.json();
-            const content = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-            console.log('🌊 Gemini: Got content for streaming:', content.substring(0, 100) + '...');
-            
-            // Set up Server-Sent Events headers - CORRECT FORMAT
+            // Set up Server-Sent Events headers
             res.setHeader('Content-Type', 'text/event-stream');
             res.setHeader('Cache-Control', 'no-cache');
             res.setHeader('Connection', 'keep-alive');
             res.setHeader('Access-Control-Allow-Origin', '*');
             res.setHeader('Access-Control-Allow-Headers', 'Cache-Control');
 
-            // Send initial response to establish connection
-            res.write(': connected\n\n');
+            console.log('🌊 Gemini: Starting REAL streaming from API');
 
-            // Simulate streaming by sending chunks
-            const words = content.split(' ');
-            console.log('🌊 Gemini: Streaming', words.length, 'words');
-            
-            for (let i = 0; i < words.length; i++) {
-              const chunk = words[i] + (i < words.length - 1 ? ' ' : '');
-              // Send in Gemini format that frontend expects
-              const geminiChunk = {
-                candidates: [{
-                  content: {
-                    parts: [{
-                      text: chunk
-                    }]
-                  },
-                  index: 0
-                }]
-              };
-              
-              console.log('🌊 Gemini: Sending chunk:', chunk);
-              res.write(`data: ${JSON.stringify(geminiChunk)}\n\n`);
-              
-              // Small delay to simulate streaming
-              await new Promise(resolve => setTimeout(resolve, 30));
+            // Process the real streaming response
+            const reader = response.body?.getReader();
+            if (!reader) {
+              throw new Error('No response body for Gemini streaming');
+            }
+
+            const decoder = new TextDecoder();
+            let fullContent = '';
+
+            try {
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                const chunk = decoder.decode(value, { stream: true });
+                console.log('🌊 Gemini raw chunk:', chunk.substring(0, 200) + '...');
+
+                // Process each line in the chunk (Gemini streams JSON objects separated by newlines)
+                const lines = chunk.split('\n');
+                for (const line of lines) {
+                  const trimmedLine = line.trim();
+                  if (trimmedLine && trimmedLine !== '') {
+                    try {
+                      const jsonChunk = JSON.parse(trimmedLine);
+                      const content = jsonChunk?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                      
+                      if (content) {
+                        fullContent += content;
+                        
+                        // Send the chunk to client in OpenAI-compatible format for consistency
+                        const openAIChunk = {
+                          choices: [{
+                            delta: {
+                              content: content
+                            },
+                            index: 0
+                          }]
+                        };
+                        
+                        res.write(`data: ${JSON.stringify(openAIChunk)}\n\n`);
+                        console.log('🌊 Gemini streaming content:', content.substring(0, 50) + '...');
+                      }
+                    } catch (parseError) {
+                      console.log('🔍 Gemini: Skipping non-JSON line:', trimmedLine.substring(0, 50));
+                      // Skip non-JSON lines (common in streaming responses)
+                    }
+                  }
+                }
+              }
+
+              // Send completion marker
+              res.write('data: [DONE]\n\n');
+              res.end();
+
+              console.log('🌊 Gemini: REAL streaming complete, total content length:', fullContent.length);
+
+              // Deduct credits after streaming is complete
+              try {
+                const inputTokens = countTokensFromMessages(messages || []);
+                const outputTokens = estimateTokenCount(fullContent);
+                console.log(`💳 Post-stream credit deduction (Gemini REAL): ${inputTokens} input + ${outputTokens} output tokens for content: "${fullContent.substring(0, 100)}..."`);
+                await deductCreditsAfterResponse(req, inputTokens, outputTokens, model || 'gemini');
+              } catch (creditError) {
+                console.error('❌ Error deducting credits after Gemini REAL streaming:', creditError);
+              }
+
+            } finally {
+              reader.releaseLock();
             }
             
-            console.log('🌊 Gemini: Streaming complete, sending [DONE]');
-            res.write('data: [DONE]\n\n');
-            res.end();
             return;
           } else {
             // Non-streaming

@@ -2310,6 +2310,517 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // AI Template Generation Endpoint
+  app.post("/api/ai/generate-templates", requireAuth, checkFreemiumLimit(), requireMinimumCredits(5, 'template-generation'), async (req, res) => {
+    console.log('🎨 AI Template Generation called for user:', req.user?.id);
+    try {
+      const { description, provider, model } = req.body;
+      
+      if (!description || description.trim().length < 10) {
+        return res.status(400).json({ error: 'Description must be at least 10 characters long' });
+      }
+
+      // Get user's configuration
+      const user = await storage.getUser(req.user!.id);
+      if (!user) {
+        return res.status(401).json({ error: 'User not found' });
+      }
+
+      // Use provided provider or default to gemini (no user preferences stored yet)
+      const aiProvider = provider || 'gemini';
+      const { client, config } = createAIClient(aiProvider);
+
+      const templatePrompt = `Based on this description: "${description}"
+
+Generate 3-5 relevant web page templates that would fulfill this requirement. For each template, provide:
+- A unique ID (kebab-case)
+- A clear name
+- A detailed description
+- Complexity level (simple/medium/complex)
+- Estimated implementation effort in credits (5-30 range)
+
+Return a JSON object with this structure:
+{
+  "templates": [
+    {
+      "id": "template-id",
+      "name": "Template Name",
+      "description": "Detailed description of what this template includes",
+      "complexity": "medium",
+      "estimatedCredits": 15,
+      "features": ["feature1", "feature2", "feature3"],
+      "confidence": 0.9
+    }
+  ]
+}
+
+Focus on practical, implementable templates that match the user's requirements. Be specific about what components and features each template would include.`;
+
+      let aiResponse;
+      
+      if (aiProvider.toLowerCase() === 'gemini') {
+        const aiModel = client.getGenerativeModel({ 
+          model: config.modelName,
+          generationConfig: {
+            temperature: 0.3,
+            maxOutputTokens: 2048
+          }
+        });
+        
+        const result = await aiModel.generateContent(templatePrompt);
+        const response = await result.response;
+        aiResponse = response.text();
+      } else if (aiProvider.toLowerCase() === 'openai') {
+        const response = await client.chat.completions.create({
+          model: config.modelName,
+          messages: [
+            {
+              role: "system",
+              content: "You are a senior web developer and UX designer specializing in creating practical, user-focused web page templates. Generate templates that are implementable and match user requirements closely."
+            },
+            {
+              role: "user",
+              content: templatePrompt
+            }
+          ],
+          max_tokens: 2048,
+          temperature: 0.3
+        });
+        
+        aiResponse = response.choices[0].message.content;
+      } else if (aiProvider.toLowerCase() === 'azure' || aiProvider.toLowerCase() === 'azureai') {
+        const response = await retryWithBackoff(async () => {
+          return await client.path("/chat/completions").post({
+            body: {
+              messages: [
+                {
+                  role: "system",
+                  content: "You are a senior web developer and UX designer specializing in creating practical, user-focused web page templates. Generate templates that are implementable and match user requirements closely."
+                },
+                {
+                  role: "user",
+                  content: templatePrompt
+                }
+              ],
+              max_tokens: 2048,
+              temperature: 0.3,
+              model: config.modelName,
+              stream: false,
+            },
+          });
+        }, config.maxRetries || 3, config.retryDelay || 1000);
+
+        if (response.status !== "200") {
+          const errorDetail = extractAzureAIError(response.body?.error || response.body);
+          throw new Error(`Azure AI API error (${response.status}): ${errorDetail}`);
+        }
+
+        aiResponse = response.body.choices[0]?.message?.content;
+      } else {
+        throw new Error(`Unsupported provider: ${aiProvider}`);
+      }
+
+      // Parse the AI response
+      let parsedResponse;
+      try {
+        // Clean up the response to extract JSON
+        const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          parsedResponse = JSON.parse(jsonMatch[0]);
+        } else {
+          throw new Error('No JSON found in response');
+        }
+      } catch (parseError) {
+        console.warn('Failed to parse AI response, using fallback templates');
+        parsedResponse = {
+          templates: [
+            {
+              id: 'ai-suggested-landing',
+              name: 'AI-Suggested Landing Page',
+              description: 'Custom landing page based on your requirements',
+              complexity: 'medium',
+              estimatedCredits: 15,
+              features: ['hero-section', 'features', 'cta'],
+              confidence: 0.7
+            }
+          ]
+        };
+      }
+
+      // Deduct credits (5 credits for template generation)
+      await trackAIUsage({
+        userId: req.user!.id,
+        operationType: 'app_generation',
+        modelUsed: config.modelName,
+        tokensConsumed: 500 // Estimated tokens for template generation
+      });
+
+      res.json({
+        success: true,
+        templates: parsedResponse.templates || [],
+        aiProvider,
+        model: config.modelName
+      });
+
+    } catch (error) {
+      console.error('❌ AI Template Generation error:', error);
+      res.status(500).json({ 
+        error: 'Failed to generate AI templates',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
+  // AI Suggestions Endpoint
+  app.post("/api/ai/generate-suggestions", requireAuth, checkFreemiumLimit(), requireMinimumCredits(2, 'suggestion-generation'), async (req, res) => {
+    console.log('💡 AI Suggestions called for user:', req.user?.id);
+    try {
+      const { input, context, provider, model } = req.body;
+      
+      if (!input || input.trim().length < 5) {
+        return res.status(400).json({ error: 'Input must be at least 5 characters long' });
+      }
+
+      // Get user's configuration
+      const user = await storage.getUser(req.user!.id);
+      if (!user) {
+        return res.status(401).json({ error: 'User not found' });
+      }
+
+      // Use provided provider or default to gemini (no user preferences stored yet)
+      const aiProvider = provider || 'gemini';
+      const { client, config } = createAIClient(aiProvider);
+
+      const suggestionPrompt = `Based on this user input for ${context || 'page generation'}: "${input}"
+
+Generate 3-5 helpful suggestions to improve or expand their requirements. Each suggestion should be:
+- Specific and actionable
+- Relevant to web page creation
+- Categorized as 'requirement', 'style', or 'component'
+- Include a confidence score (0.1-1.0)
+
+Return a JSON object with this structure:
+{
+  "suggestions": [
+    {
+      "id": "suggestion-1",
+      "text": "Consider adding a testimonials section to build trust with visitors",
+      "type": "requirement",
+      "confidence": 0.8
+    },
+    {
+      "id": "suggestion-2", 
+      "text": "Use a modern, clean design with plenty of whitespace",
+      "type": "style",
+      "confidence": 0.9
+    }
+  ]
+}
+
+Focus on practical suggestions that would enhance the user's page concept.`;
+
+      let aiResponse;
+      
+      if (aiProvider.toLowerCase() === 'gemini') {
+        const aiModel = client.getGenerativeModel({ 
+          model: config.modelName,
+          generationConfig: {
+            temperature: 0.4,
+            maxOutputTokens: 1024
+          }
+        });
+        
+        const result = await aiModel.generateContent(suggestionPrompt);
+        const response = await result.response;
+        aiResponse = response.text();
+      } else if (aiProvider.toLowerCase() === 'openai') {
+        const response = await client.chat.completions.create({
+          model: config.modelName,
+          messages: [
+            {
+              role: "system",
+              content: "You are a helpful UX consultant and web development expert. Provide practical, actionable suggestions to improve web page concepts."
+            },
+            {
+              role: "user",
+              content: suggestionPrompt
+            }
+          ],
+          max_tokens: 1024,
+          temperature: 0.4
+        });
+        
+        aiResponse = response.choices[0].message.content;
+      } else if (aiProvider.toLowerCase() === 'azure' || aiProvider.toLowerCase() === 'azureai') {
+        const response = await retryWithBackoff(async () => {
+          return await client.path("/chat/completions").post({
+            body: {
+              messages: [
+                {
+                  role: "system",
+                  content: "You are a helpful UX consultant and web development expert. Provide practical, actionable suggestions to improve web page concepts."
+                },
+                {
+                  role: "user",
+                  content: suggestionPrompt
+                }
+              ],
+              max_tokens: 1024,
+              temperature: 0.4,
+              model: config.modelName,
+              stream: false,
+            },
+          });
+        }, config.maxRetries || 3, config.retryDelay || 1000);
+
+        if (response.status !== "200") {
+          const errorDetail = extractAzureAIError(response.body?.error || response.body);
+          throw new Error(`Azure AI API error (${response.status}): ${errorDetail}`);
+        }
+
+        aiResponse = response.body.choices[0]?.message?.content;
+      } else {
+        throw new Error(`Unsupported provider: ${aiProvider}`);
+      }
+
+      // Parse the AI response
+      let parsedResponse;
+      try {
+        const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          parsedResponse = JSON.parse(jsonMatch[0]);
+        } else {
+          throw new Error('No JSON found in response');
+        }
+      } catch (parseError) {
+        console.warn('Failed to parse AI suggestions, returning empty array');
+        parsedResponse = { suggestions: [] };
+      }
+
+      // Deduct credits (2 credits for suggestions)
+      await trackAIUsage({
+        userId: req.user!.id,
+        operationType: 'chat',
+        modelUsed: config.modelName,
+        tokensConsumed: 200 // Estimated tokens for suggestions
+      });
+
+      res.json({
+        success: true,
+        suggestions: parsedResponse.suggestions || [],
+        aiProvider,
+        model: config.modelName
+      });
+
+    } catch (error) {
+      console.error('❌ AI Suggestions error:', error);
+      res.status(500).json({ 
+        error: 'Failed to generate AI suggestions',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
+  // AI Page Generation Endpoint
+  app.post("/api/ai/generate-page", requireAuth, checkFreemiumLimit(), requireMinimumCredits(15, 'page-generation'), async (req, res) => {
+    console.log('🚀 AI Page Generation called for user:', req.user?.id);
+    try {
+      const { template, requirements, style, aiConfig, userContext } = req.body;
+      
+      if (!template || !requirements) {
+        return res.status(400).json({ error: 'Template and requirements are required' });
+      }
+
+      // Get user's configuration
+      const user = await storage.getUser(req.user!.id);
+      if (!user) {
+        return res.status(401).json({ error: 'User not found' });
+      }
+
+      // Use provided AI config or default
+      const aiProvider = aiConfig?.provider || 'gemini';
+      const { client, config } = createAIClient(aiProvider);
+
+      const pagePrompt = `Generate a complete React/TypeScript web page based on these specifications:
+
+Template: ${template}
+Requirements: ${requirements}
+Style: ${style}
+Complexity: ${aiConfig?.complexity || 'medium'}
+
+Generate the following components:
+1. Main page component (React/TypeScript)
+2. Supporting components if needed
+3. CSS/Tailwind styles
+4. Any necessary configuration files
+
+Return a JSON object with this structure:
+{
+  "page": {
+    "template": "${template}",
+    "components": [
+      {
+        "name": "MainPage",
+        "props": ["title", "content"],
+        "description": "Main page component"
+      }
+    ],
+    "styles": {
+      "theme": "${style}",
+      "colors": {
+        "primary": "#3b82f6",
+        "secondary": "#64748b", 
+        "accent": "#f59e0b"
+      },
+      "spacing": "8px",
+      "borderRadius": "8px"
+    },
+    "routes": ["/", "/about", "/contact"],
+    "creditsUsed": ${aiConfig?.estimatedCredits || 15}
+  },
+  "files": [
+    {
+      "name": "MainPage.tsx",
+      "content": "// Complete React component code here",
+      "type": "component"
+    },
+    {
+      "name": "styles.css", 
+      "content": "/* CSS styles here */",
+      "type": "style"
+    }
+  ],
+  "warnings": [],
+  "suggestions": ["Consider adding responsive design", "Add accessibility features"]
+}
+
+Generate production-ready, modern React code with TypeScript, proper error handling, and accessibility features. Use Tailwind CSS for styling. Make the code clean, well-documented, and following best practices.`;
+
+      let aiResponse;
+      
+      if (aiProvider.toLowerCase() === 'gemini') {
+        const aiModel = client.getGenerativeModel({ 
+          model: config.modelName,
+          generationConfig: {
+            temperature: 0.2,
+            maxOutputTokens: 8192
+          }
+        });
+        
+        const result = await aiModel.generateContent(pagePrompt);
+        const response = await result.response;
+        aiResponse = response.text();
+      } else if (aiProvider.toLowerCase() === 'openai') {
+        const response = await client.chat.completions.create({
+          model: config.modelName,
+          messages: [
+            {
+              role: "system",
+              content: "You are a senior React/TypeScript developer specializing in creating production-ready web applications. Generate clean, accessible, and modern code that follows industry best practices."
+            },
+            {
+              role: "user",
+              content: pagePrompt
+            }
+          ],
+          max_tokens: 8192,
+          temperature: 0.2
+        });
+        
+        aiResponse = response.choices[0].message.content;
+      } else if (aiProvider.toLowerCase() === 'azure' || aiProvider.toLowerCase() === 'azureai') {
+        const response = await retryWithBackoff(async () => {
+          return await client.path("/chat/completions").post({
+            body: {
+              messages: [
+                {
+                  role: "system",
+                  content: "You are a senior React/TypeScript developer specializing in creating production-ready web applications. Generate clean, accessible, and modern code that follows industry best practices."
+                },
+                {
+                  role: "user",
+                  content: pagePrompt
+                }
+              ],
+              max_tokens: 8192,
+              temperature: 0.2,
+              model: config.modelName,
+              stream: false,
+            },
+          });
+        }, config.maxRetries || 3, config.retryDelay || 1000);
+
+        if (response.status !== "200") {
+          const errorDetail = extractAzureAIError(response.body?.error || response.body);
+          throw new Error(`Azure AI API error (${response.status}): ${errorDetail}`);
+        }
+
+        aiResponse = response.body.choices[0]?.message?.content;
+      } else {
+        throw new Error(`Unsupported provider: ${aiProvider}`);
+      }
+
+      // Parse the AI response
+      let parsedResponse;
+      try {
+        const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          parsedResponse = JSON.parse(jsonMatch[0]);
+        } else {
+          throw new Error('No JSON found in response');
+        }
+      } catch (parseError) {
+        console.warn('Failed to parse AI page response, using fallback');
+        parsedResponse = {
+          page: {
+            template,
+            components: [{ name: 'GeneratedPage', props: [], description: 'AI Generated Page' }],
+            styles: {
+              theme: style,
+              colors: { primary: '#3b82f6', secondary: '#64748b', accent: '#f59e0b' },
+              spacing: '8px',
+              borderRadius: '8px'
+            },
+            routes: ['/'],
+            creditsUsed: aiConfig?.estimatedCredits || 15
+          },
+          files: [
+            {
+              name: 'GeneratedPage.tsx',
+              content: `import React from 'react';\n\nconst GeneratedPage: React.FC = () => {\n  return (\n    <div className="min-h-screen bg-gray-50 p-8">\n      <h1 className="text-3xl font-bold text-gray-900 mb-4">Generated Page</h1>\n      <p className="text-gray-600">This page was generated based on your requirements: ${requirements}</p>\n    </div>\n  );\n};\n\nexport default GeneratedPage;`,
+              type: 'component'
+            }
+          ],
+          warnings: ['AI response parsing failed, using fallback template'],
+          suggestions: ['Try regenerating with more specific requirements']
+        };
+      }
+
+      // Deduct credits based on estimated cost
+      const creditsToDeduct = aiConfig?.estimatedCredits || 15;
+      await trackAIUsage({
+        userId: req.user!.id,
+        operationType: 'app_generation',
+        modelUsed: config.modelName,
+        tokensConsumed: creditsToDeduct * 100 // Estimated tokens based on credits
+      });
+
+      res.json({
+        success: true,
+        ...parsedResponse,
+        aiProvider,
+        model: config.modelName
+      });
+
+    } catch (error) {
+      console.error('❌ AI Page Generation error:', error);
+      res.status(500).json({ 
+        error: 'Failed to generate AI page',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
   // Model capabilities checking endpoint - now returns optimized configurations
   app.get("/api/model/capabilities/:modelId", async (req, res) => {
     try {

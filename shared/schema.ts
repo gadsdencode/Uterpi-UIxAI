@@ -731,6 +731,71 @@ export const aiCoachConversations = pgTable("ai_coach_conversations", {
 });
 
 // =============================================================================
+// CHAT VECTORIZATION SYSTEM
+// =============================================================================
+
+// Chat conversations storage
+export const conversations = pgTable("conversations", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  sessionId: text("session_id").notNull(),
+  title: text("title"),
+  provider: text("provider").notNull(), // 'uterpi', 'openai', 'gemini', 'azure', 'lmstudio'
+  model: text("model").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  archivedAt: timestamp("archived_at"),
+});
+
+// Individual messages within conversations
+export const messages = pgTable("messages", {
+  id: serial("id").primaryKey(),
+  conversationId: integer("conversation_id").references(() => conversations.id).notNull(),
+  content: text("content").notNull(),
+  role: text("role").notNull(), // 'user', 'assistant', 'system'
+  messageIndex: integer("message_index").notNull(), // Order within conversation
+  attachments: json("attachments").$type<string[]>(), // File attachments
+  metadata: json("metadata").$type<{
+    code?: string;
+    currentBalance?: number;
+    messagesUsed?: number;
+    monthlyAllowance?: number;
+    isFreemium?: boolean;
+    creditsRequired?: number;
+    isTeamPooled?: boolean;
+    purchaseUrl?: string;
+    upgradeUrl?: string;
+    message?: string;
+    model?: string;
+    provider?: string;
+    tokensUsed?: number;
+  }>(), // Additional message metadata
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Vector embeddings for semantic search
+export const messageEmbeddings = pgTable("message_embeddings", {
+  id: serial("id").primaryKey(),
+  messageId: integer("message_id").references(() => messages.id).notNull(),
+  embedding: text("embedding").notNull(), // Stored as JSON array string
+  embeddingModel: text("embedding_model").notNull(), // Model used for embedding
+  embeddingDimensions: integer("embedding_dimensions").notNull(), // Vector dimensions
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Conversation context vectors (aggregated summaries)
+export const conversationEmbeddings = pgTable("conversation_embeddings", {
+  id: serial("id").primaryKey(),
+  conversationId: integer("conversation_id").references(() => conversations.id).notNull(),
+  summaryEmbedding: text("summary_embedding").notNull(), // Stored as JSON array string
+  embeddingModel: text("embedding_model").notNull(),
+  embeddingDimensions: integer("embedding_dimensions").notNull(),
+  summary: text("summary"), // Text summary of conversation
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// =============================================================================
 // NEW MULTI-TIER SUBSCRIPTION TABLES
 // =============================================================================
 

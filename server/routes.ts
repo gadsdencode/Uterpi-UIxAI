@@ -14,6 +14,9 @@ import { requireActiveSubscription, enhanceWithSubscription, requireCredits, req
 import { trackAIUsage } from "./stripe-enhanced";
 import { handleStripeWebhook, rawBodyParser } from "./webhooks";
 import { fileStorage } from "./file-storage";
+import { conversationService } from "./conversation-service";
+import { vectorProcessor } from "./vector-processor";
+import { contextEnhancer } from "./context-enhancer";
 import multer from 'multer';
 import ModelClient from "@azure-rest/ai-inference";
 import { AzureKeyCredential } from "@azure/core-auth";
@@ -617,6 +620,102 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // =============================================================================
+  // VECTORIZATION SYSTEM TEST ENDPOINT
+  // =============================================================================
+
+  // Test endpoint for vectorization system
+  app.post("/api/test/vectorization", requireAuth, async (req, res) => {
+    try {
+      const { testVectorizationSystem } = await import('./test-vectorization');
+      console.log('🧪 Running vectorization system tests...');
+      
+      const results = await testVectorizationSystem();
+      const totalTests = results.length;
+      const passedTests = results.filter(r => r.success).length;
+      
+      res.json({
+        success: true,
+        summary: {
+          totalTests,
+          passedTests,
+          failedTests: totalTests - passedTests,
+          successRate: ((passedTests / totalTests) * 100).toFixed(1) + '%'
+        },
+        results,
+        systemReady: passedTests >= totalTests * 0.8
+      });
+    } catch (error) {
+      console.error('❌ Vectorization test failed:', error);
+      res.status(500).json({
+        success: false,
+        error: error?.toString(),
+        message: 'Vectorization system test failed'
+      });
+    }
+  });
+
+  // Get vectorization queue status
+  app.get("/api/vectorization/status", requireAuth, async (req, res) => {
+    try {
+      const queueStatus = vectorProcessor.getQueueStatus();
+      
+      res.json({
+        success: true,
+        queueStatus,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error('❌ Error getting vectorization status:', error);
+      res.status(500).json({
+        success: false,
+        error: error?.toString()
+      });
+    }
+  });
+
+  // Get user conversations
+  app.get("/api/conversations", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const limit = parseInt(req.query.limit as string) || 20;
+      
+      const conversations = await conversationService.getUserConversations(userId, limit);
+      
+      res.json({
+        success: true,
+        conversations,
+        count: conversations.length
+      });
+    } catch (error) {
+      console.error('❌ Error getting user conversations:', error);
+      res.status(500).json({
+        success: false,
+        error: error?.toString()
+      });
+    }
+  });
+
+  // Get conversation messages
+  app.get("/api/conversations/:id/messages", requireAuth, async (req, res) => {
+    try {
+      const conversationId = parseInt(req.params.id);
+      const messages = await conversationService.getConversationMessages(conversationId);
+      
+      res.json({
+        success: true,
+        messages,
+        count: messages.length
+      });
+    } catch (error) {
+      console.error('❌ Error getting conversation messages:', error);
+      res.status(500).json({
+        success: false,
+        error: error?.toString()
+      });
+    }
+  });
+
+  // =============================================================================
   // UNIVERSAL AI PROXY WITH CREDIT CHECKING
   // =============================================================================
 
@@ -624,7 +723,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/ai/v1/chat/completions", requireAuth, checkFreemiumLimit(), requireMinimumCredits(10, 'chat'), async (req, res) => {
     console.log('🚀 Chat endpoint called for user:', req.user?.id);
     try {
-      const { provider, messages, model, max_tokens, temperature, top_p, stream, ...otherParams } = req.body;
+      const { provider, messages, model, max_tokens, temperature, top_p, stream, sessionId, enableContext = true, ...otherParams } = req.body;
       
       if (!provider) {
         return res.status(400).json({ error: 'Provider is required' });
@@ -636,8 +735,67 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ error: 'User not found' });
       }
 
+      const userId = req.user!.id;
+      let modelName = model || "nomadic-icdu-v8"; // Default to preferred model
       let response;
-      let modelName = model;
+      let conversation;
+      let userMessage;
+      let aiResponse;
+      let enhancedMessages = messages; // Default to original messages
+
+      // =============================================================================
+      // VECTORIZATION PIPELINE INTEGRATION
+      // =============================================================================
+
+      try {
+        // 1. Get or create conversation
+        conversation = await conversationService.getOrCreateConversation(
+          userId, 
+          provider.toLowerCase(), 
+          modelName, 
+          sessionId
+        );
+
+        console.log(`💬 Using conversation ${conversation.id} for user ${userId}`);
+
+        // 2. Store user message (last message in the array)
+        const lastMessage = messages[messages.length - 1];
+        if (lastMessage && lastMessage.role === 'user') {
+          userMessage = await conversationService.addMessage({
+            conversationId: conversation.id,
+            content: lastMessage.content,
+            role: 'user',
+            attachments: lastMessage.attachments,
+            metadata: lastMessage.metadata
+          });
+
+          console.log(`📝 Stored user message ${userMessage.id} in conversation ${conversation.id}`);
+        }
+
+        // 3. Enhance messages with context from past conversations (if enabled)
+        if (enableContext) {
+          try {
+            const contextResult = await contextEnhancer.enhanceMessagesWithContext(
+              messages, 
+              userId,
+              { maxSimilarMessages: 3, maxSimilarConversations: 2, similarityThreshold: 0.75, includeConversationContext: true, includeMessageContext: true, maxContextLength: 2000 }
+            );
+
+            enhancedMessages = contextResult.enhancedMessages;
+            console.log(`🧠 Enhanced messages with context: ${contextResult.similarMessages.length} similar messages, ${contextResult.similarConversations.length} similar conversations`);
+          } catch (contextError) {
+            console.warn('⚠️ Context enhancement failed, proceeding without context:', contextError);
+          }
+        }
+
+      } catch (vectorError) {
+        console.error('❌ Vectorization pipeline error (proceeding without storage):', vectorError);
+        // Continue with the request even if vectorization fails
+      }
+
+      // =============================================================================
+      // AI PROVIDER PROCESSING (Enhanced with vectorization)
+      // =============================================================================
 
       switch (provider.toLowerCase()) {
         case 'azure':
@@ -658,7 +816,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
 
           const requestBody: any = {
-            messages,
+            messages: enhancedMessages || messages,
             model: modelName,
             max_tokens: max_tokens || 1024,
             temperature: temperature || 0.7,
@@ -682,7 +840,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
 
           // Convert messages to HuggingFace format
-          const prompt = messages
+          const prompt = (enhancedMessages || messages)
             .map((m: any) => {
               const role = m.role === "assistant" ? "Assistant" : m.role === "user" ? "User" : "System";
               return `${role}: ${m.content}`;
@@ -746,7 +904,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const proxyAuth = process.env.LMSTUDIO_API_KEY ? `Bearer ${process.env.LMSTUDIO_API_KEY}` : "Bearer lm-studio";
 
           const requestBody = {
-            messages,
+            messages: enhancedMessages || messages,
             model: model || "nomadic-icdu-v8",
             max_tokens: max_tokens || 1024,
             temperature: temperature || 0.7,
@@ -829,7 +987,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
 
           const requestBody = {
-            messages,
+            messages: enhancedMessages || messages,
             model: model || "gpt-4o-mini",
             max_tokens: max_tokens || 1024,
             temperature: temperature || 0.7,
@@ -867,7 +1025,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
 
           // Convert messages to Gemini format
-          const geminiMessages = messages.map((msg: any) => ({
+          const geminiMessages = (enhancedMessages || messages).map((msg: any) => ({
             role: msg.role === "assistant" ? "model" : "user",
             parts: [{ text: msg.content || "" }]
           }));
@@ -980,14 +1138,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).json({ error: `Unsupported provider: ${provider}` });
       }
 
+      // =============================================================================
+      // POST-PROCESSING: Store AI response and queue vectorization
+      // =============================================================================
+      
       // Calculate actual token usage and deduct credits
       if ((response as any).status === "200" || (response as any).status === 200) {
         const responseBody = (response as any).body;
         console.log('🔍 Backend: Returning response body:', JSON.stringify(responseBody, null, 2));
         
+        // Extract AI response content
+        const outputContent = responseBody?.choices?.[0]?.message?.content || '';
+        
+        // Store AI response in conversation (if vectorization is enabled)
+        if (conversation && outputContent) {
+          try {
+            aiResponse = await conversationService.addMessage({
+              conversationId: conversation.id,
+              content: outputContent,
+              role: 'assistant',
+              metadata: {
+                model: modelName,
+                provider: provider.toLowerCase(),
+                tokensUsed: responseBody?.usage?.total_tokens
+              }
+            });
+
+            console.log(`🤖 Stored AI response ${aiResponse.id} in conversation ${conversation.id}`);
+
+            // Queue both user and AI messages for vectorization
+            if (userMessage) {
+              await vectorProcessor.queueMessageVectorization(userMessage.id, conversation.id, 'normal');
+            }
+            await vectorProcessor.queueMessageVectorization(aiResponse.id, conversation.id, 'normal');
+
+            // Generate conversation title if this is the first exchange
+            const messageCount = await conversationService.getConversationMessages(conversation.id);
+            if (messageCount.length <= 2) { // First user + AI message pair
+              await conversationService.generateConversationTitle(conversation.id);
+            }
+
+            // Queue conversation summary update (low priority, after several messages)
+            if (messageCount.length >= 6) { // After 3 exchanges
+              await vectorProcessor.queueConversationSummary(conversation.id, 'low');
+            }
+
+          } catch (storageError) {
+            console.error('❌ Error storing AI response (continuing with response):', storageError);
+          }
+        }
+        
         // Calculate actual token usage
         const inputTokens = countTokensFromMessages(messages || []);
-        const outputContent = responseBody?.choices?.[0]?.message?.content || '';
         const outputTokens = estimateTokenCount(outputContent);
         
         // Deduct credits based on actual token usage

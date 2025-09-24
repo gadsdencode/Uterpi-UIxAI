@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Upload, 
@@ -12,10 +12,16 @@ import {
   Sparkles,
   Zap,
   Code,
-  FolderOpen
+  FolderOpen,
+  AlertCircle,
+  Settings
 } from 'lucide-react';
 import { useFileManager, type FileItem } from '../hooks/useFileManager';
+import { useAIProvider } from '../hooks/useAIProvider';
 import { toast } from 'sonner';
+import { AICreditsDisplay } from './AICreditsDisplay';
+import { Badge } from './ui/badge';
+import { Button } from './ui/button';
 
 interface CloneUIModalProps {
   isOpen: boolean;
@@ -51,6 +57,15 @@ interface GenerationResult {
   success: boolean;
   analysis: AnalysisResult;
   generatedCode: string;
+  metadata?: {
+    model?: string;
+    provider?: string;
+    responseTime?: string;
+    creditsUsed?: number;
+    tokensUsed?: number;
+    cached?: boolean;
+    analysisTime?: number;
+  };
 }
 
 interface ImageFileManagerModalProps {
@@ -59,24 +74,91 @@ interface ImageFileManagerModalProps {
   preview: string | null;
 }
 
+// Provider status header component
+interface ProviderStatusHeaderProps {
+  currentProvider: any;
+  selectedLLMModel: any;
+  isProviderConfigured: (provider: any) => boolean;
+}
+
+const ProviderStatusHeader: React.FC<ProviderStatusHeaderProps> = ({ 
+  currentProvider, 
+  selectedLLMModel, 
+  isProviderConfigured 
+}) => {
+  const providerNames: { [key: string]: string } = {
+    lmstudio: 'Uterpi AI',
+    uterpi: 'Uterpi',
+    openai: 'OpenAI',
+    gemini: 'Google Gemini', 
+    huggingface: 'Hugging Face'
+  };
+
+  const isConfigured = isProviderConfigured(currentProvider);
+  
+  return (
+    <div className="flex items-center justify-between mb-4 p-3 bg-slate-800/30 rounded-lg">
+      <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-slate-400">AI Provider:</span>
+          <Badge 
+            variant="outline" 
+            className={`${isConfigured ? 'text-violet-400 border-violet-400/50' : 'text-orange-400 border-orange-400/50'}`}
+          >
+            {providerNames[currentProvider] || currentProvider}
+          </Badge>
+          {!isConfigured && (
+            <div className="flex items-center gap-1 text-orange-400">
+              <AlertCircle className="w-4 h-4" />
+              <span className="text-xs">Not configured</span>
+            </div>
+          )}
+        </div>
+        {selectedLLMModel && (
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-slate-400">Model:</span>
+            <span className="text-sm text-white">{selectedLLMModel.name}</span>
+          </div>
+        )}
+      </div>
+      <div className="flex items-center gap-3">
+        <AICreditsDisplay compact={true} />
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            // Navigate to provider settings - you may need to implement this navigation
+            toast.info('Provider settings - implement navigation');
+          }}
+          className="p-1 h-auto text-slate-400 hover:text-white"
+        >
+          <Settings className="w-4 h-4" />
+        </Button>
+      </div>
+    </div>
+  );
+};
+
 const ImageFileManagerModal: React.FC<ImageFileManagerModalProps> = ({ onFileSelect, selectedFile, preview }) => {
   const fileManager = useFileManager();
   const [searchQuery, setSearchQuery] = useState('');
   
-  // Filter for image files only
+  // Enhanced file filtering with better image support
   const { data: fileList, isLoading } = fileManager.useFileList({
     search: searchQuery || undefined,
     mimeType: 'image/',
-    limit: 20
+    limit: 50 // Show more images
   });
 
   const imageFiles = fileList?.files.filter(file => 
-    file.mimeType.startsWith('image/')
+    file.mimeType.startsWith('image/') && 
+    ['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.mimeType)
   ) || [];
 
   return (
     <div className="space-y-4">
-      <div className="relative">
+      {/* Enhanced search with filters */}
+      <div className="space-y-3">
         <input
           type="text"
           value={searchQuery}
@@ -84,21 +166,36 @@ const ImageFileManagerModal: React.FC<ImageFileManagerModalProps> = ({ onFileSel
           placeholder="Search your images..."
           className="w-full p-3 bg-slate-800/50 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:border-violet-400 focus:outline-none"
         />
+        
+        {/* File type filters */}
+        <div className="flex gap-2 text-xs">
+          <Badge variant="outline" className="text-slate-400">
+            {imageFiles.length} images found
+          </Badge>
+          <Badge variant="outline" className="text-slate-400">
+            Supported: JPG, PNG, WebP, GIF
+          </Badge>
+        </div>
       </div>
 
+      {/* Enhanced preview section */}
       {preview && selectedFile && (
         <div className="p-4 bg-slate-800/50 border border-violet-400 rounded-lg">
-          <div className="flex items-center space-x-4">
+          <div className="flex items-start space-x-4">
             <img
               src={preview}
               alt="Selected"
-              className="w-16 h-16 object-cover rounded"
+              className="w-24 h-24 object-cover rounded border border-slate-600"
             />
-            <div>
+            <div className="flex-1">
               <h3 className="font-medium text-violet-400">{selectedFile.name}</h3>
-              <p className="text-sm text-slate-400">
-                {(selectedFile.size / 1024).toFixed(1)} KB • {selectedFile.mimeType}
-              </p>
+              <div className="space-y-1 text-sm text-slate-400">
+                <p>{(selectedFile.size / 1024).toFixed(1)} KB • {selectedFile.mimeType}</p>
+                <p>Selected for analysis</p>
+              </div>
+              <Badge variant="outline" className="mt-2 text-green-400 border-green-400/50">
+                Ready for Analysis
+              </Badge>
             </div>
           </div>
         </div>
@@ -114,10 +211,10 @@ const ImageFileManagerModal: React.FC<ImageFileManagerModalProps> = ({ onFileSel
           <div className="p-8 text-center text-slate-400">
             <ImageIcon className="w-12 h-12 mx-auto mb-4 opacity-50" />
             <p>No images found</p>
-            <p className="text-sm">Upload some images first</p>
+            <p className="text-sm">Upload some UI screenshots first</p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 p-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-4">
             {imageFiles.map((file) => (
               <button
                 key={file.id}
@@ -128,21 +225,35 @@ const ImageFileManagerModal: React.FC<ImageFileManagerModalProps> = ({ onFileSel
                     : 'border-slate-600 hover:border-slate-500'
                 }`}
               >
-                <div className="aspect-square bg-slate-800">
-                  {/* We'll need to handle image preview differently for stored files */}
-                  <div className="w-full h-full flex items-center justify-center">
+                <div className="aspect-square bg-slate-800 relative">
+                  {/* Enhanced image preview */}
+                  <img 
+                    src={`/api/files/${file.id}/download`}
+                    alt={file.name}
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                    onError={(e) => {
+                      // Fallback to icon if image fails to load
+                      e.currentTarget.classList.add('hidden');
+                      const fallback = e.currentTarget.nextElementSibling as HTMLElement;
+                      if (fallback) fallback.classList.remove('hidden');
+                    }}
+                  />
+                  <div className="hidden w-full h-full items-center justify-center absolute inset-0 bg-slate-800">
                     <ImageIcon className="w-8 h-8 text-slate-400" />
                   </div>
                 </div>
-                <div className="absolute bottom-0 left-0 right-0 bg-black/75 p-2">
+                
+                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2">
                   <p className="text-xs text-white truncate">{file.name}</p>
                   <p className="text-xs text-slate-300">
                     {(file.size / 1024).toFixed(1)} KB
                   </p>
                 </div>
+                
                 {selectedFile?.id === file.id && (
                   <div className="absolute top-2 right-2">
-                    <Check className="w-4 h-4 text-violet-400" />
+                    <Check className="w-4 h-4 text-violet-400 bg-slate-900/80 rounded-full p-0.5" />
                   </div>
                 )}
               </button>
@@ -162,8 +273,14 @@ const CloneUIModal: React.FC<CloneUIModalProps> = ({ isOpen, onClose }) => {
   const [dragActive, setDragActive] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<GenerationResult | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
+  const [estimatedCredits] = useState(15); // UI analysis typically costs ~15 credits
   
   const fileManager = useFileManager();
+  const {
+    currentProvider,
+    selectedLLMModel,
+    isProviderConfigured
+  } = useAIProvider();
 
   const handleDrag = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -223,27 +340,47 @@ const CloneUIModal: React.FC<CloneUIModalProps> = ({ isOpen, onClose }) => {
   };
 
   const analyzeImage = async () => {
-    if (!selectedFile) return;
+    if (!selectedFile && !selectedStoredFile) return;
+
+    // Check if current provider is configured
+    if (!isProviderConfigured(currentProvider)) {
+      toast.error(`${currentProvider.charAt(0).toUpperCase() + currentProvider.slice(1)} is not properly configured. Please check your settings.`);
+      return;
+    }
 
     setStep('analyzing');
 
-    const formData = new FormData();
-    formData.append('image', selectedFile);
-    
-    // Get the current AI provider from localStorage
-    const provider = localStorage.getItem('current-ai-provider') || 'gemini';
-    formData.append('provider', provider);
-    
-    // Add API keys if needed
-    if (provider === 'gemini') {
-      const apiKey = localStorage.getItem('gemini-api-key');
-      if (apiKey) formData.append('apiKey', apiKey);
-    } else if (provider === 'openai') {
-      const apiKey = localStorage.getItem('openai-api-key');
-      if (apiKey) formData.append('apiKey', apiKey);
-    }
-
     try {
+      const formData = new FormData();
+      
+      // Handle both uploaded and stored files
+      if (selectedFile) {
+        formData.append('image', selectedFile);
+      } else if (selectedStoredFile) {
+        // Get the file blob from storage for stored files
+        const response = await fetch(`/api/files/${selectedStoredFile.id}/download`);
+        if (!response.ok) {
+          throw new Error('Failed to retrieve stored image');
+        }
+        const blob = await response.blob();
+        formData.append('image', blob, selectedStoredFile.name);
+      }
+      
+      // Use current provider from AI provider system
+      formData.append('provider', currentProvider);
+      
+      // Add API keys if needed (for providers that require them)
+      if (currentProvider === 'gemini') {
+        const apiKey = localStorage.getItem('gemini-api-key');
+        if (apiKey) formData.append('apiKey', apiKey);
+      } else if (currentProvider === 'openai') {
+        const apiKey = localStorage.getItem('openai-api-key');
+        if (apiKey) formData.append('apiKey', apiKey);
+      } else if (currentProvider === 'huggingface') {
+        const apiKey = localStorage.getItem('hf-api-token');
+        if (apiKey) formData.append('apiKey', apiKey);
+      }
+
       const response = await fetch('/api/clone-ui/analyze', {
         method: 'POST',
         body: formData,
@@ -253,11 +390,27 @@ const CloneUIModal: React.FC<CloneUIModalProps> = ({ isOpen, onClose }) => {
         const result: GenerationResult = await response.json();
         setAnalysisResult(result);
         setStep('results');
+        
+        // Show success feedback with credit info if available
+        const creditsUsed = result.metadata?.creditsUsed || estimatedCredits;
+        toast.success(`UI analysis complete! Generated ${result.analysis.components?.length || 0} components using ${creditsUsed} credits.`);
       } else {
-        throw new Error('Analysis failed');
+        const errorData = await response.json();
+        
+        if (response.status === 402 && errorData.code === 'INSUFFICIENT_CREDITS') {
+          toast.error(`Insufficient AI credits. You need ${errorData.creditsRequired || estimatedCredits} credits but have ${errorData.currentBalance || 0}.`);
+        } else if (response.status === 401) {
+          toast.error('Authentication required. Please log in to use UI analysis.');
+        } else if (response.status === 403) {
+          toast.error('UI analysis requires a paid subscription. Please upgrade your plan.');
+        } else {
+          throw new Error(errorData.error || 'Analysis failed');
+        }
+        setStep('upload');
       }
     } catch (error) {
       console.error('Analysis error:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to analyze image. Please try again.');
       setStep('upload');
     }
   };
@@ -343,6 +496,13 @@ const CloneUIModal: React.FC<CloneUIModalProps> = ({ isOpen, onClose }) => {
           <div className="p-6 overflow-y-auto max-h-[calc(90vh-80px)]">
             {step === 'upload' && (
               <div className="space-y-6">
+                {/* Provider Status Header */}
+                <ProviderStatusHeader 
+                  currentProvider={currentProvider}
+                  selectedLLMModel={selectedLLMModel}
+                  isProviderConfigured={isProviderConfigured}
+                />
+                
                 {/* Input Method Selection */}
                 <div className="flex justify-center gap-2">
                   <button
@@ -431,22 +591,45 @@ const CloneUIModal: React.FC<CloneUIModalProps> = ({ isOpen, onClose }) => {
 
                 {/* Action Buttons */}
                 {(selectedFile || selectedStoredFile) && (
-                  <div className="flex justify-center gap-3">
-                    <button
-                      onClick={resetModal}
-                      className="px-6 py-2 text-slate-400 hover:text-white transition-colors"
-                    >
-                      Clear
-                    </button>
-                    <motion.button
-                      onClick={analyzeImage}
-                      className="px-8 py-3 bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700 rounded-lg text-white font-medium flex items-center gap-2 transition-all"
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
-                    >
-                      <Sparkles className="w-4 h-4" />
-                      Analyze & Generate
-                    </motion.button>
+                  <div className="space-y-4">
+                    {/* Credit cost information */}
+                    <div className="flex items-center justify-center gap-2 text-sm text-slate-400 bg-slate-800/30 rounded-lg p-3">
+                      <Sparkles className="w-4 h-4 text-violet-400" />
+                      <span>UI Analysis will use approximately <strong className="text-white">{estimatedCredits} AI credits</strong></span>
+                    </div>
+                    
+                    <div className="flex justify-center gap-3">
+                      <button
+                        onClick={resetModal}
+                        className="px-6 py-2 text-slate-400 hover:text-white transition-colors"
+                      >
+                        Clear
+                      </button>
+                      <motion.button
+                        onClick={analyzeImage}
+                        disabled={!isProviderConfigured(currentProvider)}
+                        className={`px-8 py-3 rounded-lg text-white font-medium flex items-center gap-2 transition-all ${
+                          isProviderConfigured(currentProvider)
+                            ? 'bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700'
+                            : 'bg-slate-600 cursor-not-allowed'
+                        }`}
+                        whileHover={isProviderConfigured(currentProvider) ? { scale: 1.02 } : {}}
+                        whileTap={isProviderConfigured(currentProvider) ? { scale: 0.98 } : {}}
+                      >
+                        <Sparkles className="w-4 h-4" />
+                        {isProviderConfigured(currentProvider) 
+                          ? `Analyze & Generate (${estimatedCredits} credits)`
+                          : 'Provider Not Configured'
+                        }
+                      </motion.button>
+                    </div>
+                    
+                    {!isProviderConfigured(currentProvider) && (
+                      <div className="flex items-center justify-center gap-2 text-sm text-orange-400 bg-orange-500/10 rounded-lg p-3">
+                        <AlertCircle className="w-4 h-4" />
+                        <span>Please configure your AI provider in settings before analyzing images</span>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -494,6 +677,24 @@ const CloneUIModal: React.FC<CloneUIModalProps> = ({ isOpen, onClose }) => {
 
             {step === 'results' && analysisResult && (
               <div className="space-y-6">
+                {/* Analysis Metadata */}
+                <div className="flex items-center justify-between p-3 bg-slate-800/30 rounded-lg">
+                  <div className="flex items-center gap-4 text-sm text-slate-400">
+                    <span>Provider: <span className="text-white">{currentProvider.charAt(0).toUpperCase() + currentProvider.slice(1)}</span></span>
+                    {selectedLLMModel && (
+                      <span>Model: <span className="text-white">{selectedLLMModel.name}</span></span>
+                    )}
+                    {analysisResult.metadata?.responseTime && (
+                      <span>Time: <span className="text-white">{analysisResult.metadata.responseTime}</span></span>
+                    )}
+                  </div>
+                  {analysisResult.metadata?.creditsUsed && (
+                    <Badge variant="outline" className="text-violet-400 border-violet-400/50">
+                      {analysisResult.metadata.creditsUsed} credits used
+                    </Badge>
+                  )}
+                </div>
+                
                 {/* Analysis Summary */}
                 <div className="grid md:grid-cols-2 gap-6">
                   <div className="space-y-4">
@@ -615,13 +816,23 @@ const CloneUIModal: React.FC<CloneUIModalProps> = ({ isOpen, onClose }) => {
                   </div>
                 </div>
 
-                {/* Action Buttons */}
+                {/* Enhanced Action Buttons */}
                 <div className="flex justify-center gap-3 pt-4">
                   <button
                     onClick={resetModal}
                     className="px-6 py-2 text-slate-400 hover:text-white transition-colors"
                   >
-                    Upload Another
+                    Analyze Another
+                  </button>
+                  <button
+                    onClick={() => {
+                      copyToClipboard(JSON.stringify(analysisResult.analysis, null, 2));
+                      toast.success('Analysis data copied to clipboard');
+                    }}
+                    className="px-6 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors flex items-center gap-2"
+                  >
+                    <Copy className="w-4 h-4" />
+                    Copy Analysis
                   </button>
                   <motion.button
                     onClick={handleClose}

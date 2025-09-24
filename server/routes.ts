@@ -320,6 +320,47 @@ function setCachedResponse(cacheKey: string, response: any, ttlMinutes: number =
   }
 }
 
+// Helper function to get LM Studio base URL
+function getLMStudioBaseUrl() {
+  const isProduction = process.env.NODE_ENV === 'production' || !!process.env.REPL_SLUG;
+  
+  const sanitizeBaseUrl = (raw: string): string => {
+    let base = (raw || "").trim();
+    // Fix accidental duplicate port patterns like :1234:1234
+    base = base.replace(/:(\d+):(\d+)/, ":$1");
+    // Remove any trailing slash
+    base = base.replace(/\/$/, "");
+    // Strip accidental API path suffixes
+    base = base.replace(/\/(v1|openai|api)(\/.*)?$/i, "");
+    // Ensure protocol
+    if (!/^https?:\/\//i.test(base)) {
+      base = `http://${base}`;
+    }
+    // Validate URL
+    try {
+      // eslint-disable-next-line no-new
+      new URL(base);
+    } catch {
+      throw new Error(`Invalid LMSTUDIO_BASE_URL provided: ${raw}`);
+    }
+    return base;
+  };
+
+  // Try multiple sources for LM Studio URL configuration
+  // In production (Replit), use the Cloudflare tunnel URL with HTTPS
+  // In development, use local IP or configured URL
+  const defaultUrl = isProduction 
+    ? "https://lmstudio.uterpi.com"  // Cloudflare tunnel URL for production (MUST be HTTPS)
+    : "http://192.168.86.44:1234";   // Local IP for development
+  
+  const lmBaseRaw = process.env.LMSTUDIO_BASE_URL || process.env.VITE_LMSTUDIO_BASE_URL || defaultUrl;
+  
+  return {
+    url: sanitizeBaseUrl(lmBaseRaw),
+    isProduction
+  };
+}
+
 // Create AI client based on provider
 export function createAIClient(provider: string = 'gemini', userApiKey?: string): { client: any; config: any } {
   switch (provider.toLowerCase()) {
@@ -332,7 +373,7 @@ export function createAIClient(provider: string = 'gemini', userApiKey?: string)
       return {
         client: genAI,
         config: { 
-          modelName: 'gemini-1.5-flash',
+          modelName: 'gemini-2.5-flash',
           apiKey 
         }
       };
@@ -347,7 +388,7 @@ export function createAIClient(provider: string = 'gemini', userApiKey?: string)
       return {
         client: openai,
         config: {
-          modelName: 'gpt-4-turbo-preview',
+          modelName: 'gpt-4o-mini',
           apiKey
         }
       };
@@ -375,6 +416,28 @@ export function createAIClient(provider: string = 'gemini', userApiKey?: string)
           maxRetries: 3,
           retryDelay: 1000,
           cacheEnabled: true
+        }
+      };
+    }
+    
+    case 'lmstudio': {
+      const baseInfo = getLMStudioBaseUrl();
+      const apiKey = userApiKey || process.env.LMSTUDIO_API_KEY || "lm-studio";
+      
+      // Create OpenAI client configured for LM Studio endpoint
+      const openai = new OpenAI({
+        apiKey: apiKey,
+        baseURL: `${baseInfo.url}/v1`
+      });
+      
+      return {
+        client: openai,
+        config: {
+          modelName: 'nomadic-icdu-v8', // The actual default LM Studio model
+          apiKey,
+          baseURL: `${baseInfo.url}/v1`,
+          maxRetries: 3,
+          retryDelay: 1000
         }
       };
     }
@@ -431,52 +494,6 @@ const upload = multer({
 });
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Helper function to get LM Studio base URL
-  const getLMStudioBaseUrl = (): { url: string; isProduction: boolean } => {
-    const isProduction = process.env.NODE_ENV === 'production' || !!process.env.REPL_SLUG;
-    
-    const sanitizeBaseUrl = (raw: string): string => {
-      let base = (raw || "").trim();
-      // Fix accidental duplicate port patterns like :1234:1234
-      base = base.replace(/:(\d+):(\d+)/, ":$1");
-      // Remove any trailing slash
-      base = base.replace(/\/$/, "");
-      // Strip accidental API path suffixes
-      base = base.replace(/\/(v1|openai|api)(\/.*)?$/i, "");
-      // Ensure protocol
-      if (!/^https?:\/\//i.test(base)) {
-        base = `http://${base}`;
-      }
-      // Validate URL
-      try {
-        // eslint-disable-next-line no-new
-        new URL(base);
-      } catch {
-        throw new Error(`Invalid LMSTUDIO_BASE_URL provided: ${raw}`);
-      }
-      return base;
-    };
-
-    // Try multiple sources for LM Studio URL configuration
-    // In production (Replit), use the Cloudflare tunnel URL with HTTPS
-    // In development, use local IP or configured URL
-    const defaultUrl = isProduction 
-      ? "https://lmstudio.uterpi.com"  // Cloudflare tunnel URL for production (MUST be HTTPS)
-      : "http://192.168.86.44:1234";   // Local IP for development
-    
-    const lmBaseRaw = process.env.LMSTUDIO_BASE_URL || 
-                       process.env.VITE_LMSTUDIO_BASE_URL ||
-                       defaultUrl;
-    let lmBase = sanitizeBaseUrl(lmBaseRaw);
-    
-    // CRITICAL FIX: Ensure Cloudflare tunnel uses HTTPS in production
-    if (isProduction && lmBase.includes('uterpi.com') && lmBase.startsWith('http://')) {
-      lmBase = lmBase.replace('http://', 'https://');
-      console.log(`[LMStudio] Corrected protocol to HTTPS for Cloudflare tunnel`);
-    }
-    
-    return { url: lmBase, isProduction };
-  };
 
   // Generic LM Studio proxy handler
   const proxyLMStudioRequest = async (req: Request, res: any, endpoint: string) => {
@@ -730,7 +747,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           const requestBody = {
             messages,
-            model: model || "local-model",
+            model: model || "nomadic-icdu-v8",
             max_tokens: max_tokens || 1024,
             temperature: temperature || 0.7,
             top_p: top_p || 0.9,
@@ -868,7 +885,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             console.log('🌊 Gemini: Handling streaming request');
             
             // For streaming, we'll simulate it by getting the full response and chunking it
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model || "gemini-1.5-flash"}:generateContent?key=${apiKey}`, {
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model || "gemini-2.5-flash"}:generateContent?key=${apiKey}`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json'
@@ -926,7 +943,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             return;
           } else {
             // Non-streaming
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model || "gemini-1.5-flash"}:generateContent?key=${apiKey}`, {
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model || "gemini-2.5-flash"}:generateContent?key=${apiKey}`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json'
@@ -2370,7 +2387,7 @@ Focus on practical, implementable templates that match the user's requirements. 
         const result = await aiModel.generateContent(templatePrompt);
         const response = await result.response;
         aiResponse = response.text();
-      } else if (aiProvider.toLowerCase() === 'openai') {
+      } else if (aiProvider.toLowerCase() === 'openai' || aiProvider.toLowerCase() === 'lmstudio') {
         const response = await client.chat.completions.create({
           model: config.modelName,
           messages: [
@@ -2533,7 +2550,7 @@ Focus on practical suggestions that would enhance the user's page concept.`;
         const result = await aiModel.generateContent(suggestionPrompt);
         const response = await result.response;
         aiResponse = response.text();
-      } else if (aiProvider.toLowerCase() === 'openai') {
+      } else if (aiProvider.toLowerCase() === 'openai' || aiProvider.toLowerCase() === 'lmstudio') {
         const response = await client.chat.completions.create({
           model: config.modelName,
           messages: [
@@ -2710,7 +2727,7 @@ Generate production-ready, modern React code with TypeScript, proper error handl
         const result = await aiModel.generateContent(pagePrompt);
         const response = await result.response;
         aiResponse = response.text();
-      } else if (aiProvider.toLowerCase() === 'openai') {
+      } else if (aiProvider.toLowerCase() === 'openai' || aiProvider.toLowerCase() === 'lmstudio') {
         const response = await client.chat.completions.create({
           model: config.modelName,
           messages: [

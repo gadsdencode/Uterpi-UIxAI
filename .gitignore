@@ -8,3 +8,5 @@ vite.config.ts.*
 /android
 /www
 /ios
+/migrations
+/attached_assets

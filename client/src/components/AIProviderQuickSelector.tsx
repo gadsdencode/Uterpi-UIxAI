@@ -423,7 +423,7 @@ export const AIProviderQuickSelector: React.FC = () => {
                       e.stopPropagation();
                       setShowConfig(null);
                     }}
-                    className="flex-1 h-7 text-xs border-slate-600 text-slate-300 hover:bg-slate-700"
+                    className="flex-1 h-8 text-xs border-slate-500/70 bg-slate-800/60 text-slate-200 hover:text-white hover:bg-slate-700/80 hover:border-slate-400/80 transition-all duration-200 font-medium"
                   >
                     Cancel
                   </Button>
@@ -440,7 +440,7 @@ export const AIProviderQuickSelector: React.FC = () => {
                       (providers.find(p => p.id === showConfig)?.requiresKey && !apiKeys[showConfig]) ||
                       (showConfig === 'huggingface' && !endpointUrl)
                     }
-                    className="flex-1 h-7 text-xs bg-violet-600 hover:bg-violet-700 text-white"
+                    className="flex-1 h-8 text-xs bg-violet-600/90 hover:bg-violet-700 text-white border border-violet-500/50 hover:border-violet-400/70 transition-all duration-200 font-medium shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Save & Use
                   </Button>
@@ -499,14 +499,19 @@ export const AIProviderQuickSelector: React.FC = () => {
                         </div>
                         <Badge 
                           variant={isConfigured ? "default" : "outline"}
-                          className="text-[9px] h-3 px-1"
+                          className={cn(
+                            "text-[10px] h-4 px-2 font-medium",
+                            isConfigured 
+                              ? "bg-green-600/80 text-green-100 border-green-500/50" 
+                              : "border-amber-500/60 text-amber-300 bg-amber-950/30"
+                          )}
                         >
-                          {isConfigured ? "Configured" : "Not configured"}
+                          {isConfigured ? "Configured" : "Setup Required"}
                         </Badge>
                       </div>
                       
                       {isConfigured && (
-                        <div className="flex gap-1">
+                        <div className="flex gap-2">
                           <Button
                             size="sm"
                             variant="outline"
@@ -516,10 +521,13 @@ export const AIProviderQuickSelector: React.FC = () => {
                               testConnection(provider.id);
                             }}
                             disabled={isTesting}
-                            className="flex-1 h-6 text-[10px] border-slate-600 text-slate-300 hover:bg-slate-700"
+                            className="flex-1 h-7 text-xs px-3 border-slate-500/70 bg-slate-800/60 text-slate-100 hover:text-white hover:bg-slate-700/80 hover:border-slate-400/80 transition-all duration-200 font-medium"
                           >
                             {isTesting ? (
-                              <>Testing...</>
+                              <>
+                                <TestTube className="w-3 h-3 mr-1 animate-pulse" />
+                                Testing...
+                              </>
                             ) : (
                               <>
                                 <TestTube className="w-3 h-3 mr-1" />
@@ -536,7 +544,7 @@ export const AIProviderQuickSelector: React.FC = () => {
                                 e.stopPropagation();
                                 clearCredentials(provider.id);
                               }}
-                              className="flex-1 h-6 text-[10px] border-red-600/50 text-red-400 hover:bg-red-900/20"
+                              className="flex-1 h-7 text-xs px-3 border-red-500/70 bg-red-950/40 text-red-200 hover:text-red-100 hover:bg-red-900/50 hover:border-red-400/80 transition-all duration-200 font-medium"
                             >
                               <Trash2 className="w-3 h-3 mr-1" />
                               Clear

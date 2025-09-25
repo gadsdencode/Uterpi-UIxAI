@@ -262,7 +262,8 @@ export class GeminiService {
           max_tokens: validatedParams.maxTokens,
           temperature: validatedParams.temperature,
           top_p: validatedParams.topP,
-          stream: false
+          stream: false,
+          apiKey: this.config.apiKey
         }),
       });
 
@@ -447,7 +448,8 @@ export class GeminiService {
           max_tokens: validatedParams.maxTokens,
           temperature: validatedParams.temperature,
           top_p: validatedParams.topP,
-          stream: true
+          stream: true,
+          apiKey: this.config.apiKey
         }),
       });
       

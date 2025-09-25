@@ -236,7 +236,8 @@ export class OpenAIService {
         credentials: 'include',
         body: JSON.stringify({
           provider: 'openai',
-          ...requestBody
+          ...requestBody,
+          apiKey: this.config.apiKey
         }),
       });
 
@@ -330,7 +331,8 @@ export class OpenAIService {
         credentials: 'include',
         body: JSON.stringify({
           provider: 'openai',
-          ...requestBody
+          ...requestBody,
+          apiKey: this.config.apiKey
         }),
       });
 

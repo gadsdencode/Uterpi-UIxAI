@@ -1093,7 +1093,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         case 'openai': {
-          const apiKey = process.env.VITE_OPENAI_API_KEY;
+          const apiKey = (req.body as any)?.apiKey || process.env.VITE_OPENAI_API_KEY;
           if (!apiKey) {
             return res.status(400).json({ error: 'OpenAI configuration missing' });
           }
@@ -1131,7 +1131,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         case 'gemini': {
-          const apiKey = process.env.VITE_GEMINI_API_KEY;
+          const apiKey = (req.body as any)?.apiKey || process.env.VITE_GEMINI_API_KEY;
           if (!apiKey) {
             return res.status(400).json({ error: 'Gemini configuration missing' });
           }

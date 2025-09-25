@@ -257,6 +257,16 @@ export const EnhancedFileCard: React.FC<EnhancedFileCardProps> = ({
                 className="flex items-center space-x-1 flex-shrink-0"
                 onClick={(e) => e.stopPropagation()}
               >
+                {onReindex && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={(e) => handleActionClick(e, () => onReindex(file.id))}
+                    className="h-8 px-2 border-slate-600/50 text-emerald-300 hover:text-white hover:bg-slate-700/50"
+                  >
+                    Use in Chat
+                  </Button>
+                )}
                 <Button
                   size="sm"
                   variant="ghost"
@@ -364,6 +374,20 @@ export const EnhancedFileCard: React.FC<EnhancedFileCardProps> = ({
       onMouseLeave={() => setIsHovered(false)}
     >
       <div className="p-4">
+        {/* Always-visible Refresh for Chat control (top-left) */}
+        {enableAIAnalysis && onReindex && (
+          <div className="absolute top-2 left-2" onClick={(e) => e.stopPropagation()}>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => onReindex(file.id)}
+              className="h-7 w-7 p-0 text-slate-300 hover:text-white hover:bg-slate-700/50"
+              title="Refresh for Chat"
+            >
+              <RefreshCcw className="w-4 h-4" />
+            </Button>
+          </div>
+        )}
         {/* Primary Info Layer */}
         <div className="text-center">
           <div className="flex justify-center mb-3">

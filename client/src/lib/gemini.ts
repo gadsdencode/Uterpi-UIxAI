@@ -506,7 +506,7 @@ export class GeminiService {
             try {
               const data = JSON.parse(jsonData);
               
-              // Extract text from Gemini streaming response
+              // Extract text from Gemini native streaming response
               if (data.candidates && data.candidates[0]) {
                 const candidate = data.candidates[0];
                 
@@ -539,6 +539,18 @@ export class GeminiService {
                   if (candidate.finishReason === 'MAX_TOKENS') {
                     console.warn('⚠️ Gemini streaming hit token limit');
                   }
+                }
+              } else if (data.choices && data.choices[0]) {
+                // Extract text from OpenAI-style SSE (server proxy compatibility)
+                const choice = data.choices[0];
+                const deltaText = choice?.delta?.content || '';
+                const fullMessageText = choice?.message?.content || '';
+
+                // Prefer incremental delta when present; fallback to full message text
+                const text = deltaText || fullMessageText;
+                if (text) {
+                  onChunk(text);
+                  accumulatedText += text;
                 }
               }
             } catch (e) {

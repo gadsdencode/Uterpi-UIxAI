@@ -278,6 +278,7 @@ export class VectorService {
   ): Promise<SimilarMessage[]> {
     try {
       const queryEmbeddingStr = JSON.stringify(queryEmbedding);
+      const dims = queryEmbedding.length;
       
       // Use raw SQL for vector similarity search
       const result = await db.execute(sql`
@@ -292,6 +293,7 @@ export class VectorService {
         JOIN messages m ON me.message_id = m.id
         JOIN conversations c ON m.conversation_id = c.id
         WHERE c.user_id = ${userId}
+          AND me.embedding_dimensions = ${dims}
           AND (1 - (me.embedding::vector <=> ${queryEmbeddingStr}::vector)) > ${threshold}
         ORDER BY similarity DESC
         LIMIT ${limit}
@@ -323,6 +325,7 @@ export class VectorService {
   ): Promise<SimilarConversation[]> {
     try {
       const queryEmbeddingStr = JSON.stringify(queryEmbedding);
+      const dims = queryEmbedding.length;
       
       const result = await db.execute(sql`
         SELECT 
@@ -335,6 +338,7 @@ export class VectorService {
         JOIN conversations c ON ce.conversation_id = c.id
         WHERE c.user_id = ${userId}
           AND c.archived_at IS NULL
+          AND ce.embedding_dimensions = ${dims}
           AND (1 - (ce.summary_embedding::vector <=> ${queryEmbeddingStr}::vector)) > ${threshold}
         ORDER BY similarity DESC
         LIMIT ${limit}

@@ -3765,9 +3765,9 @@ You MUST respond with ONLY valid JSON in this exact structure. No markdown, no e
       };
 
       const uploadedFile = await fileStorage.uploadFile(user.id, fileData);
-      // Queue vectorization for text files (non-blocking)
+      // Queue vectorization for supported files (non-blocking). Binary types will extract text.
       try {
-        if (isVectorizationEnabled() && uploadedFile.encoding !== 'base64') {
+        if (isVectorizationEnabled()) {
           await vectorProcessor.queueFileVectorization(uploadedFile.id, user.id);
         }
       } catch (e) {

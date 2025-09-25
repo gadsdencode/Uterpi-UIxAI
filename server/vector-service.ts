@@ -2,8 +2,6 @@ import { db } from "./db";
 import { isVectorizationEnabled } from "./vector-flags";
 import { messageEmbeddings, messages, conversations, conversationEmbeddings, fileEmbeddings, files } from "@shared/schema";
 import { eq, desc, sql, and } from "drizzle-orm";
-import pdfParse from "pdf-parse";
-import mammoth from "mammoth";
 
 export interface SimilarMessage {
   id: number;
@@ -168,6 +166,8 @@ export class VectorService {
       // PDF
       if (mime === 'application/pdf') {
         try {
+          const pdfModule = await import('pdf-parse');
+          const pdfParse = (pdfModule as any).default || (pdfModule as any);
           const data = await pdfParse(buffer);
           return this.cleanTextForEmbedding(String(data.text || ''));
         } catch (e) {
@@ -182,6 +182,8 @@ export class VectorService {
         mime.endsWith('+docx')
       ) {
         try {
+          const mammothModule = await import('mammoth');
+          const mammoth = (mammothModule as any).default || (mammothModule as any);
           const result = await mammoth.extractRawText({ buffer });
           return this.cleanTextForEmbedding(String(result.value || ''));
         } catch (e) {

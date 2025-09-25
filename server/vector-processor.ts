@@ -246,8 +246,14 @@ export class VectorProcessor {
       throw new Error(`Message ${job.messageId} not found`);
     }
 
-    // Generate embedding
-    const embeddingResult = await vectorService.generateEmbedding(message.content);
+    // Generate embedding (service has internal fallback and will not throw)
+    const embeddingResult = await vectorService.generateEmbedding(message.content).catch((e) => {
+      console.warn('⚠️ Message embedding generation failed, skipping store:', e?.message || e);
+      return null as any;
+    });
+    if (!embeddingResult || !embeddingResult.embedding) {
+      return; // Skip storing if we have no embedding
+    }
     
     // Store embedding
     await vectorService.storeMessageEmbedding(job.messageId, embeddingResult);
@@ -264,8 +270,14 @@ export class VectorProcessor {
     // Generate conversation summary
     const summary = await vectorService.generateConversationSummary(job.conversationId);
     
-    // Generate embedding for summary
-    const embeddingResult = await vectorService.generateEmbedding(summary);
+    // Generate embedding for summary (non-blocking)
+    const embeddingResult = await vectorService.generateEmbedding(summary).catch((e) => {
+      console.warn('⚠️ Summary embedding generation failed, skipping store:', e?.message || e);
+      return null as any;
+    });
+    if (!embeddingResult || !embeddingResult.embedding) {
+      return;
+    }
     
     // Store conversation embedding
     await vectorService.storeConversationEmbedding(job.conversationId, summary, embeddingResult);

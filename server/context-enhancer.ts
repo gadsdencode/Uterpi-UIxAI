@@ -56,8 +56,14 @@ export class ContextEnhancer {
 
       console.log(`🔍 Enhancing context for user ${userId} with message: "${currentUserMessage.content.substring(0, 100)}..."`);
 
-      // Generate embedding for current message
-      const embeddingResult = await vectorService.generateEmbedding(currentUserMessage.content);
+      // Generate embedding for current message (never throw; service has internal fallback)
+      const embeddingResult = await vectorService.generateEmbedding(currentUserMessage.content).catch((e) => {
+        console.warn('⚠️ Embedding generation failed, proceeding with basic context. Reason:', e?.message || e);
+        return null as any;
+      });
+      if (!embeddingResult || !embeddingResult.embedding) {
+        return this.createBasicContext(messages);
+      }
       
       // Find similar content
       const [similarMessages, similarConversations] = await Promise.all([

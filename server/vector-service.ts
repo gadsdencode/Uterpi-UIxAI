@@ -39,29 +39,38 @@ export class VectorService {
   async generateEmbedding(text: string, preferredProvider: 'lmstudio' | 'openai' = 'lmstudio'): Promise<EmbeddingResult> {
     // Clean and prepare text
     const cleanText = this.cleanTextForEmbedding(text);
-    
+
+    // Try preferred provider first
     try {
       if (preferredProvider === 'lmstudio') {
         return await this.generateLMStudioEmbedding(cleanText);
       } else {
-        return await this.generateOpenAIEmbedding(cleanText);
-      }
-    } catch (error) {
-      console.error(`❌ Primary embedding provider (${preferredProvider}) failed:`, error);
-      
-      // Fallback to alternative provider
-      try {
-        const fallbackProvider = preferredProvider === 'lmstudio' ? 'openai' : 'lmstudio';
-        console.log(`🔄 Falling back to ${fallbackProvider} for embedding generation`);
-        
-        if (fallbackProvider === 'lmstudio') {
-          return await this.generateLMStudioEmbedding(cleanText);
-        } else {
+        // Only try OpenAI if an API key is configured
+        if (process.env.VITE_OPENAI_API_KEY) {
           return await this.generateOpenAIEmbedding(cleanText);
         }
+        throw new Error('OpenAI API key not configured');
+      }
+    } catch (error) {
+      console.warn(`⚠️ Primary embedding provider (${preferredProvider}) failed:`, error);
+
+      // Try the alternate provider if viable
+      try {
+        const fallbackProvider = preferredProvider === 'lmstudio' ? 'openai' : 'lmstudio';
+        if (fallbackProvider === 'openai') {
+          if (process.env.VITE_OPENAI_API_KEY) {
+            console.log('🔄 Falling back to OpenAI for embedding generation');
+            return await this.generateOpenAIEmbedding(cleanText);
+          }
+          throw new Error('OpenAI API key not configured');
+        } else {
+          console.log('🔄 Falling back to LM Studio for embedding generation');
+          return await this.generateLMStudioEmbedding(cleanText);
+        }
       } catch (fallbackError) {
-        console.error(`❌ Fallback embedding provider failed:`, fallbackError);
-        throw new Error(`Both embedding providers failed. Primary: ${error}. Fallback: ${fallbackError}`);
+        console.warn('⚠️ All remote embedding providers failed, using local keyless embedding fallback');
+        // Final fallback: keyless local embedding that never throws
+        return this.generateLocalHashEmbedding(cleanText, 384);
       }
     }
   }
@@ -150,6 +159,50 @@ export class VectorService {
       embedding,
       model: data.model || this.defaultEmbeddingModel,
       dimensions: embedding.length
+    };
+  }
+
+  /**
+   * Generate a keyless local embedding using a hashing trick over tokens.
+   * Deterministic, lightweight, and avoids external dependencies.
+   */
+  private generateLocalHashEmbedding(text: string, dimensions: number = 384): EmbeddingResult {
+    const tokens = text
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter(Boolean);
+
+    const vector = new Array<number>(dimensions).fill(0);
+
+    // FNV-1a hash for token hashing
+    const fnv1a = (str: string): number => {
+      let hash = 0x811c9dc5;
+      for (let i = 0; i < str.length; i++) {
+        hash ^= str.charCodeAt(i);
+        hash = Math.imul(hash, 0x01000193) >>> 0; // 32-bit overflow
+      }
+      return hash >>> 0;
+    };
+
+    for (const token of tokens) {
+      const h = fnv1a(token);
+      const idx = h % dimensions;
+      // Signed contribution via second bit to reduce collisions bias
+      const sign = ((h >>> 1) & 1) === 1 ? 1 : -1;
+      vector[idx] += sign;
+    }
+
+    // L2 normalize
+    let norm = 0;
+    for (let i = 0; i < dimensions; i++) norm += vector[i] * vector[i];
+    norm = Math.sqrt(norm) || 1;
+    for (let i = 0; i < dimensions; i++) vector[i] = vector[i] / norm;
+
+    return {
+      embedding: vector,
+      model: 'local-hash-embedding-v1',
+      dimensions,
     };
   }
 

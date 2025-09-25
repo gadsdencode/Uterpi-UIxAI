@@ -614,7 +614,7 @@ const AuthenticatedApp: React.FC = () => {
       </div>
       <SubscriptionGuard 
         feature="NomadAI" 
-        requiredTier="basic"
+        requiredTier="freemium"
       >
         <FuturisticAIChat />
       </SubscriptionGuard>

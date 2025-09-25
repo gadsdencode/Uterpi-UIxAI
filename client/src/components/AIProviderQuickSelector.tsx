@@ -262,7 +262,7 @@ export const AIProviderQuickSelector: React.FC = () => {
             <div className="flex flex-col items-start">
               <span className="text-xs font-medium">{currentProviderConfig?.name}</span>
               {selectedLLMModel && (
-                <span className="text-[10px] text-slate-400 leading-tight">{selectedLLMModel.name}</span>
+                <span className="text-[10px] text-slate-400 leading-tight">{currentProviderConfig?.id === 'lmstudio' ? 'Uterpi AI' : selectedLLMModel.name}</span>
               )}
             </div>
             <ChevronDown className="w-3 h-3 ml-1 text-slate-400" />

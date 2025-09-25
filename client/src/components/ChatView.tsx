@@ -782,8 +782,8 @@ const FuturisticAIChat: React.FC = () => {
   // Display label for current model in header
   const displayModelName = (() => {
     if (currentProvider === 'lmstudio') {
-      // Show the actual model name for LM Studio instead of generic "Uterpi AI"
-      return selectedLLMModel?.name || 'Nomadic ICDU v8 (Uterpi AI)';
+      // Show the actual model name from LM Studio
+      return selectedLLMModel?.name || 'Uterpi AI';
     }
     return selectedLLMModel?.name || currentModel || 'Choose Model';
   })();

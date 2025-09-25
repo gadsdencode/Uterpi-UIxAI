@@ -363,7 +363,7 @@ export const MODEL_CONFIGURATIONS: Record<string, ModelConfiguration> = {
   // Uterpi AI via LM Studio (model ID as shown in LM Studio server)
   "nomadai-lcdu-v8": {
     id: "nomadai-lcdu-v8",
-    name: "Nomadic ICDU v8 (Uterpi AI)",
+    name: "Uterpi AI",
     provider: "Uterpi AI via LM Studio",
     contextLength: 128000,
     limits: {
@@ -422,7 +422,7 @@ export const MODEL_CONFIGURATIONS: Record<string, ModelConfiguration> = {
   // Uterpi AI via LM Studio (legacy model ID for compatibility)
   "Pragmanic0/Nomadic-ICDU-v8": {
     id: "Pragmanic0/Nomadic-ICDU-v8",
-    name: "Uterpi AI (Nomadic ICDU v8)",
+    name: "Uterpi AI",
     provider: "Uterpi AI",
     contextLength: 128000,
     limits: {

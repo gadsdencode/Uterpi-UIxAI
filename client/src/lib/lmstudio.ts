@@ -69,7 +69,7 @@ export class LMStudioService {
     return [
       {
         id: "nomadic-icdu-v8", // Model ID as shown in LM Studio
-        name: "Nomadic ICDU v8 (Uterpi AI)",
+        name: "Uterpi AI",
         provider: "Uterpi AI via LM Studio",
         performance: 99,
         cost: 0,

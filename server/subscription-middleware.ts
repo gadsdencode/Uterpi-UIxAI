@@ -218,7 +218,7 @@ export async function checkSubscriptionAccess(userId: number): Promise<Subscript
         return {
           hasAccess: true,
           reason: 'admin_override',
-          tier: user.subscriptionTier || 'premium'
+          tier: user.subscriptionTier || 'pro'
         };
       }
     }
@@ -238,7 +238,7 @@ export async function checkSubscriptionAccess(userId: number): Promise<Subscript
       return {
         hasAccess: true,
         reason: user.subscriptionStatus === 'trialing' ? 'trial_period' : 'active_subscription',
-        tier: user.subscriptionTier || 'basic',
+        tier: user.subscriptionTier || 'freemium',
         expiresAt: user.subscriptionEndsAt || undefined
       };
     }
@@ -265,7 +265,7 @@ export async function checkSubscriptionAccess(userId: number): Promise<Subscript
         hasAccess: false,
         reason: 'payment_failed',
         upgradeRequired: true,
-        tier: user.subscriptionTier || 'basic'
+        tier: user.subscriptionTier || 'freemium'
       };
     }
 
@@ -273,7 +273,7 @@ export async function checkSubscriptionAccess(userId: number): Promise<Subscript
       hasAccess: false,
       reason: 'expired',
       upgradeRequired: true,
-      tier: user.subscriptionTier || 'basic'
+      tier: user.subscriptionTier || 'freemium'
     };
 
   } catch (error) {
@@ -454,7 +454,7 @@ export async function getEnhancedSubscriptionDetails(
  */
 export function requireActiveSubscription(options: {
   allowTrial?: boolean;
-  requiredTier?: 'basic' | 'premium';
+  requiredTier?: 'freemium' | 'pro' | 'team' | 'enterprise';
   customMessage?: string;
 } = {}) {
   const { allowTrial = true, requiredTier, customMessage } = options;
@@ -514,9 +514,22 @@ export function requireActiveSubscription(options: {
 
       // Check tier requirements
       if (requiredTier) {
-        const tierHierarchy = { basic: 1, premium: 2, friends_family: 2 }; // Friends & Family gets premium access
-        const userTierLevel = tierHierarchy[accessCheck.tier as keyof typeof tierHierarchy] || 0;
-        const requiredTierLevel = tierHierarchy[requiredTier];
+        // Canonical mapping with legacy aliases for backward compatibility
+        const tierHierarchy: Record<string, number> = {
+          freemium: 0,
+          pro: 2,
+          team: 3,
+          enterprise: 4,
+          // legacy aliases
+          basic: 0,
+          premium: 2,
+          friends_family: 2,
+          nomadai_pro: 2,
+          'nomadai pro': 2,
+        };
+
+        const userTierLevel = tierHierarchy[(accessCheck.tier || '').toLowerCase()] || 0;
+        const requiredTierLevel = tierHierarchy[requiredTier.toLowerCase()] || 0;
 
         if (userTierLevel < requiredTierLevel) {
           return res.status(402).json({

@@ -17,7 +17,7 @@ const lmStudioConfig: AIProviderConfig<LMStudioService> = {
   
   defaultModel: {
     id: "nomadic-icdu-v8",
-    name: "Nomadic ICDU v8 (Uterpi AI)",
+    name: "Uterpi AI",
     provider: "Uterpi AI via LM Studio",
     performance: 99,
     cost: 0,

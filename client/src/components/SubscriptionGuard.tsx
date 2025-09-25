@@ -193,14 +193,14 @@ const Particles: React.FC<ParticlesProps> = ({
 
 interface SubscriptionGuardProps {
   children: React.ReactNode;
-  requiredTier?: 'basic' | 'premium';
+  requiredTier?: 'freemium' | 'pro' | 'team' | 'enterprise';
   feature?: string;
   fallback?: React.ReactNode;
 }
 
 export const SubscriptionGuard: React.FC<SubscriptionGuardProps> = ({
   children,
-  requiredTier = 'basic',
+  requiredTier = 'freemium',
   feature = 'this feature',
   fallback
 }) => {

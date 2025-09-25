@@ -109,7 +109,7 @@ export interface EnhancedSubscriptionCheck {
     messagesUsedThisMonth: number;
     messagesRemaining: number;
     aiProvidersAccess: string[];
-    monthlyAICredits: number;
+    monthlyAiCredits: number;
     currentCreditsBalance: number;
     maxProjects: number;
     fullCodebaseContext: boolean;
@@ -339,7 +339,7 @@ export async function getEnhancedSubscriptionDetails(
         unlimitedChat: true,
         monthlyMessageAllowance: 1000,
         aiProvidersAccess: ['openai', 'anthropic', 'azure'],
-        monthlyAICredits: 100,
+        monthlyAiCredits: 100,
         maxProjects: 10,
         fullCodebaseContext: true,
         gitIntegration: true,
@@ -354,7 +354,7 @@ export async function getEnhancedSubscriptionDetails(
         unlimitedChat: false,
         monthlyMessageAllowance: 10,
         aiProvidersAccess: ['basic'],
-        monthlyAICredits: 0,
+        monthlyAiCredits: 0,
         maxProjects: 1,
         fullCodebaseContext: false,
         gitIntegration: false,
@@ -426,7 +426,7 @@ export async function getEnhancedSubscriptionDetails(
         messagesUsedThisMonth: messagesUsed,
         messagesRemaining,
         aiProvidersAccess: Array.isArray(features.aiProvidersAccess) ? features.aiProvidersAccess : ['basic'],
-        monthlyAICredits: features.monthlyAiCredits || 0,
+          monthlyAiCredits: features.monthlyAiCredits || 0,
         currentCreditsBalance: creditsBalance,
         maxProjects: features.maxProjects || 1,
         fullCodebaseContext: features.fullCodebaseContext || false,

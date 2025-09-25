@@ -1157,8 +1157,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (stream) {
             console.log('🌊 Gemini: Handling REAL streaming request');
             
-            // Use the REAL Gemini streaming API endpoint
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model || "gemini-2.5-flash"}:streamGenerateContent?key=${apiKey}`, {
+            // Use the REAL Gemini streaming API endpoint with SSE
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model || "gemini-2.5-flash"}:streamGenerateContent?alt=sse&key=${apiKey}`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json'
@@ -1177,6 +1177,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             res.setHeader('Connection', 'keep-alive');
             res.setHeader('Access-Control-Allow-Origin', '*');
             res.setHeader('Access-Control-Allow-Headers', 'Cache-Control');
+            // Disable proxy buffering if behind nginx/ingress
+            res.setHeader('X-Accel-Buffering', 'no');
 
             console.log('🌊 Gemini: Starting REAL streaming from API');
 
@@ -1197,35 +1199,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 const chunk = decoder.decode(value, { stream: true });
                 console.log('🌊 Gemini raw chunk:', chunk.substring(0, 200) + '...');
 
-                // Process each line in the chunk (Gemini streams JSON objects separated by newlines)
+                // Process each line; Gemini SSE streams in lines prefixed with 'data:'
                 const lines = chunk.split('\n');
                 for (const line of lines) {
                   const trimmedLine = line.trim();
-                  if (trimmedLine && trimmedLine !== '') {
-                    try {
-                      const jsonChunk = JSON.parse(trimmedLine);
-                      const content = jsonChunk?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-                      
-                      if (content) {
-                        fullContent += content;
-                        
-                        // Send the chunk to client in OpenAI-compatible format for consistency
-                        const openAIChunk = {
-                          choices: [{
-                            delta: {
-                              content: content
-                            },
-                            index: 0
-                          }]
-                        };
-                        
-                        res.write(`data: ${JSON.stringify(openAIChunk)}\n\n`);
-                        console.log('🌊 Gemini streaming content:', content.substring(0, 50) + '...');
+                  if (!trimmedLine) continue;
+
+                  // Handle SSE control lines
+                  if (trimmedLine.startsWith('event:')) {
+                    continue; // ignore event labels
+                  }
+
+                  let payload = trimmedLine;
+                  if (payload.startsWith('data:')) {
+                    payload = payload.slice(5).trim(); // remove 'data:'
+                  }
+
+                  if (payload === '[DONE]') {
+                    // Forward DONE marker and finish
+                    res.write('data: [DONE]\n\n');
+                    console.log('🌊 Gemini: Received DONE marker');
+                    continue;
+                  }
+
+                  try {
+                    const jsonChunk = JSON.parse(payload);
+                    const content = jsonChunk?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+                    if (content) {
+                      fullContent += content;
+
+                      // Send the chunk to client in OpenAI-compatible SSE format
+                      const openAIChunk = {
+                        choices: [{
+                          delta: { content },
+                          index: 0
+                        }]
+                      };
+
+                      res.write(`data: ${JSON.stringify(openAIChunk)}\n\n`);
+                      // Hint some environments to flush
+                      // @ts-ignore - node types may not include flush
+                      if (typeof (res as any).flush === 'function') {
+                        try { (res as any).flush(); } catch {}
                       }
-                    } catch (parseError) {
-                      console.log('🔍 Gemini: Skipping non-JSON line:', trimmedLine.substring(0, 50));
-                      // Skip non-JSON lines (common in streaming responses)
+                      console.log('🌊 Gemini streaming content:', content.substring(0, 50) + '...');
                     }
+                  } catch (e) {
+                    // Ignore non-JSON payloads
                   }
                 }
               }

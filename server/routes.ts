@@ -2658,8 +2658,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // STRIPE WEBHOOK ROUTES
   // =============================================================================
   
-  // Stripe webhooks for subscription events
-  app.post("/api/webhooks/stripe", rawBodyParser(), handleStripeWebhook);
+  // Stripe webhooks are registered in index.ts before body parsers to preserve raw body
 
   // =============================================================================
   // AI-POWERED FEATURE ROUTES (SUBSCRIPTION PROTECTED)

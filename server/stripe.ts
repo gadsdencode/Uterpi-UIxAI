@@ -213,7 +213,7 @@ export async function syncSubscriptionFromStripe(stripeSubscriptionId: string, u
 /**
  * Verify webhook signature
  */
-export function verifyWebhookSignature(payload: string, signature: string, secret: string): Stripe.Event {
+export function verifyWebhookSignature(payload: string | Buffer, signature: string, secret: string): Stripe.Event {
   try {
     return stripe.webhooks.constructEvent(payload, signature, secret);
   } catch (error) {

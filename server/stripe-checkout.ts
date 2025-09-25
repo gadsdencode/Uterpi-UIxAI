@@ -5,7 +5,7 @@
 
 import Stripe from 'stripe';
 import { db } from './db';
-import { users, subscriptions, aiCreditsTransactions } from '@shared/schema';
+import { users, subscriptions, aiCreditsTransactions, subscriptionFeatures } from '@shared/schema';
 import { eq } from 'drizzle-orm';
 import { STRIPE_PRODUCTS, CREDIT_PACKAGES } from './stripe-enhanced';
 
@@ -248,6 +248,18 @@ export async function handleSubscriptionCheckoutSuccess(session: Stripe.Checkout
       })
       .where(eq(users.id, userId));
 
+    // Grant initial monthly credits for this tier (idempotent by subscription id)
+    try {
+      await grantMonthlyCreditsForTier({
+        userId,
+        tier,
+        source: 'activation',
+        subscriptionId: (session.subscription as string) || undefined,
+      });
+    } catch (grantError) {
+      console.error('Granting initial monthly credits failed:', grantError);
+    }
+
     // Handle team-specific setup if it's a team plan
     if (tier === 'team' && teamName && memberEmails.length >= 3) {
       // TODO: Create team and send invites to members
@@ -260,6 +272,75 @@ export async function handleSubscriptionCheckoutSuccess(session: Stripe.Checkout
     console.error('Error handling subscription checkout success:', error);
     throw error;
   }
+}
+
+/**
+ * Grant monthly credits for a user's tier. Idempotent based on a deterministic description key.
+ */
+export async function grantMonthlyCreditsForTier(params: {
+  userId: number;
+  tier: string;
+  source: 'activation' | 'invoice';
+  subscriptionId?: string;
+  invoiceId?: string;
+  periodStart?: number; // unix seconds
+}): Promise<void> {
+  // Determine description key for idempotency
+  const descriptorParts = [
+    'Monthly', params.source === 'activation' ? 'activation' : 'renewal', 'credits',
+    `tier:${params.tier.toLowerCase()}`,
+  ];
+  if (params.subscriptionId) descriptorParts.push(`sub:${params.subscriptionId}`);
+  if (params.invoiceId) descriptorParts.push(`inv:${params.invoiceId}`);
+  if (params.periodStart) descriptorParts.push(`periodStart:${params.periodStart}`);
+  const descriptionKey = descriptorParts.join(' ');
+
+  await db.transaction(async (tx) => {
+    // Check if already granted (idempotency via exact description match)
+    const existing = await tx.select().from(aiCreditsTransactions)
+      .where(eq(aiCreditsTransactions.userId, params.userId))
+      .limit(50); // small window scan
+    const alreadyExists = existing.some(r => (r.description || '') === descriptionKey);
+    if (alreadyExists) {
+      return; // already granted
+    }
+
+    // Look up monthly credits for the tier
+    const [features] = await tx.select().from(subscriptionFeatures)
+      .where(eq(subscriptionFeatures.tierName, params.tier.toLowerCase()));
+    const monthlyCredits = Number(features?.monthlyAiCredits || 0);
+    if (!monthlyCredits || monthlyCredits <= 0) {
+      return; // nothing to grant
+    }
+
+    // Get current balance
+    const [user] = await tx.select().from(users).where(eq(users.id, params.userId));
+    if (!user) return;
+    const currentBalance = user.ai_credits_balance || 0;
+    const newBalance = currentBalance + monthlyCredits;
+
+    // Update balance
+    await tx.update(users)
+      .set({ ai_credits_balance: newBalance, updatedAt: new Date() })
+      .where(eq(users.id, params.userId));
+
+    // Record transaction
+    await tx.insert(aiCreditsTransactions).values({
+      userId: params.userId,
+      transactionType: 'bonus',
+      amount: monthlyCredits,
+      balanceAfter: newBalance,
+      description: descriptionKey,
+      metadata: {
+        type: 'monthly_grant',
+        source: params.source,
+        tier: params.tier,
+        subscriptionId: params.subscriptionId,
+        invoiceId: params.invoiceId,
+        periodStart: params.periodStart,
+      } as any,
+    });
+  });
 }
 
 /**

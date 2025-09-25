@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 import Stripe from 'stripe';
 import { verifyWebhookSignature, syncSubscriptionFromStripe } from './stripe';
-import { handleSubscriptionCheckoutSuccess, handleCreditsCheckoutSuccess } from './stripe-checkout';
+import { handleSubscriptionCheckoutSuccess, handleCreditsCheckoutSuccess, grantMonthlyCreditsForTier } from './stripe-checkout';
 import { db } from './db';
 import { users } from '@shared/schema';
 import { eq } from 'drizzle-orm';
@@ -159,6 +159,25 @@ async function handlePaymentSucceeded(invoice: Stripe.Invoice): Promise<void> {
           .where(eq(users.id, userId));
 
         console.log(`Payment recovery completed for user ${userId}`);
+
+        // Grant monthly credits on successful invoice for active paid tiers
+        try {
+          // We need the tier; fetch from users table after sync
+          const [user] = await db.select().from(users).where(eq(users.id, userId));
+          const tier = (user?.subscriptionTier || '').toLowerCase();
+          if (tier && tier !== 'freemium' && tier !== 'free') {
+            await grantMonthlyCreditsForTier({
+              userId,
+              tier,
+              source: 'invoice',
+              invoiceId: invoice.id,
+              subscriptionId: (invoice as any).subscription as string,
+              periodStart: (invoice?.period_start as any) || undefined,
+            });
+          }
+        } catch (grantErr) {
+          console.error('Error granting monthly credits on invoice:', grantErr);
+        }
       }
     }
   } catch (error) {

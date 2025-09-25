@@ -14,8 +14,13 @@ dotenv.config(); // Also load from .env if it exists
 // Now import modules that depend on environment variables
 import { registerRoutes } from "./routes";
 import passport from "./auth";
+import { handleStripeWebhook } from "./webhooks";
 
 const app = express();
+
+// Register Stripe webhook BEFORE any body parsers to preserve raw body for signature verification
+app.post("/api/webhooks/stripe", express.raw({ type: "application/json" }), handleStripeWebhook);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 

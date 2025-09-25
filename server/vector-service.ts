@@ -47,7 +47,7 @@ export class VectorService {
       }
       throw new Error('OpenAI API key not configured');
     } catch (error) {
-      console.warn(`⚠️ Primary embedding provider (${preferredProvider}) failed:`, error);
+      console.warn('⚠️ Remote embedding attempt failed:', error);
 
       // Final fallback: keyless local embedding that never throws
       console.warn('⚠️ Remote embedding unavailable, using local keyless embedding fallback');
@@ -273,7 +273,7 @@ export class VectorService {
         JOIN messages m ON me.message_id = m.id
         JOIN conversations c ON m.conversation_id = c.id
         WHERE c.user_id = ${userId}
-          AND me.embedding_dimensions = ${dims}
+          AND json_array_length((me.embedding)::json) = ${dims}
           AND (1 - (me.embedding::vector <=> ${queryEmbeddingStr}::vector)) > ${threshold}
         ORDER BY similarity DESC
         LIMIT ${limit}
@@ -311,14 +311,14 @@ export class VectorService {
         SELECT 
           c.id,
           c.title,
-          COALESCE(ce.summary, '') AS summary,
+          '' AS summary,
           c.created_at,
           (1 - (ce.summary_embedding::vector <=> ${queryEmbeddingStr}::vector)) as similarity
         FROM conversation_embeddings ce
         JOIN conversations c ON ce.conversation_id = c.id
         WHERE c.user_id = ${userId}
           AND c.archived_at IS NULL
-          AND ce.embedding_dimensions = ${dims}
+          AND json_array_length((ce.summary_embedding)::json) = ${dims}
           AND (1 - (ce.summary_embedding::vector <=> ${queryEmbeddingStr}::vector)) > ${threshold}
         ORDER BY similarity DESC
         LIMIT ${limit}

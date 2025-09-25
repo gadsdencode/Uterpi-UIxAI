@@ -10,6 +10,18 @@ import { eq, desc, and, gte, sql } from 'drizzle-orm';
 import { storage } from './storage';
 import { checkCreditBalance } from './stripe-enhanced';
 
+// Helper: detect if request should be BYOK-exempt from app-side limits/credits
+function isBYOKNonLmstudio(req: any): boolean {
+  try {
+    const provider = (req?.body?.provider || req?.query?.provider || '').toString().toLowerCase();
+    const hasApiKey = Boolean(req?.body?.apiKey);
+    // Exempt when user supplies their own API key for non-LMStudio providers
+    return hasApiKey && provider && provider !== 'lmstudio';
+  } catch {
+    return false;
+  }
+}
+
 // Estimate required credits based on message complexity and context
 export function estimateRequiredCredits(messages: any[], enableContext: boolean = false, hasAttachments: boolean = false, model: string = ''): number {
   if (!messages || messages.length === 0) {
@@ -603,6 +615,11 @@ export function checkFreemiumLimit() {
         });
       }
 
+      // BYOK exemption: if user supplies their own API key for non-LMStudio providers, skip freemium gating
+      if (isBYOKNonLmstudio(req)) {
+        return next();
+      }
+
       // Use database transaction to atomically check and increment
       const result = await db.transaction(async (tx) => {
         // First, check and perform monthly reset if needed
@@ -767,6 +784,11 @@ export function requireMinimumCredits(minimumCredits: number = 10, operationType
         });
       }
 
+      // BYOK exemption
+      if (isBYOKNonLmstudio(req)) {
+        return next();
+      }
+
       // If a free message was consumed upstream (freemium), skip credit check for this request
       if (req.user.freeMessageUsed) {
         console.log(`⏭️ Skipping credit check for user ${req.user.id} - free message was used`);
@@ -822,6 +844,11 @@ export function requireDynamicCredits(estimateFunction: (req: any) => number, op
           error: 'Authentication required',
           code: 'NOT_AUTHENTICATED',
         });
+      }
+
+      // BYOK exemption
+      if (isBYOKNonLmstudio(req)) {
+        return next();
       }
 
       // If a free message was consumed upstream (freemium), skip credit check for this request

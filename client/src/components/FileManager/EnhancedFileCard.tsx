@@ -8,6 +8,7 @@ import {
   Brain,
   Eye,
   MoreVertical,
+  RefreshCcw,
   FileText,
   Image as ImageIcon,
   Video,
@@ -298,6 +299,17 @@ export const EnhancedFileCard: React.FC<EnhancedFileCardProps> = ({
                         <Brain className="w-4 h-4" />
                       </Button>
                     )}
+                    {onReindex && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={(e) => handleActionClick(e, () => onReindex(file.id))}
+                        className="h-8 w-8 p-0 text-slate-300 hover:text-white hover:bg-slate-700/50"
+                        title="Refresh for Chat"
+                      >
+                        <RefreshCcw className="w-4 h-4" />
+                      </Button>
+                    )}
                   </>
                 )}
                 <Button
@@ -321,8 +333,8 @@ export const EnhancedFileCard: React.FC<EnhancedFileCardProps> = ({
                     </DropdownMenuItem>
                     {enableAIAnalysis && onReindex && (
                       <DropdownMenuItem onClick={(e) => handleActionClick(e, () => onReindex(file.id))}>
-                        <Brain className="w-4 h-4 mr-2" />
-                        Reindex Embeddings
+                        <RefreshCcw className="w-4 h-4 mr-2" />
+                        Refresh for Chat
                       </DropdownMenuItem>
                     )}
                     <DropdownMenuItem onClick={(e) => handleActionClick(e, () => onDelete(file.id))}>

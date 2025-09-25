@@ -273,7 +273,6 @@ export class VectorService {
         JOIN messages m ON me.message_id = m.id
         JOIN conversations c ON m.conversation_id = c.id
         WHERE c.user_id = ${userId}
-          AND json_array_length((me.embedding)::json) = ${dims}
           AND (1 - (me.embedding::vector <=> ${queryEmbeddingStr}::vector)) > ${threshold}
         ORDER BY similarity DESC
         LIMIT ${limit}
@@ -318,7 +317,6 @@ export class VectorService {
         JOIN conversations c ON ce.conversation_id = c.id
         WHERE c.user_id = ${userId}
           AND c.archived_at IS NULL
-          AND json_array_length((ce.summary_embedding)::json) = ${dims}
           AND (1 - (ce.summary_embedding::vector <=> ${queryEmbeddingStr}::vector)) > ${threshold}
         ORDER BY similarity DESC
         LIMIT ${limit}

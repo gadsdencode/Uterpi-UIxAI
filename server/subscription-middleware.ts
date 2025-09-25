@@ -982,12 +982,20 @@ export function tierBasedRateLimit() {
     }
 
     try {
+      // Provider-aware skipping: only rate-limit LMStudio (Uterpi) requests
+      const providerRaw = (req.body?.provider || req.query?.provider || '').toString().toLowerCase();
+      if (providerRaw && providerRaw !== 'lmstudio') {
+        return next();
+      }
+
       const [user] = await db.select().from(users).where(eq(users.id, req.user.id));
       const tier = user?.subscriptionTier || 'freemium';
       const limit = limits[tier] || limits.freemium;
 
       const route = req.path;
-      const principalKey = `user:${req.user.id}`;
+      // Include provider in key to isolate limits (even if currently only lmstudio is limited)
+      const provider = providerRaw || 'lmstudio';
+      const principalKey = `user:${req.user.id}:provider:${provider}`;
       const now = new Date();
       const windowStart = new Date(Math.floor(now.getTime() / limit.windowMs) * limit.windowMs);
       const windowEnd = new Date(windowStart.getTime() + limit.windowMs);

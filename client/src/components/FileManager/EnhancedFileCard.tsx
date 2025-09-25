@@ -374,20 +374,7 @@ export const EnhancedFileCard: React.FC<EnhancedFileCardProps> = ({
       onMouseLeave={() => setIsHovered(false)}
     >
       <div className="p-4">
-        {/* Always-visible Refresh for Chat control (top-left) */}
-        {enableAIAnalysis && onReindex && (
-          <div className="absolute top-2 left-2" onClick={(e) => e.stopPropagation()}>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => onReindex(file.id)}
-              className="h-7 w-7 p-0 text-slate-300 hover:text-white hover:bg-slate-700/50"
-              title="Refresh for Chat"
-            >
-              <RefreshCcw className="w-4 h-4" />
-            </Button>
-          </div>
-        )}
+        {/* Keep top-left refresh only if you still want it visible without hover. Commented out per overlap issue. */}
         {/* Primary Info Layer */}
         <div className="text-center">
           <div className="flex justify-center mb-3">
@@ -502,6 +489,17 @@ export const EnhancedFileCard: React.FC<EnhancedFileCardProps> = ({
                   >
                     <Edit className="w-4 h-4" />
                   </Button>
+                  {onReindex && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={(e) => handleActionClick(e, () => onReindex(file.id))}
+                      className="h-8 w-8 p-0 border-slate-600/50 text-emerald-300 hover:text-white hover:bg-slate-700/50"
+                      title="Refresh for Chat"
+                    >
+                      <RefreshCcw className="w-4 h-4" />
+                    </Button>
+                  )}
                   
                   {enableAIAnalysis && (
                     <>

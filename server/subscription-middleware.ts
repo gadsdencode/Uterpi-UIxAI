@@ -9,6 +9,7 @@ import { users, subscriptions, subscriptionFeatures, teams, aiCreditsTransaction
 import { eq, desc, and, gte, sql } from 'drizzle-orm';
 import { storage } from './storage';
 import { checkCreditBalance } from './stripe-enhanced';
+import { isVectorizationEnabled } from './vector-flags';
 
 // Helper: detect if request should be BYOK-exempt from app-side limits/credits
 function isBYOKNonLmstudio(req: any): boolean {
@@ -50,8 +51,8 @@ export function estimateRequiredCredits(messages: any[], enableContext: boolean 
     estimatedCredits = 8;
   }
 
-  // Add buffer for context enhancement (but not for very simple messages)
-  if (enableContext && content.length > 10) {
+  // Add buffer for context enhancement only when vectors are enabled (and not for very simple messages)
+  if (isVectorizationEnabled() && enableContext && content.length > 10) {
     estimatedCredits += 2;
   }
 

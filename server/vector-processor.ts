@@ -1,4 +1,5 @@
 import { vectorService } from "./vector-service";
+import { isVectorizationEnabled } from "./vector-flags";
 import { conversationService, MessageData } from "./conversation-service";
 
 export interface VectorizationJob {
@@ -35,7 +36,11 @@ export class VectorProcessor {
   private readonly retryDelayMs = 30000; // 30 seconds between retries
 
   constructor() {
-    this.startProcessing();
+    if (isVectorizationEnabled()) {
+      this.startProcessing();
+    } else {
+      console.log('⏸️ Vector processor disabled by feature flag');
+    }
   }
 
   /**
@@ -74,6 +79,9 @@ export class VectorProcessor {
     conversationId: number, 
     priority: 'high' | 'normal' | 'low' = 'normal'
   ): Promise<void> {
+    if (!isVectorizationEnabled()) {
+      return; // no-op when disabled
+    }
     const job: VectorizationJob = {
       id: `msg_${messageId}_${Date.now()}`,
       messageId,
@@ -97,6 +105,9 @@ export class VectorProcessor {
    * Queue multiple messages for vectorization
    */
   async queueMultipleMessages(messageIds: number[], conversationId: number): Promise<void> {
+    if (!isVectorizationEnabled()) {
+      return; // no-op when disabled
+    }
     for (const messageId of messageIds) {
       await this.queueMessageVectorization(messageId, conversationId, 'normal');
     }
@@ -106,6 +117,9 @@ export class VectorProcessor {
    * Queue conversation summary for vectorization
    */
   async queueConversationSummary(conversationId: number, priority: 'high' | 'normal' | 'low' = 'low'): Promise<void> {
+    if (!isVectorizationEnabled()) {
+      return; // no-op when disabled
+    }
     // Check if already queued
     const existing = this.conversationQueue.find(job => job.conversationId === conversationId);
     if (existing) {
@@ -130,6 +144,9 @@ export class VectorProcessor {
    * Process both message and conversation queues
    */
   private async processQueues(): Promise<void> {
+    if (!isVectorizationEnabled()) {
+      return; // no-op when disabled
+    }
     if (this.isProcessing) {
       return; // Already processing
     }
@@ -160,6 +177,9 @@ export class VectorProcessor {
    * Process message vectorization queue
    */
   private async processMessageQueue(priority: 'high' | 'normal' | 'low'): Promise<void> {
+    if (!isVectorizationEnabled()) {
+      return; // no-op when disabled
+    }
     const jobs = this.messageQueue.filter(job => 
       job.priority === priority && 
       (!job.scheduledAt || job.scheduledAt <= new Date())
@@ -201,6 +221,9 @@ export class VectorProcessor {
    * Process conversation summary vectorization queue
    */
   private async processConversationQueue(priority: 'high' | 'normal' | 'low'): Promise<void> {
+    if (!isVectorizationEnabled()) {
+      return; // no-op when disabled
+    }
     const jobs = this.conversationQueue.filter(job => job.priority === priority);
 
     if (jobs.length === 0) {
@@ -238,6 +261,9 @@ export class VectorProcessor {
    * Process individual message vectorization
    */
   private async processMessageVectorization(job: VectorizationJob): Promise<void> {
+    if (!isVectorizationEnabled()) {
+      return; // no-op when disabled
+    }
     console.log(`🔤 Processing message vectorization for message ${job.messageId}`);
     
     // Get the message
@@ -265,6 +291,9 @@ export class VectorProcessor {
    * Process conversation summary vectorization
    */
   private async processConversationSummaryVectorization(job: ConversationSummaryJob): Promise<void> {
+    if (!isVectorizationEnabled()) {
+      return; // no-op when disabled
+    }
     console.log(`📝 Processing conversation summary vectorization for conversation ${job.conversationId}`);
     
     // Generate conversation summary
@@ -295,10 +324,10 @@ export class VectorProcessor {
     totalPending: number;
   } {
     return {
-      messageQueue: this.messageQueue.length,
-      conversationQueue: this.conversationQueue.length,
-      isProcessing: this.isProcessing,
-      totalPending: this.messageQueue.length + this.conversationQueue.length
+      messageQueue: isVectorizationEnabled() ? this.messageQueue.length : 0,
+      conversationQueue: isVectorizationEnabled() ? this.conversationQueue.length : 0,
+      isProcessing: isVectorizationEnabled() ? this.isProcessing : false,
+      totalPending: isVectorizationEnabled() ? (this.messageQueue.length + this.conversationQueue.length) : 0
     };
   }
 
@@ -306,6 +335,9 @@ export class VectorProcessor {
    * Clear all queues (for testing/maintenance)
    */
   public clearQueues(): void {
+    if (!isVectorizationEnabled()) {
+      return; // no-op when disabled
+    }
     this.messageQueue = [];
     this.conversationQueue = [];
     console.log('🧹 Cleared all vector processor queues');
@@ -315,6 +347,9 @@ export class VectorProcessor {
    * Process pending jobs immediately (manual trigger)
    */
   public async processPendingJobs(): Promise<void> {
+    if (!isVectorizationEnabled()) {
+      return; // no-op when disabled
+    }
     if (this.isProcessing) {
       console.log('⏳ Vector processor is already processing, skipping manual trigger');
       return;

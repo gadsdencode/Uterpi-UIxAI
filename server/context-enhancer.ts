@@ -1,4 +1,5 @@
 import { vectorService, SimilarMessage, SimilarConversation } from "./vector-service";
+import { isVectorizationEnabled } from "./vector-flags";
 import { conversationService } from "./conversation-service";
 
 export interface ChatMessage {
@@ -46,6 +47,11 @@ export class ContextEnhancer {
   ): Promise<EnhancedContext> {
     const opts = { ...this.defaultOptions, ...options };
     
+    // Early exit: return basic context when vectors are disabled
+    if (!isVectorizationEnabled()) {
+      return this.createBasicContext(messages);
+    }
+
     try {
       // Get the current user message (last message in conversation)
       const currentUserMessage = this.findLastUserMessage(messages);

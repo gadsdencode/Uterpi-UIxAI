@@ -1,4 +1,5 @@
 import { db } from "./db";
+import { isVectorizationEnabled } from "./vector-flags";
 import { messageEmbeddings, messages, conversations, conversationEmbeddings } from "@shared/schema";
 import { eq, desc, sql, and } from "drizzle-orm";
 
@@ -37,6 +38,14 @@ export class VectorService {
    * Generate embedding for text using available providers
    */
   async generateEmbedding(text: string, preferredProvider: 'lmstudio' | 'openai' = 'lmstudio'): Promise<EmbeddingResult> {
+    // Short-circuit when vectors are disabled
+    if (!isVectorizationEnabled()) {
+      return {
+        embedding: [],
+        model: 'vectors-disabled',
+        dimensions: 0,
+      };
+    }
     // Clean and prepare text
     const cleanText = this.cleanTextForEmbedding(text);
 
@@ -190,6 +199,9 @@ export class VectorService {
    * Store message embedding in database
    */
   async storeMessageEmbedding(messageId: number, embeddingResult: EmbeddingResult): Promise<void> {
+    if (!isVectorizationEnabled()) {
+      return; // no-op when disabled
+    }
     try {
       await db.insert(messageEmbeddings).values({
         messageId,
@@ -209,6 +221,9 @@ export class VectorService {
    * Store conversation summary embedding
    */
   async storeConversationEmbedding(conversationId: number, summary: string, embeddingResult: EmbeddingResult): Promise<void> {
+    if (!isVectorizationEnabled()) {
+      return; // no-op when disabled
+    }
     try {
       // Check if embedding already exists
       const existing = await db
@@ -256,6 +271,9 @@ export class VectorService {
     limit: number = 5,
     threshold: number = 0.7
   ): Promise<SimilarMessage[]> {
+    if (!isVectorizationEnabled()) {
+      return [];
+    }
     try {
       const queryEmbeddingStr = JSON.stringify(queryEmbedding);
       const dims = queryEmbedding.length;
@@ -302,6 +320,9 @@ export class VectorService {
     limit: number = 3,
     threshold: number = 0.7
   ): Promise<SimilarConversation[]> {
+    if (!isVectorizationEnabled()) {
+      return [];
+    }
     try {
       const queryEmbeddingStr = JSON.stringify(queryEmbedding);
       const dims = queryEmbedding.length;

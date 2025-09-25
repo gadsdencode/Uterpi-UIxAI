@@ -17,6 +17,7 @@ import { fileStorage } from "./file-storage";
 import { conversationService } from "./conversation-service";
 import { vectorProcessor } from "./vector-processor";
 import { contextEnhancer } from "./context-enhancer";
+import { isVectorizationEnabled } from "./vector-flags";
 import multer from 'multer';
 import ModelClient from "@azure-rest/ai-inference";
 import { AzureKeyCredential } from "@azure/core-auth";
@@ -797,7 +798,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/ai/v1/chat/completions", requireAuth, checkFreemiumLimit(), requireDynamicCredits((req) => {
     const { messages, enableContext = true, model } = req.body;
     const hasAttachments = messages?.some((msg: any) => msg.attachments && msg.attachments.length > 0);
-    return estimateRequiredCredits(messages || [], enableContext, hasAttachments, model || '');
+    // If vectorization is disabled, force context off for credit estimation
+    const effectiveEnableContext = isVectorizationEnabled() ? enableContext : false;
+    return estimateRequiredCredits(messages || [], effectiveEnableContext, hasAttachments, model || '');
   }, 'chat'), async (req, res) => {
     console.log('🚀 Chat endpoint called for user:', req.user?.id);
     try {
@@ -850,8 +853,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.log(`📝 Stored user message ${userMessage.id} in conversation ${conversation.id}`);
         }
 
-        // 3. Enhance messages with context from past conversations (if enabled)
-        if (enableContext) {
+        // 3. Enhance messages with context from past conversations (if enabled and vectors available)
+        if (enableContext && isVectorizationEnabled()) {
           try {
             const contextResult = await contextEnhancer.enhanceMessagesWithContext(
               messages, 
@@ -862,7 +865,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             enhancedMessages = contextResult.enhancedMessages;
             console.log(`🧠 Enhanced messages with context: ${contextResult.similarMessages.length} similar messages, ${contextResult.similarConversations.length} similar conversations`);
           } catch (contextError) {
-            console.warn('⚠️ Context enhancement failed, proceeding without context:', contextError);
+            console.warn('⚠️ Context enhancement skipped/failed, proceeding without context:', contextError);
           }
         }
 
@@ -1299,7 +1302,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Extract AI response content
         const outputContent = responseBody?.choices?.[0]?.message?.content || '';
         
-        // Store AI response in conversation (if vectorization is enabled)
+        // Store AI response in conversation (always); vectorization queueing below is gated
         if (conversation && outputContent) {
           try {
             aiResponse = await conversationService.addMessage({
@@ -1315,11 +1318,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
             console.log(`🤖 Stored AI response ${aiResponse.id} in conversation ${conversation.id}`);
 
-            // Queue both user and AI messages for vectorization
-            if (userMessage) {
-              await vectorProcessor.queueMessageVectorization(userMessage.id, conversation.id, 'normal');
+            // Queue both user and AI messages for vectorization (only when enabled)
+            if (isVectorizationEnabled()) {
+              if (userMessage) {
+                await vectorProcessor.queueMessageVectorization(userMessage.id, conversation.id, 'normal');
+              }
+              await vectorProcessor.queueMessageVectorization(aiResponse.id, conversation.id, 'normal');
             }
-            await vectorProcessor.queueMessageVectorization(aiResponse.id, conversation.id, 'normal');
 
             // Generate conversation title if this is the first exchange
             const messageCount = await conversationService.getConversationMessages(conversation.id);
@@ -1328,8 +1333,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
 
             // Queue conversation summary update (low priority, after several messages)
-            if (messageCount.length >= 6) { // After 3 exchanges
-              await vectorProcessor.queueConversationSummary(conversation.id, 'low');
+            if (isVectorizationEnabled()) {
+              if (messageCount.length >= 6) { // After 3 exchanges
+                await vectorProcessor.queueConversationSummary(conversation.id, 'low');
+              }
             }
 
           } catch (storageError) {

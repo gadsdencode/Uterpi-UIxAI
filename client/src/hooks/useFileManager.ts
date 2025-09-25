@@ -224,6 +224,13 @@ class FileManagerAPI {
     });
     return result;
   }
+
+  static async reindexFile(fileId: number): Promise<{ success: boolean; message?: string }> {
+    const result = await FileManagerAPI.request(`/api/files/${fileId}/reindex`, {
+      method: 'POST'
+    });
+    return result;
+  }
 }
 
 export const useFileManager = () => {
@@ -366,6 +373,16 @@ export const useFileManager = () => {
     },
   });
 
+  // Reindex file embeddings mutation
+  const reindexFileMutation = useMutation({
+    mutationFn: FileManagerAPI.reindexFile,
+    onSuccess: () => {
+      // Not much to invalidate; embeddings aren't listed here
+      // But we can refresh files to update any timestamps shown
+      queryClient.invalidateQueries({ queryKey: ['files'] });
+    },
+  });
+
   // Upload file with progress tracking
   const uploadFile = useCallback(async (data: UploadFileData) => {
     try {
@@ -428,6 +445,7 @@ export const useFileManager = () => {
     restoreFileVersion: restoreVersionMutation.mutate,
     shareFile: shareFileMutation.mutate,
     bulkDeleteFiles: bulkDeleteMutation.mutate,
+    reindexFile: reindexFileMutation.mutate,
     cancelUpload,
 
     // Mutation states
@@ -437,6 +455,7 @@ export const useFileManager = () => {
     isRestoring: restoreVersionMutation.isPending,
     isSharing: shareFileMutation.isPending,
     isBulkDeleting: bulkDeleteMutation.isPending,
+    isReindexing: reindexFileMutation.isPending,
 
     // Error states
     uploadError: uploadFileMutation.error,
@@ -446,5 +465,6 @@ export const useFileManager = () => {
     restoreError: restoreVersionMutation.error,
     shareError: shareFileMutation.error,
     bulkDeleteError: bulkDeleteMutation.error,
+    reindexError: reindexFileMutation.error,
   };
 }; 

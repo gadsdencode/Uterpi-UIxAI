@@ -196,6 +196,18 @@ export const fileInteractions = pgTable("file_interactions", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// Vector embeddings for file chunks
+export const fileEmbeddings = pgTable("file_embeddings", {
+  id: serial("id").primaryKey(),
+  fileId: integer("file_id").references(() => files.id).notNull(),
+  chunkIndex: integer("chunk_index").notNull(),
+  chunkText: text("chunk_text").notNull(),
+  embedding: text("embedding").notNull(), // Stored as JSON array string
+  embeddingModel: text("embedding_model").notNull(),
+  embeddingDimensions: integer("embedding_dimensions").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 // Schema for creating a user with email/password
 export const insertUserSchema = createInsertSchema(users, {
   email: z.string().email("Invalid email address"),

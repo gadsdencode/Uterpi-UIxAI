@@ -24,6 +24,19 @@ app.post("/api/webhooks/stripe", express.raw({ type: "application/json" }), hand
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
+// Sensible defaults to enable vector features for file management locally
+// Enable vectorization unless explicitly disabled
+if (!process.env.VECTORIZATION_DISABLED && !process.env.DISABLE_VECTORIZATION) {
+  if (!process.env.VECTORS_ENABLED && !process.env.ENABLE_VECTORIZATION) {
+    process.env.VECTORS_ENABLED = "true";
+  }
+}
+
+// Set a default transformers cache directory to avoid repeated downloads
+if (!process.env.TRANSFORMERS_CACHE_DIR) {
+  process.env.TRANSFORMERS_CACHE_DIR = ".cache/transformers";
+}
+
 // Session configuration
 const PgSession = ConnectPgSimple(session);
 

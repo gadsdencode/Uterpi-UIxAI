@@ -72,13 +72,14 @@ export class ContextEnhancer {
       }
       
       // Find similar content
-      const [similarMessages, similarConversations] = await Promise.all([
+      const [similarMessages, similarConversations, relevantFileChunks] = await Promise.all([
         opts.includeMessageContext 
           ? vectorService.findSimilarMessages(embeddingResult.embedding, userId, opts.maxSimilarMessages, opts.similarityThreshold)
           : Promise.resolve([]),
         opts.includeConversationContext 
           ? vectorService.findSimilarConversations(embeddingResult.embedding, userId, opts.maxSimilarConversations, opts.similarityThreshold)
-          : Promise.resolve([])
+          : Promise.resolve([]),
+        vectorService.findRelevantFileChunks(embeddingResult.embedding, userId, 8, 0.7)
       ]);
 
       console.log(`📊 Found ${similarMessages.length} similar messages and ${similarConversations.length} similar conversations`);
@@ -87,7 +88,13 @@ export class ContextEnhancer {
       const contextualSystemMessage = await this.createContextualSystemMessage(
         similarMessages, 
         similarConversations, 
-        opts.maxContextLength
+        opts.maxContextLength,
+        (relevantFileChunks || []).map(fc => ({
+          fileName: fc.name,
+          mimeType: fc.mimeType,
+          similarity: fc.similarity,
+          snippet: (fc.text || '').substring(0, 400)
+        }))
       );
 
       // Create enhanced message list
@@ -113,7 +120,8 @@ export class ContextEnhancer {
   private async createContextualSystemMessage(
     similarMessages: SimilarMessage[],
     similarConversations: SimilarConversation[],
-    maxLength: number
+    maxLength: number,
+    fileSnippets: Array<{ fileName: string; mimeType: string; similarity: number; snippet: string }> = []
   ): Promise<string> {
     let contextParts: string[] = [];
 
@@ -151,12 +159,23 @@ Similarity: ${(msg.similarity * 100).toFixed(1)}%`;
       }
     }
 
+    // Add relevant files context
+    if (fileSnippets.length > 0) {
+      contextParts.push("\n--- RELEVANT FILE EXCERPTS ---");
+      for (const fs of fileSnippets) {
+        const entry = `\n[${(fs.similarity * 100).toFixed(1)}%] ${fs.fileName} (${fs.mimeType})\n${fs.snippet}${fs.snippet.length >= 400 ? '...' : ''}`;
+        contextParts.push(entry);
+      }
+    }
+
     // Add usage guidelines
     contextParts.push(
       "\n--- CONTEXT USAGE GUIDELINES ---",
       "- Reference past conversations when they provide helpful context",
       "- Don't repeat information unless it adds value",
       "- Maintain conversation flow naturally",
+      "- Use the provided file excerpts to ground your answer; quote relevant parts",
+      "- Do not assume access to the entire file beyond these excerpts",
       "- If no relevant context exists, respond normally"
     );
 

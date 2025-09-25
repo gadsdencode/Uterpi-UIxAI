@@ -583,6 +583,7 @@ export const EnhancedFileManager: React.FC<EnhancedFileManagerProps> = ({
                   onDownload={handleFileDownload}
                   onEdit={handleFileEdit}
                   onAnalyze={handleFileAnalyze}
+                  onReindex={(id) => fileManager.reindexFile(id)}
                   onDelete={handleFileDelete}
                   onShare={handleFileShare}
                   onViewAnalysis={handleViewAnalysis}

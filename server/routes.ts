@@ -16,6 +16,7 @@ import { handleStripeWebhook, rawBodyParser } from "./webhooks";
 import { fileStorage } from "./file-storage";
 import { conversationService } from "./conversation-service";
 import { vectorProcessor } from "./vector-processor";
+import { vectorService } from "./vector-service";
 import { contextEnhancer } from "./context-enhancer";
 import { isVectorizationEnabled } from "./vector-flags";
 import multer from 'multer';
@@ -487,10 +488,14 @@ const upload = multer({
     fileSize: 10 * 1024 * 1024, // 10MB limit
   },
   fileFilter: (req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
-    // Accept images and documents
-    if (file.mimetype.startsWith('image/') || 
-        file.mimetype === 'application/pdf' ||
-        file.mimetype.includes('text/')) {
+    // Accept images and documents (PDF, text, and Word DOCX)
+    const mt = file.mimetype || '';
+    const ok = mt.startsWith('image/') ||
+      mt.includes('text/') ||
+      mt === 'application/pdf' ||
+      mt === 'application/msword' ||
+      mt === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    if (ok) {
       cb(null, true);
     } else {
       cb(new Error('Invalid file type'));
@@ -3760,6 +3765,14 @@ You MUST respond with ONLY valid JSON in this exact structure. No markdown, no e
       };
 
       const uploadedFile = await fileStorage.uploadFile(user.id, fileData);
+      // Queue vectorization for text files (non-blocking)
+      try {
+        if (isVectorizationEnabled() && uploadedFile.encoding !== 'base64') {
+          await vectorProcessor.queueFileVectorization(uploadedFile.id, user.id);
+        }
+      } catch (e) {
+        console.warn('⚠️ Failed to queue file vectorization:', e);
+      }
       
       res.json({
         success: true,
@@ -3781,6 +3794,24 @@ You MUST respond with ONLY valid JSON in this exact structure. No markdown, no e
     } catch (error) {
       console.error("File upload error:", error);
       res.status(500).json({ error: "Failed to upload file" });
+    }
+  });
+  // Reindex a file's embeddings (admin/user utility)
+  app.post("/api/files/:fileId/reindex", requireAuth, async (req, res) => {
+    try {
+      const fileId = validateFileId(req.params.fileId);
+      const user = req.user as any;
+      if (!fileId) {
+        return res.status(400).json({ error: "Invalid file ID" });
+      }
+      // Queue reindex; do not block
+      if (isVectorizationEnabled()) {
+        await vectorProcessor.queueFileVectorization(fileId, user.id);
+      }
+      res.json({ success: true, message: 'File reindex queued' });
+    } catch (error) {
+      console.error("File reindex error:", error);
+      res.status(500).json({ error: "Failed to reindex file" });
     }
   });
 

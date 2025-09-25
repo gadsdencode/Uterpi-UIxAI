@@ -5,7 +5,7 @@
 
 import type { Request, Response, NextFunction } from 'express';
 import { db } from './db';
-import { users, subscriptions, subscriptionFeatures, teams, aiCreditsTransactions } from '@shared/schema';
+import { users, subscriptions, subscriptionFeatures, teams, aiCreditsTransactions, rateLimits } from '@shared/schema';
 import { eq, desc, and, gte, sql } from 'drizzle-orm';
 import { storage } from './storage';
 import { checkCreditBalance } from './stripe-enhanced';
@@ -968,60 +968,86 @@ export function requireAIProvider(provider: string) {
  * Rate limiting based on subscription tier
  */
 export function tierBasedRateLimit() {
-  const limits: Record<string, { requests: number; window: number }> = {
-    freemium: { requests: 10, window: 60 * 1000 }, // 10 requests per minute
-    pro: { requests: 60, window: 60 * 1000 }, // 60 requests per minute
-    team: { requests: 120, window: 60 * 1000 }, // 120 requests per minute
-    enterprise: { requests: 999999, window: 60 * 1000 }, // Effectively unlimited
+  const limits: Record<string, { requests: number; windowMs: number }> = {
+    freemium: { requests: 10, windowMs: 60 * 1000 },
+    pro: { requests: 60, windowMs: 60 * 1000 },
+    team: { requests: 120, windowMs: 60 * 1000 },
+    enterprise: { requests: 999999, windowMs: 60 * 1000 },
   };
 
-  const requestCounts = new Map<string, { count: number; resetTime: number }>();
-
   return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    // Allow unauthenticated through without tier-based limits (can add a public IP limiter separately)
     if (!req.user?.id) {
-      return next(); // Skip rate limiting for unauthenticated requests
+      return next();
     }
 
     try {
       const [user] = await db.select().from(users).where(eq(users.id, req.user.id));
-      const tier = user.subscriptionTier || 'freemium';
+      const tier = user?.subscriptionTier || 'freemium';
       const limit = limits[tier] || limits.freemium;
 
-      const key = `${req.user.id}-${req.path}`;
-      const now = Date.now();
-      
-      let requestData = requestCounts.get(key);
-      
-      if (!requestData || requestData.resetTime < now) {
-        requestData = { count: 0, resetTime: now + limit.window };
-        requestCounts.set(key, requestData);
+      const route = req.path;
+      const principalKey = `user:${req.user.id}`;
+      const now = new Date();
+      const windowStart = new Date(Math.floor(now.getTime() / limit.windowMs) * limit.windowMs);
+      const windowEnd = new Date(windowStart.getTime() + limit.windowMs);
+
+      // Upsert row and increment count atomically
+      const result = await db.transaction(async (tx) => {
+        // Try update existing row
+        const updated = await tx.execute(sql`
+          UPDATE ${rateLimits}
+          SET ${rateLimits.count} = ${rateLimits.count} + 1, ${rateLimits.updatedAt} = now()
+          WHERE ${rateLimits.key} = ${principalKey}
+            AND ${rateLimits.route} = ${route}
+            AND ${rateLimits.windowStart} = ${windowStart}
+          RETURNING ${rateLimits.count}
+        ` as any);
+
+        if ((updated as any)?.rows?.length) {
+          return Number((updated as any).rows[0].count) || 1;
+        }
+
+        // Insert new window row; on conflict, increment safely
+        const inserted = await tx.execute(sql`
+          INSERT INTO rate_limits (key, route, window_start, window_end, window_ms, count)
+          VALUES (${principalKey}, ${route}, ${windowStart}, ${windowEnd}, ${limit.windowMs}, 1)
+          ON CONFLICT (key, route, window_start)
+          DO UPDATE SET count = rate_limits.count + 1, updated_at = now()
+          RETURNING count
+        `);
+        return Number((inserted as any).rows[0].count) || 1;
+      });
+
+      const used = result;
+      const remaining = Math.max(0, limit.requests - used);
+      const resetMs = windowEnd.getTime() - now.getTime();
+      const retryAfter = remaining > 0 ? 0 : Math.ceil(resetMs / 1000);
+
+      // Standard headers
+      res.setHeader('X-RateLimit-Limit', String(limit.requests));
+      res.setHeader('X-RateLimit-Remaining', String(remaining));
+      res.setHeader('X-RateLimit-Reset', String(Math.floor(windowEnd.getTime() / 1000)));
+      if (retryAfter > 0) {
+        res.setHeader('Retry-After', String(retryAfter));
       }
 
-      requestData.count++;
-
-      if (requestData.count > limit.requests) {
-        const retryAfter = Math.ceil((requestData.resetTime - now) / 1000);
-        
+      if (used > limit.requests) {
         return res.status(429).json({
           error: 'Rate limit exceeded',
           code: 'RATE_LIMIT_EXCEEDED',
           tier,
           limit: limit.requests,
-          window: limit.window / 1000,
+          window: Math.floor(limit.windowMs / 1000),
           retryAfter,
         });
       }
 
-      // Add rate limit headers
-      res.setHeader('X-RateLimit-Limit', limit.requests.toString());
-      res.setHeader('X-RateLimit-Remaining', (limit.requests - requestData.count).toString());
-      res.setHeader('X-RateLimit-Reset', requestData.resetTime.toString());
-
       next();
-
     } catch (error) {
       console.error('Rate limit check error:', error);
-      next(); // Continue on error rather than blocking
+      // Fail-open to avoid breaking requests due to DB hiccups
+      next();
     }
   };
 }

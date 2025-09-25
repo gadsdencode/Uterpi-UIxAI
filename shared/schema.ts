@@ -896,3 +896,21 @@ export const subscriptionFeatures = pgTable("subscription_features", {
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
+
+// =============================================================================
+// DISTRIBUTED RATE LIMITING TABLE
+// =============================================================================
+
+// Stores per-key, per-route request counts within a fixed window
+// A unique index on (key, route, window_start) is created via migration
+export const rateLimits = pgTable("rate_limits", {
+  id: serial("id").primaryKey(),
+  key: text("key").notNull(),
+  route: text("route").notNull(),
+  windowStart: timestamp("window_start", { precision: 6 }).notNull(),
+  windowEnd: timestamp("window_end", { precision: 6 }).notNull(),
+  windowMs: integer("window_ms").notNull(),
+  count: integer("count").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});

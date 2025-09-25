@@ -40,38 +40,18 @@ export class VectorService {
     // Clean and prepare text
     const cleanText = this.cleanTextForEmbedding(text);
 
-    // Try preferred provider first
+    // Do not use LMStudio for embeddings. Prefer OpenAI if available; otherwise local fallback.
     try {
-      if (preferredProvider === 'lmstudio') {
-        return await this.generateLMStudioEmbedding(cleanText);
-      } else {
-        // Only try OpenAI if an API key is configured
-        if (process.env.VITE_OPENAI_API_KEY) {
-          return await this.generateOpenAIEmbedding(cleanText);
-        }
-        throw new Error('OpenAI API key not configured');
+      if (process.env.VITE_OPENAI_API_KEY) {
+        return await this.generateOpenAIEmbedding(cleanText);
       }
+      throw new Error('OpenAI API key not configured');
     } catch (error) {
       console.warn(`⚠️ Primary embedding provider (${preferredProvider}) failed:`, error);
 
-      // Try the alternate provider if viable
-      try {
-        const fallbackProvider = preferredProvider === 'lmstudio' ? 'openai' : 'lmstudio';
-        if (fallbackProvider === 'openai') {
-          if (process.env.VITE_OPENAI_API_KEY) {
-            console.log('🔄 Falling back to OpenAI for embedding generation');
-            return await this.generateOpenAIEmbedding(cleanText);
-          }
-          throw new Error('OpenAI API key not configured');
-        } else {
-          console.log('🔄 Falling back to LM Studio for embedding generation');
-          return await this.generateLMStudioEmbedding(cleanText);
-        }
-      } catch (fallbackError) {
-        console.warn('⚠️ All remote embedding providers failed, using local keyless embedding fallback');
-        // Final fallback: keyless local embedding that never throws
-        return this.generateLocalHashEmbedding(cleanText, 384);
-      }
+      // Final fallback: keyless local embedding that never throws
+      console.warn('⚠️ Remote embedding unavailable, using local keyless embedding fallback');
+      return this.generateLocalHashEmbedding(cleanText, 384);
     }
   }
 
@@ -331,7 +311,7 @@ export class VectorService {
         SELECT 
           c.id,
           c.title,
-          ce.summary,
+          COALESCE(ce.summary, '') AS summary,
           c.created_at,
           (1 - (ce.summary_embedding::vector <=> ${queryEmbeddingStr}::vector)) as similarity
         FROM conversation_embeddings ce

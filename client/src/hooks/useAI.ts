@@ -284,7 +284,10 @@ export const useAI = <TService = any>(
     try {
       const aiService = getAIService();
       const azureMessages = convertToAzureAIMessages(messages);
-      const response = await (aiService as any).sendChatCompletion(azureMessages, options.chatOptions);
+      const response = await (aiService as any).sendChatCompletion(
+        azureMessages,
+        { ...options.chatOptions, originalMessages: messages }
+      );
       return response;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : `Failed to send message via ${config.providerName}`;
@@ -306,7 +309,11 @@ export const useAI = <TService = any>(
     try {
       const aiService = getAIService();
       const azureMessages = convertToAzureAIMessages(messages);
-      await (aiService as any).sendStreamingChatCompletion(azureMessages, onChunk, options.chatOptions);
+      await (aiService as any).sendStreamingChatCompletion(
+        azureMessages,
+        onChunk,
+        { ...options.chatOptions, originalMessages: messages }
+      );
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : `Failed to send streaming message via ${config.providerName}`;
       setError(errorMessage);

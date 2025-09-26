@@ -409,7 +409,7 @@ export class AzureAIService {
           'Content-Type': 'application/json',
         },
         credentials: 'include',
-        body: JSON.stringify(requestBody),
+        body: JSON.stringify({ ...requestBody, original_messages: (options as any)?.originalMessages }),
       });
 
       console.log('📡 Azure AI response status:', response.status);
@@ -428,6 +428,13 @@ export class AzureAIService {
       }
 
       const responseData = await response.json();
+      // Dispatch sources event if backend provided citations
+      try {
+        const sources = (responseData as any)?.sources;
+        if (Array.isArray(sources) && sources.length > 0 && typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('ai-sources', { detail: sources }));
+        }
+      } catch {}
       
       // Extract credit information if present and emit update
       if (responseData.uterpi_credit_info) {
@@ -555,7 +562,7 @@ export class AzureAIService {
           'Content-Type': 'application/json',
         },
         credentials: 'include',
-        body: JSON.stringify(requestBody),
+        body: JSON.stringify({ ...requestBody, original_messages: (options as any)?.originalMessages }),
       });
 
       if (!response.ok) {

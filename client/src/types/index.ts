@@ -16,6 +16,7 @@ export interface Message {
     purchaseUrl?: string;
     upgradeUrl?: string;
     message?: string;
+    attachedFileIds?: number[];
   };
 }
 

@@ -682,6 +682,7 @@ const FuturisticAIChat: React.FC = () => {
   const [isTyping, setIsTyping] = useState(false);
   const [showCommands, setShowCommands] = useState(false);
   const [attachments, setAttachments] = useState<string[]>([]);
+  const [attachedFileIds, setAttachedFileIds] = useState<number[]>([]);
   const [activeMessage, setActiveMessage] = useState<string | null>(null);
   const [showShareModal, setShowShareModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -702,9 +703,41 @@ const FuturisticAIChat: React.FC = () => {
   const [isChatActive, setIsChatActive] = useState(false); // Track if chat is actively processing
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const [latestSources, setLatestSources] = useState<Array<{ fileId: number; name: string; mimeType: string; similarity: number; snippet: string }>>([]);
 
 
   // Keyboard shortcuts: New Chat (Ctrl/Cmd+N) and Open Model Selector (Ctrl/Cmd+M)
+  useEffect(() => {
+    const handleSources = (e: Event) => {
+      const ce = e as CustomEvent;
+      if (Array.isArray(ce.detail)) {
+        setLatestSources(ce.detail as any);
+      }
+    };
+    window.addEventListener('ai-sources', handleSources as EventListener);
+    return () => window.removeEventListener('ai-sources', handleSources as EventListener);
+  }, []);
+
+  const SourcesList: React.FC<{ sources: typeof latestSources }> = ({ sources }) => {
+    if (!sources || sources.length === 0) return null;
+    return (
+      <div className="mt-3 border border-slate-700/50 rounded-lg bg-slate-900/40 p-3">
+        <div className="text-xs uppercase tracking-wide text-slate-400 mb-2">Sources</div>
+        <div className="flex flex-col gap-2">
+          {sources.slice(0, 8).map((s, idx) => (
+            <div key={idx} className="text-xs text-slate-300">
+              <div className="flex items-center justify-between">
+                <span className="font-medium">{s.name}</span>
+                <span className="text-slate-500">{(s.similarity * 100).toFixed(0)}%</span>
+              </div>
+              <div className="text-slate-400 truncate">{s.snippet}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   useEffect(() => {
     const handleGlobalKeydown = (e: KeyboardEvent) => {
       const isMeta = e.metaKey || e.ctrlKey;
@@ -1237,6 +1270,7 @@ const FuturisticAIChat: React.FC = () => {
       role: "user",
       timestamp: new Date(),
       attachments: attachments.length > 0 ? [...attachments] : undefined,
+      metadata: attachedFileIds.length ? { attachedFileIds } : undefined
     };
 
     const updatedMessages = [...messages, userMessage];
@@ -1251,6 +1285,7 @@ const FuturisticAIChat: React.FC = () => {
     setMessages(updatedMessages);
     setInput("");
     setAttachments([]);
+    setAttachedFileIds([]);
     setIsTyping(true);
     setActiveMessage(userMessage.id);
     clearError(); // Clear any previous errors
@@ -1285,6 +1320,8 @@ const FuturisticAIChat: React.FC = () => {
           });
         });
 
+        // After streaming completes, attempt to fetch sources from last backend response if available via a side channel in future
+
         setStreamingResponse("");
         
         // Auto-speak AI response if TTS is available and enabled (for streaming)
@@ -1303,9 +1340,7 @@ const FuturisticAIChat: React.FC = () => {
         console.log('📤 Sending message to AI provider:', currentProvider);
         const response = await sendMessage(updatedMessages);
         console.log('📥 Received response:', response ? `${response.substring(0, 100)}...` : 'EMPTY/UNDEFINED');
-        console.log('🔍 ChatView: Full response:', response);
-        console.log('🔍 ChatView: Response type:', typeof response);
-        console.log('🔍 ChatView: Response length:', response?.length);
+        // If backend attaches sources, it must come with structured data. Current hooks return string only.
         
         if (!response) {
           console.error('❌ Empty response received from AI provider');
@@ -1560,6 +1595,7 @@ const FuturisticAIChat: React.FC = () => {
 
   const removeAttachment = (index: number) => {
     setAttachments(prev => prev.filter((_, i) => i !== index));
+    setAttachedFileIds(prev => prev.filter((_, i) => i !== index));
   };
 
   // Transcript handling functions
@@ -1860,6 +1896,11 @@ const FuturisticAIChat: React.FC = () => {
                               ))}
                             </div>
                           )}
+                          {/* Render sources for the latest assistant message */}
+                          {message.role === 'assistant' && message.id === messages[messages.length - 1]?.id && latestSources.length > 0 && (
+                            <SourcesList sources={latestSources} />
+                          )}
+
                           <div className="flex items-center justify-between text-xs text-slate-400">
                             <span>{message.timestamp.toLocaleTimeString()}</span>
                             {message.role === 'assistant' && (
@@ -2468,7 +2509,14 @@ const FuturisticAIChat: React.FC = () => {
                 </Tooltip>
               </div>
               <div className="p-6 max-h-[calc(90vh-120px)] overflow-auto">
-                <FileManager />
+                <FileManager 
+                  onFileSelect={(file) => {
+                    setAttachments(prev => [...prev, file.name]);
+                    setAttachedFileIds(prev => [...prev, file.id]);
+                    setShowFileManager(false);
+                    toast.success(`Attached "${file.name}"`);
+                  }}
+                />
               </div>
             </motion.div>
           </motion.div>

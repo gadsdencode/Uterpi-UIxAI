@@ -5,6 +5,8 @@ import { conversationService } from "./conversation-service";
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
+  attachments?: string[];
+  metadata?: any;
 }
 
 export interface EnhancedContext {
@@ -12,6 +14,7 @@ export interface EnhancedContext {
   similarConversations: SimilarConversation[];
   contextualSystemMessage: string;
   enhancedMessages: ChatMessage[];
+  fileSnippets: Array<{ fileId: number; fileName: string; mimeType: string; similarity: number; snippet: string }>
 }
 
 export interface ContextEnhancementOptions {
@@ -71,15 +74,41 @@ export class ContextEnhancer {
         return this.createBasicContext(messages);
       }
       
-      // Find similar content
-      const [similarMessages, similarConversations, relevantFileChunks] = await Promise.all([
+      // Find similar content with attached file priority
+      const attachedIds: number[] | undefined = Array.isArray((currentUserMessage as any)?.metadata?.attachedFileIds)
+        ? (currentUserMessage as any).metadata.attachedFileIds
+        : undefined;
+
+      let relevantFileChunks = [] as Array<{ fileId: number; chunkIndex: number; text: string; similarity: number; name: string; mimeType: string }>;
+      if (attachedIds && attachedIds.length > 0) {
+        // Prioritize chunks from attached files (no similarity threshold to surface most relevant portions)
+        const attachedChunks = await vectorService.findRelevantFileChunksForFiles(
+          embeddingResult.embedding,
+          userId,
+          attachedIds,
+          12,
+          0.0
+        );
+        relevantFileChunks = attachedChunks;
+
+        // Supplement with general relevant chunks
+        const supplemental = await vectorService.findRelevantFileChunks(embeddingResult.embedding, userId, 8, 0.7);
+        const seen = new Set(attachedChunks.map(c => `${c.fileId}:${c.chunkIndex}`));
+        for (const c of supplemental) {
+          const key = `${c.fileId}:${c.chunkIndex}`;
+          if (!seen.has(key)) relevantFileChunks.push(c);
+        }
+      } else {
+        relevantFileChunks = await vectorService.findRelevantFileChunks(embeddingResult.embedding, userId, 8, 0.7);
+      }
+
+      const [similarMessages, similarConversations] = await Promise.all([
         opts.includeMessageContext 
           ? vectorService.findSimilarMessages(embeddingResult.embedding, userId, opts.maxSimilarMessages, opts.similarityThreshold)
           : Promise.resolve([]),
         opts.includeConversationContext 
           ? vectorService.findSimilarConversations(embeddingResult.embedding, userId, opts.maxSimilarConversations, opts.similarityThreshold)
-          : Promise.resolve([]),
-        vectorService.findRelevantFileChunks(embeddingResult.embedding, userId, 8, 0.7)
+          : Promise.resolve([])
       ]);
 
       console.log(`📊 Found ${similarMessages.length} similar messages and ${similarConversations.length} similar conversations`);
@@ -90,6 +119,7 @@ export class ContextEnhancer {
         similarConversations, 
         opts.maxContextLength,
         (relevantFileChunks || []).map(fc => ({
+          fileId: fc.fileId,
           fileName: fc.name,
           mimeType: fc.mimeType,
           similarity: fc.similarity,
@@ -104,7 +134,14 @@ export class ContextEnhancer {
         similarMessages,
         similarConversations,
         contextualSystemMessage,
-        enhancedMessages
+        enhancedMessages,
+        fileSnippets: (relevantFileChunks || []).map(fc => ({
+          fileId: fc.fileId,
+          fileName: fc.name,
+          mimeType: fc.mimeType,
+          similarity: fc.similarity,
+          snippet: (fc.text || '').substring(0, 400)
+        }))
       };
 
     } catch (error) {

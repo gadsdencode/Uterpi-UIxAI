@@ -574,6 +574,50 @@ export class VectorService {
       return [];
     }
   }
+
+  /**
+   * Find relevant file chunks restricted to a set of fileIds
+   */
+  async findRelevantFileChunksForFiles(
+    queryEmbedding: number[],
+    userId: number,
+    fileIds: number[],
+    limit: number = 12,
+    threshold: number = 0.0
+  ): Promise<Array<{ fileId: number; chunkIndex: number; text: string; similarity: number; name: string; mimeType: string }>> {
+    if (!isVectorizationEnabled()) {
+      return [];
+    }
+    try {
+      const cleanIds = (fileIds || []).filter((id) => Number.isFinite(id));
+      if (cleanIds.length === 0) return [];
+      const queryEmbeddingStr = JSON.stringify(queryEmbedding);
+      const result = await db.execute(sql`
+        SELECT fe.file_id, fe.chunk_index, fe.chunk_text,
+               (1 - (fe.embedding::vector <=> ${queryEmbeddingStr}::vector)) as similarity,
+               f.name, f.mime_type
+        FROM file_embeddings fe
+        JOIN files f ON fe.file_id = f.id
+        WHERE f.user_id = ${userId}
+          AND f.status = 'active'
+          AND fe.file_id = ANY(${cleanIds}::int[])
+          AND (1 - (fe.embedding::vector <=> ${queryEmbeddingStr}::vector)) >= ${threshold}
+        ORDER BY similarity DESC
+        LIMIT ${limit}
+      `);
+      return result.rows.map((row: any) => ({
+        fileId: row.file_id,
+        chunkIndex: row.chunk_index,
+        text: row.chunk_text,
+        similarity: parseFloat(row.similarity),
+        name: row.name,
+        mimeType: row.mime_type
+      }));
+    } catch (error) {
+      console.error('❌ Error finding relevant chunks for files:', error);
+      return [];
+    }
+  }
 }
 
 // Export singleton instance

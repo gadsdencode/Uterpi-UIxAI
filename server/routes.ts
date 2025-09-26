@@ -801,15 +801,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Universal AI chat completions endpoint with dynamic credit checking for all providers
   app.post("/ai/v1/chat/completions", requireAuth, checkFreemiumLimit(), requireDynamicCredits((req) => {
-    const { messages, enableContext = true, model } = req.body;
-    const hasAttachments = messages?.some((msg: any) => msg.attachments && msg.attachments.length > 0);
-    // If vectorization is disabled, force context off for credit estimation
+    const body: any = (req as any).body || {};
+    const raw = body.original_messages || body.messages;
+    const enableContext = body.enableContext ?? true;
+    const model = body.model;
+    const hasAttachments = raw?.some((msg: any) => msg.attachments && msg.attachments.length > 0);
     const effectiveEnableContext = isVectorizationEnabled() ? enableContext : false;
-    return estimateRequiredCredits(messages || [], effectiveEnableContext, hasAttachments, model || '');
+    return estimateRequiredCredits(raw || [], effectiveEnableContext, hasAttachments, model || '');
   }, 'chat'), async (req, res) => {
     console.log('🚀 Chat endpoint called for user:', req.user?.id);
     try {
-      const { provider, messages, model, max_tokens, temperature, top_p, stream, sessionId, enableContext = true, ...otherParams } = req.body;
+      const { provider, messages, model, max_tokens, temperature, top_p, stream, sessionId, enableContext = true, original_messages, ...otherParams } = req.body;
       
       if (!provider) {
         return res.status(400).json({ error: 'Provider is required' });
@@ -827,7 +829,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let conversation;
       let userMessage;
       let aiResponse;
-      let enhancedMessages = messages; // Default to original messages
+      let enhancedMessages = messages; // Default to provider-formatted messages
+      const rawMessages = original_messages || messages; // Prefer originals for storage/context
 
       // =============================================================================
       // VECTORIZATION PIPELINE INTEGRATION
@@ -845,7 +848,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log(`💬 Using conversation ${conversation.id} for user ${userId}`);
 
         // 2. Store user message (last message in the array)
-        const lastMessage = messages[messages.length - 1];
+        const lastMessage = rawMessages[rawMessages.length - 1];
         if (lastMessage && lastMessage.role === 'user') {
           userMessage = await conversationService.addMessage({
             conversationId: conversation.id,
@@ -862,13 +865,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (enableContext && isVectorizationEnabled()) {
           try {
             const contextResult = await contextEnhancer.enhanceMessagesWithContext(
-              messages, 
+              rawMessages, 
               userId,
               { maxSimilarMessages: 3, maxSimilarConversations: 2, similarityThreshold: 0.75, includeConversationContext: true, includeMessageContext: true, maxContextLength: 2000 }
             );
 
             enhancedMessages = contextResult.enhancedMessages;
             console.log(`🧠 Enhanced messages with context: ${contextResult.similarMessages.length} similar messages, ${contextResult.similarConversations.length} similar conversations`);
+
+            // Attach context file snippets to be returned to the client for citations
+            (req as any)._contextFileSnippets = contextResult.fileSnippets || [];
           } catch (contextError) {
             console.warn('⚠️ Context enhancement skipped/failed, proceeding without context:', contextError);
           }
@@ -1377,13 +1383,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Deduct credits based on actual token usage
         const creditInfo = await deductCreditsAfterResponse(req, inputTokens, outputTokens, modelName || provider);
         
-        // Include credit information in response for real-time updates
+        // Include credit information and sources in response for real-time updates
         if (creditInfo) {
           responseBody.uterpi_credit_info = {
             credits_used: creditInfo.creditsUsed,
             remaining_balance: creditInfo.remainingBalance
           };
         }
+
+        // Add sources/citations if available
+        try {
+          const fileSnippets = (req as any)._contextFileSnippets as Array<{ fileId: number; fileName: string; mimeType: string; similarity: number; snippet: string }>;
+          if (Array.isArray(fileSnippets) && fileSnippets.length > 0) {
+            responseBody.sources = fileSnippets.slice(0, 8).map(s => ({
+              fileId: s.fileId,
+              name: s.fileName,
+              mimeType: s.mimeType,
+              similarity: s.similarity,
+              snippet: s.snippet
+            }));
+          }
+        } catch {}
         
         res.json(responseBody);
       } else {
@@ -1400,9 +1420,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Azure AI chat completions endpoint with dynamic credit checking (legacy support)
   app.post("/azure/v1/chat/completions", requireAuth, checkFreemiumLimit(), requireDynamicCredits((req) => {
-    const { messages, model } = req.body;
-    const hasAttachments = messages?.some((msg: any) => msg.attachments && msg.attachments.length > 0);
-    return estimateRequiredCredits(messages || [], false, hasAttachments, model || '');
+    const body: any = (req as any).body || {};
+    const raw = body.original_messages || body.messages;
+    const model = body.model;
+    const hasAttachments = raw?.some((msg: any) => msg.attachments && msg.attachments.length > 0);
+    return estimateRequiredCredits(raw || [], false, hasAttachments, model || '');
   }, 'chat'), async (req, res) => {
     try {
       const { messages, model, max_tokens, temperature, top_p, stream } = req.body;

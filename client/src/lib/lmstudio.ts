@@ -150,7 +150,8 @@ export class LMStudioService {
       credentials: 'include',
       body: JSON.stringify({
         provider: 'lmstudio',
-        ...requestBody
+        ...requestBody,
+        original_messages: (options as any)?.originalMessages
       })
     });
 
@@ -176,6 +177,14 @@ export class LMStudioService {
         remainingBalance: data.uterpi_credit_info.remaining_balance
       });
     }
+    
+    // Emit sources event if backend provided citations
+    try {
+      const sources = (data as any)?.sources;
+      if (Array.isArray(sources) && sources.length > 0 && typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('ai-sources', { detail: sources }));
+      }
+    } catch {}
     
     // Handle tool calls if present
     if (data.choices?.[0]?.message?.tool_calls) {
@@ -238,7 +247,8 @@ export class LMStudioService {
       credentials: 'include',
       body: JSON.stringify({
         provider: 'lmstudio',
-        ...requestBody
+        ...requestBody,
+        original_messages: (options as any)?.originalMessages
       })
     });
 

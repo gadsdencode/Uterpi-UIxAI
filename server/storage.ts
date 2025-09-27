@@ -212,9 +212,16 @@ export class DatabaseStorage implements IStorage {
 
   async updateUserProfile(id: number, profileData: UpdateProfile): Promise<User | undefined> {
     try {
+      // Convert dateOfBirth string to Date object if provided
+      const updateData: any = { ...profileData, updatedAt: new Date() };
+      
+      if (profileData.dateOfBirth) {
+        updateData.dateOfBirth = new Date(profileData.dateOfBirth);
+      }
+      
       const result = await db
         .update(users)
-        .set({ ...profileData, updatedAt: new Date() } as any)
+        .set(updateData)
         .where(eq(users.id, id))
         .returning();
       return result[0];
@@ -505,7 +512,14 @@ export class MemStorage implements IStorage {
     const user = this.users.get(id);
     if (!user) return undefined;
 
-    const updatedUser = { ...user, ...profileData, updatedAt: new Date() } as any;
+    // Convert dateOfBirth string to Date object if provided
+    const updateData: any = { ...profileData, updatedAt: new Date() };
+    
+    if (profileData.dateOfBirth) {
+      updateData.dateOfBirth = new Date(profileData.dateOfBirth);
+    }
+
+    const updatedUser = { ...user, ...updateData } as any;
     this.users.set(id, updatedUser);
     return updatedUser;
   }

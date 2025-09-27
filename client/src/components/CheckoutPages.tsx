@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { CheckCircle2, XCircle, Loader2, Home, CreditCard, Clock } from 'lucide-react';
 import { navigateTo } from './Router';
 import { useAuth } from '@/hooks/useAuth';
+import { handleError, createError } from '@/lib/error-handler';
 
 interface CheckoutSession {
   id: string;
@@ -83,7 +84,14 @@ export const CheckoutSuccessPage: React.FC = () => {
         startCreditPolling();
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load checkout details');
+      const error = err instanceof Error ? err : new Error('Failed to load checkout details');
+      handleError(error, {
+        operation: 'fetch_checkout_session',
+        component: 'CheckoutSuccessPage',
+        userId: user?.id?.toString(),
+        timestamp: new Date()
+      });
+      setError(error.message);
     } finally {
       setLoading(false);
     }
@@ -135,6 +143,15 @@ export const CheckoutSuccessPage: React.FC = () => {
         });
       } catch (error) {
         console.error('Error polling credits:', error);
+        
+        // Handle polling errors gracefully
+        handleError(error as Error, {
+          operation: 'poll_credits_balance',
+          component: 'CheckoutSuccessPage',
+          userId: user?.id?.toString(),
+          timestamp: new Date()
+        });
+        
         setPollingAttempts(prev => {
           const newAttempts = prev + 1;
           if (newAttempts >= maxPollingAttempts) {

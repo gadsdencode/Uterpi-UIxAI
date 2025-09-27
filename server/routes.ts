@@ -19,6 +19,7 @@ import { vectorProcessor } from "./vector-processor";
 import { vectorService } from "./vector-service";
 import { contextEnhancer } from "./context-enhancer";
 import { isVectorizationEnabled } from "./vector-flags";
+import { asyncHandler, createError, retryOperation } from "./error-handler";
 import multer from 'multer';
 import ModelClient from "@azure-rest/ai-inference";
 import { AzureKeyCredential } from "@azure/core-auth";
@@ -1414,7 +1415,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     } catch (error) {
       console.error('Universal AI proxy error:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      
+      // Handle specific error types
+      if (error instanceof Error) {
+        if (error.message.includes('fetch failed') || error.message.includes('ECONNREFUSED')) {
+          throw createError.externalService('AI Provider', 'AI service is temporarily unavailable');
+        } else if (error.message.includes('timeout')) {
+          throw createError.externalService('AI Provider', 'Request timed out');
+        } else if (error.message.includes('rate limit')) {
+          throw createError.rateLimit('AI service rate limit exceeded');
+        }
+      }
+      
+      throw createError.externalService('AI Provider', 'AI service error occurred');
     }
   });
 
@@ -1494,7 +1507,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     } catch (error) {
       console.error('Azure AI proxy error:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      
+      // Handle specific Azure AI error types
+      if (error instanceof Error) {
+        if (error.message.includes('authentication') || error.message.includes('unauthorized')) {
+          throw createError.authentication('Azure AI authentication failed');
+        } else if (error.message.includes('quota') || error.message.includes('limit')) {
+          throw createError.rateLimit('Azure AI quota exceeded');
+        } else if (error.message.includes('timeout')) {
+          throw createError.externalService('Azure AI', 'Request timed out');
+        }
+      }
+      
+      throw createError.externalService('Azure AI', 'Azure AI service error occurred');
     }
   });
   
@@ -1525,16 +1550,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error: any) {
       console.error("Registration error:", error);
+      
       if (error.message?.includes("already exists")) {
-        res.status(409).json({ error: error.message });
+        throw createError.conflict("User with this email already exists");
       } else if (error.issues) {
         // Zod validation error
-        res.status(400).json({ 
-          error: "Validation failed", 
-          details: error.issues 
-        });
+        throw createError.validation("Invalid registration data", error.issues);
       } else {
-        res.status(500).json({ error: "Registration failed" });
+        throw createError.database("Failed to create user account", error);
       }
     }
   });
@@ -1667,14 +1690,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error: any) {
       console.error("Forgot password error:", error);
+      
       if (error.issues) {
         // Zod validation error
-        res.status(400).json({ 
-          error: "Validation failed", 
-          details: error.issues 
-        });
+        throw createError.validation("Invalid email address", error.issues);
       } else {
-        res.status(500).json({ error: "Failed to process password reset request" });
+        throw createError.database("Failed to process password reset request", error);
       }
     }
   });
@@ -2134,9 +2155,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get user profile
   app.get("/api/user/profile", requireAuth, async (req, res) => {
     try {
-      const user = await storage.getUser(req.user!.id);
+      // Validate user authentication
+      if (!req.user?.id) {
+        throw createError.authentication('User authentication required');
+      }
+
+      const user = await storage.getUser(req.user.id);
       if (!user) {
-        return res.status(404).json({ error: "User not found" });
+        throw createError.notFound('User');
       }
       
       // Return public user data (excluding password and sensitive info)
@@ -2154,34 +2180,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
       };
-      
+
       res.json({ 
         success: true, 
         profile 
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Get profile error:", error);
-      res.status(500).json({ error: "Failed to get profile" });
+      
+      if (error instanceof Error && error.name.includes('Error')) {
+        // Re-throw our custom errors
+        throw error;
+      } else {
+        throw createError.database("Failed to get profile", error);
+      }
     }
   });
 
   // Update user profile
   app.put("/api/user/profile", requireAuth, async (req, res) => {
     try {
+      // Validate user authentication
+      if (!req.user?.id) {
+        throw createError.authentication('User authentication required');
+      }
+
       const validatedData = updateProfileSchema.parse(req.body);
       
       // Check if username is being updated and if it's already taken
-      if (validatedData.username && validatedData.username !== req.user!.username) {
+      if (validatedData.username && validatedData.username !== req.user.username) {
         const existingUser = await storage.getUserByUsername(validatedData.username);
-        if (existingUser && existingUser.id !== req.user!.id) {
-          return res.status(409).json({ error: "Username already taken" });
+        if (existingUser && existingUser.id !== req.user.id) {
+          throw createError.conflict("Username already taken");
         }
       }
 
-      const updatedUser = await storage.updateUserProfile(req.user!.id, validatedData);
+      // Verify user exists before updating
+      const existingUser = await storage.getUser(req.user.id);
+      if (!existingUser) {
+        throw createError.notFound('User');
+      }
+
+      const updatedUser = await storage.updateUserProfile(req.user.id, validatedData);
       
       if (!updatedUser) {
-        return res.status(404).json({ error: "User not found" });
+        throw createError.database('Failed to update user profile');
       }
 
       // Return public user data
@@ -2207,14 +2250,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error: any) {
       console.error("Update profile error:", error);
+      
       if (error.issues) {
         // Zod validation error
-        res.status(400).json({ 
-          error: "Validation failed", 
-          details: error.issues 
-        });
+        throw createError.validation("Invalid profile data", error.issues);
+      } else if (error instanceof Error && error.name.includes('Error')) {
+        // Re-throw our custom errors
+        throw error;
       } else {
-        res.status(500).json({ error: "Failed to update profile" });
+        throw createError.database("Failed to update profile", error);
       }
     }
   });
@@ -5979,3 +6023,4 @@ function generateFallbackCodeAnalysis(code: string): any {
     optimizedCode: code // Return original code if AI optimization fails
   };
 }
+

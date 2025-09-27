@@ -45,6 +45,7 @@ import { AIProviderQuickSelector } from './AIProviderQuickSelector';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import { toast } from "sonner";
 import { useAuth } from '../hooks/useAuth';
+import { handleError, createError } from '../lib/error-handler';
 import { 
   downloadTranscript, 
   copyTranscriptToClipboard, 
@@ -1412,6 +1413,14 @@ const FuturisticAIChat: React.FC = () => {
     } catch (err) {
       // Track error occurrence
       trackAction('error_occurred');
+      
+      // Use centralized error handling
+      handleError(err as Error, {
+        operation: 'send_message',
+        component: 'ChatView',
+        userId: user?.id?.toString(),
+        timestamp: new Date()
+      });
       
       // Check if this is a credit limit error (402 status)
       if (err instanceof Error && err.message.includes('Subscription error:')) {

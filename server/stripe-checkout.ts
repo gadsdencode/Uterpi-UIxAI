@@ -358,35 +358,38 @@ export async function handleCreditsCheckoutSuccess(session: Stripe.Checkout.Sess
   }
 
   try {
-    // Add credits to user account
-    const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
-    if (!user) {
-      throw new Error('User not found');
-    }
-
-    const newBalance = (user.ai_credits_balance || 0) + credits;
-    
-    // Update user balance
-    await db.update(users)
-      .set({ ai_credits_balance: newBalance })
-      .where(eq(users.id, userId));
-
-    // Create transaction record
-    await db.insert(aiCreditsTransactions).values({
-      userId,
-      transactionType: 'purchase',
-      amount: credits,
-      balanceAfter: newBalance,
-      stripePaymentIntentId: session.payment_intent as string,
-      description: `Purchased ${credits} AI credits`,
-      metadata: {
-        checkoutSessionId: session.id,
-        packageId,
-        priceUsd: amount,
+    // Execute both operations atomically within a transaction
+    await db.transaction(async (tx) => {
+      // Get user and calculate new balance
+      const [user] = await tx.select().from(users).where(eq(users.id, userId)).limit(1);
+      if (!user) {
+        throw new Error('User not found');
       }
+
+      const newBalance = (user.ai_credits_balance || 0) + credits;
+      
+      // Update user balance
+      await tx.update(users)
+        .set({ ai_credits_balance: newBalance, updatedAt: new Date() })
+        .where(eq(users.id, userId));
+
+      // Create transaction record
+      await tx.insert(aiCreditsTransactions).values({
+        userId,
+        transactionType: 'purchase',
+        amount: credits,
+        balanceAfter: newBalance,
+        stripePaymentIntentId: session.payment_intent as string,
+        description: `Purchased ${credits} AI credits`,
+        metadata: {
+          checkoutSessionId: session.id,
+          packageId,
+          priceUsd: amount,
+        }
+      });
     });
 
-    console.log(`${credits} AI credits added to user ${userId}, new balance: ${newBalance}`);
+    console.log(`${credits} AI credits added to user ${userId}, new balance: ${(await db.select().from(users).where(eq(users.id, userId)).limit(1))[0]?.ai_credits_balance || 0}`);
     
   } catch (error) {
     console.error('Error handling credits checkout success:', error);

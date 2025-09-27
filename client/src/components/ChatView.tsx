@@ -46,6 +46,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/t
 import { toast } from "sonner";
 import { useAuth } from '../hooks/useAuth';
 import { handleError, createError } from '../lib/error-handler';
+import { useDynamicGreeting } from '../hooks/useDynamicGreeting';
 import { 
   downloadTranscript, 
   copyTranscriptToClipboard, 
@@ -628,57 +629,29 @@ const FuturisticAIChat: React.FC = () => {
     }
   };
   
-  // Create personalized welcome message
-  const getPersonalizedWelcome = useCallback(() => {
-    if (!user) {
-      return "Hello! I'm Uterpi's AI. What would you like to accomplish today?";
-    }
+  // Use dynamic greeting system
+  const { greeting, isLoading: greetingLoading, error: greetingError, isAIGenerated } = useDynamicGreeting(user, {
+    enableAI: true,
+    fallbackToTemplate: true,
+    includeSuggestions: true,
+    maxLength: 150
+  });
 
-    const name = user.firstName || user.username || "there";
-    const greeting = `Hello ${name}! I'm Uterpi's AI.`;
-    
-    const personalizations = [];
-    
-    if (user.bio) {
-      personalizations.push(`I see you're interested in ${user.bio.toLowerCase()}.`);
+  const [messages, setMessages] = useState<Message[]>([]);
+  
+  // Initialize messages with dynamic greeting when it's ready
+  useEffect(() => {
+    if (greeting && !greetingLoading && messages.length === 0) {
+      setMessages([
+        {
+          id: "1",
+          content: greeting,
+          role: "assistant",
+          timestamp: new Date(),
+        }
+      ]);
     }
-    
-    if (user.age) {
-      if (user.age < 25) {
-        personalizations.push("I'm here to help with any questions or projects you're working on.");
-      } else if (user.age < 40) {
-        personalizations.push("Whether it's work, personal projects, or learning something new, I'm here to assist.");
-      } else {
-        personalizations.push("I'm here to help with any professional or personal endeavors.");
-      }
-    }
-
-    // Check for birthday
-    if (user.dateOfBirth) {
-      const birthDate = new Date(user.dateOfBirth);
-      const today = new Date();
-      const isToday = birthDate.getMonth() === today.getMonth() && birthDate.getDate() === today.getDate();
-      
-      if (isToday) {
-        return `🎉 ${greeting} Happy Birthday! I hope you're having a wonderful day. What would you like to explore together today?`;
-      }
-    }
-    
-    if (personalizations.length > 0) {
-      return `${greeting} ${personalizations.join(' ')} What would you like to work on today?`;
-    }
-    
-    return `${greeting} What would you like to accomplish today?`;
-  }, [user]);
-
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: "1",
-      content: getPersonalizedWelcome(),
-      role: "assistant",
-      timestamp: new Date(),
-    }
-  ]);
+  }, [greeting, greetingLoading, messages.length]);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [showCommands, setShowCommands] = useState(false);
@@ -749,7 +722,7 @@ const FuturisticAIChat: React.FC = () => {
         setMessages([
           {
             id: "1",
-            content: getPersonalizedWelcome(),
+            content: greeting || "Hello! I'm Uterpi's AI. What would you like to accomplish today?",
             role: "assistant",
             timestamp: new Date(),
           }
@@ -766,7 +739,7 @@ const FuturisticAIChat: React.FC = () => {
 
     window.addEventListener('keydown', handleGlobalKeydown);
     return () => window.removeEventListener('keydown', handleGlobalKeydown);
-  }, [getPersonalizedWelcome]);
+  }, [greeting]);
 
   // Get the current system message based on selection
   const getCurrentSystemMessage = () => {
@@ -963,7 +936,7 @@ const FuturisticAIChat: React.FC = () => {
       setMessages([
         {
           id: "1",
-          content: getPersonalizedWelcome(),
+          content: greeting || "Hello! I'm Uterpi's AI. What would you like to accomplish today?",
           role: "assistant",
           timestamp: new Date(),
         }
@@ -1649,12 +1622,12 @@ const FuturisticAIChat: React.FC = () => {
       if (newMessages.length > 0 && newMessages[0].id === "1") {
         newMessages[0] = {
           ...newMessages[0],
-          content: getPersonalizedWelcome(),
+          content: greeting || "Hello! I'm Uterpi's AI. What would you like to accomplish today?",
         };
       }
       return newMessages;
     });
-  }, [getPersonalizedWelcome]);
+  }, [greeting]);
 
   return (
     <TooltipProvider>
@@ -1760,7 +1733,7 @@ const FuturisticAIChat: React.FC = () => {
                       setMessages([
                         {
                           id: "1",
-                          content: getPersonalizedWelcome(),
+                          content: greeting || "Hello! I'm Uterpi's AI. What would you like to accomplish today?",
                           role: "assistant",
                           timestamp: new Date(),
                         }
@@ -1874,6 +1847,24 @@ const FuturisticAIChat: React.FC = () => {
         {/* Messages */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6">
           <div className="max-w-4xl mx-auto space-y-4 sm:space-y-6">
+            {/* Show loading state for greeting generation */}
+            {greetingLoading && messages.length === 0 && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="flex justify-start"
+              >
+                <div className="relative max-w-[80%]">
+                  <HolographicBubble isUser={false}>
+                    <div className="flex items-center gap-2 text-slate-400">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span className="text-sm">Generating personalized greeting...</span>
+                    </div>
+                  </HolographicBubble>
+                </div>
+              </motion.div>
+            )}
+            
             <AnimatePresence>
               {messages.map((message) => (
                 <motion.div
@@ -1892,6 +1883,13 @@ const FuturisticAIChat: React.FC = () => {
                       <HolographicBubble isUser={message.role === 'user'}>
                         <div className="space-y-2">
                           <p className="text-sm leading-relaxed">{message.content}</p>
+                          {/* Show AI-generated indicator for the first message if it was AI-generated */}
+                          {message.role === 'assistant' && message.id === "1" && isAIGenerated && (
+                            <div className="flex items-center gap-1 text-xs text-slate-400">
+                              <Sparkles className="w-3 h-3 text-violet-400" />
+                              <span>AI-generated greeting</span>
+                            </div>
+                          )}
                           {message.attachments && (
                             <div className="flex flex-wrap gap-2">
                               {message.attachments.map((file, index) => (

@@ -3,11 +3,11 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { requireAuth, requireGuest } from "./auth";
 import passport from "./auth";
-import { registerUserSchema, loginUserSchema, forgotPasswordSchema, resetPasswordSchema, publicUserSchema, updateProfileSchema, updateEmailPreferencesSchema, unsubscribeSchema, subscriptionPlans, subscriptions, users, files, subscriptionFeatures } from "@shared/schema";
+import { registerUserSchema, loginUserSchema, forgotPasswordSchema, resetPasswordSchema, publicUserSchema, updateProfileSchema, updateEmailPreferencesSchema, unsubscribeSchema, subscriptionPlans, subscriptions, users, files, subscriptionFeatures, aiCreditsTransactions } from "@shared/schema";
 import { engagementService } from "./engagement";
 import { aiCoachService } from "./ai-coach";
 import { db } from "./db";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, gte } from "drizzle-orm";
 import { createStripeCustomer, createSetupIntent, createSubscription, cancelSubscription, reactivateSubscription, createBillingPortalSession, syncSubscriptionFromStripe } from "./stripe";
 import { createSubscriptionCheckoutSession, createCreditsCheckoutSession, getCheckoutSession } from "./stripe-checkout";
 import { requireActiveSubscription, enhanceWithSubscription, requireCredits, requireMinimumCredits, requireDynamicCredits, checkFreemiumLimit, getEnhancedSubscriptionDetails, requireFeature, requireTeamRole, requireAIProvider, tierBasedRateLimit, estimateRequiredCredits } from "./subscription-middleware";
@@ -2329,6 +2329,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Get subscription details error:", error);
       res.status(500).json({ error: "Failed to get subscription details" });
+    }
+  });
+
+  // Get current AI credits balance and usage
+  app.get("/api/credits/balance", requireAuth, async (req, res) => {
+    try {
+      const user = await storage.getUser(req.user!.id);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      // Get current balance
+      const currentBalance = user.ai_credits_balance || 0;
+      
+      // Get recent transactions for this month
+      const startOfMonth = new Date();
+      startOfMonth.setDate(1);
+      startOfMonth.setHours(0, 0, 0, 0);
+
+      const transactions = await db.select()
+        .from(aiCreditsTransactions)
+        .where(
+          and(
+            eq(aiCreditsTransactions.userId, req.user!.id),
+            gte(aiCreditsTransactions.createdAt, startOfMonth)
+          )
+        )
+        .orderBy(desc(aiCreditsTransactions.createdAt))
+        .limit(10);
+
+      res.json({
+        balance: currentBalance,
+        isTeamPooled: false, // Individual user balance
+        recentTransactions: transactions,
+      });
+    } catch (error) {
+      console.error("Get credits balance error:", error);
+      res.status(500).json({ error: "Failed to get credits balance" });
     }
   });
 

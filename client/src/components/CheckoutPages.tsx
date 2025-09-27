@@ -3,10 +3,10 @@
  * Handle Stripe Checkout Session redirects
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { CheckCircle2, XCircle, Loader2, Home, CreditCard } from 'lucide-react';
+import { CheckCircle2, XCircle, Loader2, Home, CreditCard, Clock } from 'lucide-react';
 import { navigateTo } from './Router';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -32,6 +32,14 @@ export const CheckoutSuccessPage: React.FC = () => {
   const [session, setSession] = useState<CheckoutSession | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Polling state for credit purchases
+  const [isPolling, setIsPolling] = useState(false);
+  const [creditsConfirmed, setCreditsConfirmed] = useState(false);
+  const [pollingAttempts, setPollingAttempts] = useState(0);
+  const [expectedCredits, setExpectedCredits] = useState<number | null>(null);
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const maxPollingAttempts = 20; // 2 minutes with 6-second intervals
 
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -46,6 +54,15 @@ export const CheckoutSuccessPage: React.FC = () => {
     fetchSessionDetails(sessionId);
   }, []);
 
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
+    };
+  }, []);
+
   const fetchSessionDetails = async (sessionId: string) => {
     try {
       const response = await fetch(`/api/checkout/session/${sessionId}`, {
@@ -58,11 +75,82 @@ export const CheckoutSuccessPage: React.FC = () => {
 
       const data = await response.json();
       setSession(data.session);
+      
+      // If this is a credit purchase, start polling for balance updates
+      if (data.session.mode === 'payment' && data.session.metadata?.credits) {
+        const credits = parseInt(data.session.metadata.credits);
+        setExpectedCredits(credits);
+        startCreditPolling();
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load checkout details');
     } finally {
       setLoading(false);
     }
+  };
+
+  const startCreditPolling = () => {
+    setIsPolling(true);
+    setPollingAttempts(0);
+    
+    const pollCredits = async () => {
+      try {
+        const response = await fetch('/api/credits/balance', {
+          credentials: 'include',
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to fetch credit balance');
+        }
+
+        const data = await response.json();
+        const currentBalance = data.balance;
+        
+        // Check if we have recent transactions that match our expected credits
+        const recentPurchase = data.recentTransactions?.find((tx: any) => 
+          tx.transactionType === 'purchase' && 
+          tx.amount === expectedCredits &&
+          new Date(tx.createdAt) > new Date(Date.now() - 5 * 60 * 1000) // Within last 5 minutes
+        );
+
+        if (recentPurchase || (expectedCredits && currentBalance >= expectedCredits)) {
+          setCreditsConfirmed(true);
+          setIsPolling(false);
+          if (pollingIntervalRef.current) {
+            clearInterval(pollingIntervalRef.current);
+          }
+          return;
+        }
+
+        setPollingAttempts(prev => {
+          const newAttempts = prev + 1;
+          if (newAttempts >= maxPollingAttempts) {
+            setIsPolling(false);
+            if (pollingIntervalRef.current) {
+              clearInterval(pollingIntervalRef.current);
+            }
+            // Don't show error, just stop polling - credits might still be processing
+          }
+          return newAttempts;
+        });
+      } catch (error) {
+        console.error('Error polling credits:', error);
+        setPollingAttempts(prev => {
+          const newAttempts = prev + 1;
+          if (newAttempts >= maxPollingAttempts) {
+            setIsPolling(false);
+            if (pollingIntervalRef.current) {
+              clearInterval(pollingIntervalRef.current);
+            }
+          }
+          return newAttempts;
+        });
+      }
+    };
+
+    // Start polling immediately, then every 6 seconds
+    pollCredits();
+    pollingIntervalRef.current = setInterval(pollCredits, 6000);
   };
 
   const formatAmount = (amount: number, currency: string) => {
@@ -81,7 +169,13 @@ export const CheckoutSuccessPage: React.FC = () => {
       return `Your ${tier} ${interval}ly subscription has been activated!`;
     } else {
       const credits = session.metadata.credits;
-      return `${credits} AI credits have been added to your account!`;
+      if (isPolling && !creditsConfirmed) {
+        return `Processing your ${credits} AI credits purchase...`;
+      } else if (creditsConfirmed) {
+        return `${credits} AI credits have been added to your account!`;
+      } else {
+        return `${credits} AI credits purchase completed!`;
+      }
     }
   };
 
@@ -91,7 +185,13 @@ export const CheckoutSuccessPage: React.FC = () => {
     if (session.mode === 'subscription') {
       return 'You now have access to all premium features. Welcome aboard!';
     } else {
-      return 'Your credits are ready to use and never expire.';
+      if (isPolling && !creditsConfirmed) {
+        return 'Please wait while we confirm your credits are available. This usually takes just a few moments.';
+      } else if (creditsConfirmed) {
+        return 'Your credits are ready to use and never expire.';
+      } else {
+        return 'Your credits are being processed and will be available shortly.';
+      }
     }
   };
 
@@ -152,9 +252,15 @@ export const CheckoutSuccessPage: React.FC = () => {
       <Card className="w-full max-w-md mx-auto bg-slate-900 border-slate-700">
         <CardHeader className="text-center">
           <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-green-100">
-            <CheckCircle2 className="h-8 w-8 text-green-600" />
+            {isPolling && !creditsConfirmed ? (
+              <Loader2 className="h-8 w-8 text-blue-600 animate-spin" />
+            ) : (
+              <CheckCircle2 className="h-8 w-8 text-green-600" />
+            )}
           </div>
-          <CardTitle className="text-white">Payment Successful!</CardTitle>
+          <CardTitle className="text-white">
+            {isPolling && !creditsConfirmed ? 'Processing Payment...' : 'Payment Successful!'}
+          </CardTitle>
           <CardDescription className="text-slate-400">
             {getSuccessMessage()}
           </CardDescription>
@@ -183,6 +289,21 @@ export const CheckoutSuccessPage: React.FC = () => {
             <p className="text-slate-300 mb-4">
               {getSuccessDetails()}
             </p>
+            
+            {/* Polling Status for Credit Purchases */}
+            {isPolling && !creditsConfirmed && session?.mode === 'payment' && (
+              <div className="bg-blue-900/20 border border-blue-700/30 rounded-lg p-4 mb-4">
+                <div className="flex items-center justify-center space-x-2 text-blue-300">
+                  <Clock className="h-4 w-4" />
+                  <span className="text-sm">
+                    Confirming credits... ({pollingAttempts}/{maxPollingAttempts})
+                  </span>
+                </div>
+                <div className="mt-2 text-xs text-blue-400 text-center">
+                  This usually takes 10-30 seconds
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Action Buttons */}
@@ -190,9 +311,13 @@ export const CheckoutSuccessPage: React.FC = () => {
             <Button 
               onClick={() => navigateTo('/')} 
               className="w-full bg-violet-600 hover:bg-violet-700"
+              disabled={isPolling && !creditsConfirmed && session?.mode === 'payment'}
             >
               <Home className="mr-2 h-4 w-4" />
-              Go to Dashboard
+              {isPolling && !creditsConfirmed && session?.mode === 'payment' 
+                ? 'Processing Credits...' 
+                : 'Go to Dashboard'
+              }
             </Button>
             {session.mode === 'subscription' && (
               <Button 

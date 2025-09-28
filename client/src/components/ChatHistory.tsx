@@ -28,7 +28,12 @@ import {
   Star,
   StarOff,
   Eye,
-  EyeOff
+  EyeOff,
+  Download,
+  FileText,
+  FileJson,
+  FileSpreadsheet,
+  FileType
 } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { toast } from "sonner";
@@ -117,6 +122,9 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
   const [viewMode, setViewMode] = useState<"list" | "grid">("list");
   const [sortBy, setSortBy] = useState<"date" | "title" | "provider">("date");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  const [isExporting, setIsExporting] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportFormat, setExportFormat] = useState<'json' | 'markdown' | 'csv' | 'txt'>('json');
 
   // Fetch conversations
   const fetchConversations = useCallback(async () => {
@@ -228,6 +236,110 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
     setSelectedConversation(conversation);
     fetchMessages(conversation.id);
     onSelectConversation?.(conversation);
+  };
+
+  // Export single conversation
+  const handleExportConversation = async (conversationId: number, format: 'json' | 'markdown' | 'csv' | 'txt') => {
+    setIsExporting(true);
+    try {
+      const response = await fetch(`/api/conversations/${conversationId}/export?format=${format}`, {
+        credentials: 'include'
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to export conversation');
+      }
+
+      // Get filename from Content-Disposition header
+      const contentDisposition = response.headers.get('Content-Disposition');
+      const filename = contentDisposition 
+        ? contentDisposition.split('filename=')[1]?.replace(/"/g, '') 
+        : `conversation_${conversationId}_${new Date().toISOString().split('T')[0]}.${format}`;
+
+      // Create blob and download
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      toast.success(`Conversation exported as ${format.toUpperCase()}`);
+    } catch (error) {
+      console.error('Error exporting conversation:', error);
+      toast.error('Failed to export conversation');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  // Export multiple conversations
+  const handleBulkExport = async (conversationIds: number[], format: 'json' | 'markdown' | 'csv' | 'txt') => {
+    setIsExporting(true);
+    try {
+      const response = await fetch('/api/conversations/export/bulk', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({ conversationIds, format })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to export conversations');
+      }
+
+      // Get filename from Content-Disposition header
+      const contentDisposition = response.headers.get('Content-Disposition');
+      const filename = contentDisposition 
+        ? contentDisposition.split('filename=')[1]?.replace(/"/g, '') 
+        : `conversations_${new Date().toISOString().split('T')[0]}.${format}`;
+
+      // Create blob and download
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      toast.success(`${conversationIds.length} conversations exported as ${format.toUpperCase()}`);
+    } catch (error) {
+      console.error('Error exporting conversations:', error);
+      toast.error('Failed to export conversations');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  // Handle conversation selection for bulk operations
+  const handleToggleConversationSelection = (conversationId: number) => {
+    setSelectedConversations(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(conversationId)) {
+        newSet.delete(conversationId);
+      } else {
+        newSet.add(conversationId);
+      }
+      return newSet;
+    });
+  };
+
+  // Select all conversations
+  const handleSelectAllConversations = () => {
+    setSelectedConversations(new Set(sortedConversations.map(conv => conv.id)));
+  };
+
+  // Clear all selections
+  const handleClearAllSelections = () => {
+    setSelectedConversations(new Set());
   };
 
   // Handle conversation actions
@@ -396,6 +508,18 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                 </DialogDescription>
               </div>
               <div className="flex items-center gap-2">
+                {selectedConversations.size > 0 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowExportModal(true)}
+                    disabled={isExporting}
+                    className="text-slate-400 hover:text-white"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span className="ml-1">Export ({selectedConversations.size})</span>
+                  </Button>
+                )}
                 <Button
                   variant="ghost"
                   size="sm"
@@ -441,6 +565,52 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                     <Filter className="w-4 h-4" />
                   </Button>
                 </div>
+
+                {/* Bulk Selection Controls */}
+                {sortedConversations.length > 0 && (
+                  <div className="flex items-center justify-between mb-3 p-2 bg-slate-800/30 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        checked={selectedConversations.size === sortedConversations.length && sortedConversations.length > 0}
+                        onCheckedChange={(checked) => {
+                          if (checked) {
+                            handleSelectAllConversations();
+                          } else {
+                            handleClearAllSelections();
+                          }
+                        }}
+                      />
+                      <span className="text-sm text-slate-300">
+                        {selectedConversations.size > 0 
+                          ? `${selectedConversations.size} selected`
+                          : 'Select conversations'
+                        }
+                      </span>
+                    </div>
+                    {selectedConversations.size > 0 && (
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={handleClearAllSelections}
+                          className="text-slate-400 hover:text-white text-xs"
+                        >
+                          Clear
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setShowExportModal(true)}
+                          disabled={isExporting}
+                          className="text-slate-400 hover:text-white text-xs"
+                        >
+                          <Download className="w-3 h-3 mr-1" />
+                          Export
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Filters */}
                 <AnimatePresence>
@@ -532,25 +702,33 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                         onClick={() => handleSelectConversation(conversation)}
                       >
                         <div className="flex items-start justify-between">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-1">
-                              {getProviderIcon(conversation.provider)}
-                              <h3 className="font-medium text-white truncate">
-                                {conversation.title || `Chat with ${conversation.provider}`}
-                              </h3>
-                              {conversation.isStarred && (
-                                <Star className="w-4 h-4 text-yellow-500 fill-current" />
-                              )}
-                            </div>
-                            <p className="text-sm text-slate-400 truncate mb-2">
-                              {conversation.lastMessage || "No messages yet"}
-                            </p>
-                            <div className="flex items-center gap-2 text-xs text-slate-500">
-                              <Clock className="w-3 h-3" />
-                              <span>{formatDate(conversation.updatedAt)}</span>
-                              <Badge variant="secondary" className="text-xs">
-                                {conversation.provider}
-                              </Badge>
+                          <div className="flex items-start gap-3 flex-1 min-w-0">
+                            <Checkbox
+                              checked={selectedConversations.has(conversation.id)}
+                              onCheckedChange={() => handleToggleConversationSelection(conversation.id)}
+                              onClick={(e) => e.stopPropagation()}
+                              className="mt-1"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1">
+                                {getProviderIcon(conversation.provider)}
+                                <h3 className="font-medium text-white truncate">
+                                  {conversation.title || `Chat with ${conversation.provider}`}
+                                </h3>
+                                {conversation.isStarred && (
+                                  <Star className="w-4 h-4 text-yellow-500 fill-current" />
+                                )}
+                              </div>
+                              <p className="text-sm text-slate-400 truncate mb-2">
+                                {conversation.lastMessage || "No messages yet"}
+                              </p>
+                              <div className="flex items-center gap-2 text-xs text-slate-500">
+                                <Clock className="w-3 h-3" />
+                                <span>{formatDate(conversation.updatedAt)}</span>
+                                <Badge variant="secondary" className="text-xs">
+                                  {conversation.provider}
+                                </Badge>
+                              </div>
                             </div>
                           </div>
                           
@@ -612,6 +790,44 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                                 <Edit3 className="w-4 h-4 mr-2" />
                                 Rename
                               </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleExportConversation(conversation.id, 'json');
+                                }}
+                              >
+                                <FileJson className="w-4 h-4 mr-2" />
+                                Export as JSON
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleExportConversation(conversation.id, 'markdown');
+                                }}
+                              >
+                                <FileText className="w-4 h-4 mr-2" />
+                                Export as Markdown
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleExportConversation(conversation.id, 'csv');
+                                }}
+                              >
+                                <FileSpreadsheet className="w-4 h-4 mr-2" />
+                                Export as CSV
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleExportConversation(conversation.id, 'txt');
+                                }}
+                              >
+                                <FileType className="w-4 h-4 mr-2" />
+                                Export as Text
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
                               <DropdownMenuItem
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -649,6 +865,39 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="sm" className="text-slate-400 hover:text-white">
+                              <Download className="w-4 h-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="bg-slate-800 border-slate-700">
+                            <DropdownMenuItem
+                              onClick={() => handleExportConversation(selectedConversation.id, 'json')}
+                            >
+                              <FileJson className="w-4 h-4 mr-2" />
+                              Export as JSON
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => handleExportConversation(selectedConversation.id, 'markdown')}
+                            >
+                              <FileText className="w-4 h-4 mr-2" />
+                              Export as Markdown
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => handleExportConversation(selectedConversation.id, 'csv')}
+                            >
+                              <FileSpreadsheet className="w-4 h-4 mr-2" />
+                              Export as CSV
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => handleExportConversation(selectedConversation.id, 'txt')}
+                            >
+                              <FileType className="w-4 h-4 mr-2" />
+                              Export as Text
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                         <Button variant="ghost" size="sm" className="text-slate-400 hover:text-white">
                           <Share2 className="w-4 h-4" />
                         </Button>
@@ -724,6 +973,90 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Export Modal */}
+      <Dialog open={showExportModal} onOpenChange={setShowExportModal}>
+        <DialogContent className="max-w-md bg-slate-900/95 backdrop-blur-xl border-slate-700/50">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-white flex items-center gap-2">
+              <Download className="w-5 h-5" />
+              Export Conversations
+            </DialogTitle>
+            <DialogDescription className="text-slate-400">
+              Choose the format for exporting {selectedConversations.size} selected conversation{selectedConversations.size !== 1 ? 's' : ''}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-3">
+              <label className="text-sm font-medium text-white">Export Format</label>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  variant={exportFormat === 'json' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setExportFormat('json')}
+                  className="flex items-center gap-2"
+                >
+                  <FileJson className="w-4 h-4" />
+                  JSON
+                </Button>
+                <Button
+                  variant={exportFormat === 'markdown' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setExportFormat('markdown')}
+                  className="flex items-center gap-2"
+                >
+                  <FileText className="w-4 h-4" />
+                  Markdown
+                </Button>
+                <Button
+                  variant={exportFormat === 'csv' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setExportFormat('csv')}
+                  className="flex items-center gap-2"
+                >
+                  <FileSpreadsheet className="w-4 h-4" />
+                  CSV
+                </Button>
+                <Button
+                  variant={exportFormat === 'txt' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setExportFormat('txt')}
+                  className="flex items-center gap-2"
+                >
+                  <FileType className="w-4 h-4" />
+                  Text
+                </Button>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-4">
+              <Button
+                variant="outline"
+                onClick={() => setShowExportModal(false)}
+                disabled={isExporting}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() => {
+                  handleBulkExport(Array.from(selectedConversations), exportFormat);
+                  setShowExportModal(false);
+                }}
+                disabled={isExporting}
+                className="flex items-center gap-2"
+              >
+                {isExporting ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Download className="w-4 h-4" />
+                )}
+                Export {selectedConversations.size} Conversation{selectedConversations.size !== 1 ? 's' : ''}
+              </Button>
             </div>
           </div>
         </DialogContent>

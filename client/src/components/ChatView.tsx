@@ -630,6 +630,63 @@ const FuturisticAIChat: React.FC = () => {
       console.error('Error fetching credit status:', error);
     }
   };
+
+  // Load conversation messages from API
+  const loadConversation = async (conversationId: number, conversationTitle?: string) => {
+    setIsLoadingConversation(true);
+    try {
+      const response = await fetch(`/api/conversations/${conversationId}/messages`, {
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to load conversation');
+      }
+
+      const data = await response.json();
+      const apiMessages = data.messages || [];
+
+      // Convert API messages to local Message format
+      const localMessages: Message[] = apiMessages.map((apiMsg: any) => ({
+        id: apiMsg.id.toString(),
+        content: apiMsg.content,
+        role: apiMsg.role === 'system' ? 'assistant' : apiMsg.role, // Convert system to assistant
+        timestamp: new Date(apiMsg.createdAt),
+        attachments: apiMsg.attachments || undefined,
+        metadata: apiMsg.metadata || undefined
+      }));
+
+      // Update state
+      setMessages(localMessages);
+      setCurrentConversationId(conversationId);
+      setCurrentConversationTitle(conversationTitle || null);
+      
+      // Reset greeting initialization flag since we're loading a conversation
+      hasInitializedGreeting.current = true;
+
+      console.log(`✅ Loaded conversation ${conversationId} with ${localMessages.length} messages`);
+      return localMessages;
+    } catch (error) {
+      console.error('Error loading conversation:', error);
+      toast.error('Failed to load conversation');
+      throw error;
+    } finally {
+      setIsLoadingConversation(false);
+    }
+  };
+
+  // Start a new conversation
+  const startNewConversation = () => {
+    setMessages([]);
+    setCurrentConversationId(null);
+    setCurrentConversationTitle(null);
+    hasInitializedGreeting.current = false;
+    setInput("");
+    setAttachments([]);
+    setAttachedFileIds([]);
+    clearError();
+    console.log('🆕 Started new conversation');
+  };
   
   // Use dynamic greeting system
   const { greeting, isLoading: greetingLoading, error: greetingError, isAIGenerated } = useDynamicGreeting(user, {
@@ -640,6 +697,11 @@ const FuturisticAIChat: React.FC = () => {
   });
 
   const [messages, setMessages] = useState<Message[]>([]);
+  
+  // Current conversation state
+  const [currentConversationId, setCurrentConversationId] = useState<number | null>(null);
+  const [currentConversationTitle, setCurrentConversationTitle] = useState<string | null>(null);
+  const [isLoadingConversation, setIsLoadingConversation] = useState(false);
   
   // Initialize messages with dynamic greeting when it's ready (only once)
   const hasInitializedGreeting = useRef(false);
@@ -1751,17 +1813,7 @@ const FuturisticAIChat: React.FC = () => {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <RippleButton
-                    onClick={() => {
-                      setMessages([
-                        {
-                          id: "1",
-                          content: greeting || "Hello! I'm Uterpi's AI. What would you like to accomplish today?",
-                          role: "assistant",
-                          timestamp: new Date(),
-                        }
-                      ]);
-                      toast.success("Started new conversation!");
-                    }}
+                    onClick={startNewConversation}
                     className="px-2 sm:px-3 py-2 bg-slate-800/50 hover:bg-slate-700/50 rounded-lg border border-slate-700/50 text-xs sm:text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 flex-shrink-0"
                     aria-label="New Chat (Ctrl+N)"
                   >
@@ -1865,6 +1917,38 @@ const FuturisticAIChat: React.FC = () => {
             </div>
           </div>
         </motion.header>
+
+        {/* Conversation Title Indicator */}
+        {(currentConversationTitle || isLoadingConversation) && (
+          <motion.div
+            className="px-4 sm:px-6 py-2 border-b border-slate-800/30 bg-slate-900/20"
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+          >
+            <div className="max-w-4xl mx-auto">
+              <div className="flex items-center gap-2 text-sm text-slate-300">
+                {isLoadingConversation ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Loading conversation...</span>
+                  </>
+                ) : (
+                  <>
+                    <MessageSquare className="w-4 h-4" />
+                    <span>Conversation: {currentConversationTitle}</span>
+                    <button
+                      onClick={startNewConversation}
+                      className="ml-auto text-xs text-slate-400 hover:text-white underline"
+                    >
+                      Start New Chat
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          </motion.div>
+        )}
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6">
@@ -2555,10 +2639,15 @@ const FuturisticAIChat: React.FC = () => {
       <ChatHistory
         isOpen={showChatHistory}
         onClose={() => setShowChatHistory(false)}
-        onSelectConversation={(conversation) => {
-          // TODO: Load the selected conversation into the current chat
-          setShowChatHistory(false);
-          toast.success(`Loaded conversation: ${conversation.title || 'Untitled'}`);
+        onSelectConversation={async (conversation) => {
+          try {
+            await loadConversation(conversation.id, conversation.title || undefined);
+            setShowChatHistory(false);
+            toast.success(`Loaded conversation: ${conversation.title || 'Untitled'}`);
+          } catch (error) {
+            console.error('Failed to load conversation:', error);
+            // Error toast is already shown in loadConversation function
+          }
         }}
       />
 

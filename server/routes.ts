@@ -978,6 +978,92 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Export single conversation
+  app.get("/api/conversations/:id/export", requireAuth, async (req, res) => {
+    try {
+      const conversationId = parseInt(req.params.id);
+      const format = (req.query.format as string) || 'json';
+      const userId = req.user!.id;
+
+      // Validate format
+      if (!['json', 'markdown', 'csv', 'txt'].includes(format)) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid export format. Supported formats: json, markdown, csv, txt"
+        });
+      }
+
+      const exportResult = await conversationService.exportConversation(
+        conversationId, 
+        userId, 
+        format as 'json' | 'markdown' | 'csv' | 'txt'
+      );
+
+      // Set headers for file download
+      res.setHeader('Content-Type', exportResult.mimeType);
+      res.setHeader('Content-Disposition', `attachment; filename="${exportResult.filename}"`);
+      res.setHeader('Content-Length', Buffer.byteLength(exportResult.data, 'utf8'));
+
+      res.send(exportResult.data);
+    } catch (error) {
+      console.error('❌ Error exporting conversation:', error);
+      res.status(500).json({
+        success: false,
+        error: error?.toString()
+      });
+    }
+  });
+
+  // Export multiple conversations
+  app.post("/api/conversations/export/bulk", requireAuth, async (req, res) => {
+    try {
+      const { conversationIds, format = 'json' } = req.body;
+      const userId = req.user!.id;
+
+      if (!Array.isArray(conversationIds) || conversationIds.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: "conversationIds must be a non-empty array"
+        });
+      }
+
+      // Validate format
+      if (!['json', 'markdown', 'csv', 'txt'].includes(format)) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid export format. Supported formats: json, markdown, csv, txt"
+        });
+      }
+
+      // Limit bulk export to prevent abuse
+      if (conversationIds.length > 50) {
+        return res.status(400).json({
+          success: false,
+          error: "Cannot export more than 50 conversations at once"
+        });
+      }
+
+      const exportResult = await conversationService.exportMultipleConversations(
+        conversationIds, 
+        userId, 
+        format as 'json' | 'markdown' | 'csv' | 'txt'
+      );
+
+      // Set headers for file download
+      res.setHeader('Content-Type', exportResult.mimeType);
+      res.setHeader('Content-Disposition', `attachment; filename="${exportResult.filename}"`);
+      res.setHeader('Content-Length', Buffer.byteLength(exportResult.data, 'utf8'));
+
+      res.send(exportResult.data);
+    } catch (error) {
+      console.error('❌ Error exporting multiple conversations:', error);
+      res.status(500).json({
+        success: false,
+        error: error?.toString()
+      });
+    }
+  });
+
   // =============================================================================
   // UNIVERSAL AI PROXY WITH CREDIT CHECKING
   // =============================================================================

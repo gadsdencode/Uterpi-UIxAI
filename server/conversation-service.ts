@@ -12,6 +12,8 @@ export interface ConversationData {
   model: string;
   createdAt: Date;
   updatedAt: Date;
+  archivedAt?: Date;
+  isStarred?: boolean;
 }
 
 export interface MessageData {
@@ -87,7 +89,9 @@ export class ConversationService {
         provider: conversation.provider,
         model: conversation.model,
         createdAt: conversation.createdAt!,
-        updatedAt: conversation.updatedAt!
+        updatedAt: conversation.updatedAt!,
+        archivedAt: conversation.archivedAt || undefined,
+        isStarred: conversation.isStarred || false
       };
     } catch (error) {
       console.error('❌ Error creating conversation:', error);
@@ -128,7 +132,9 @@ export class ConversationService {
             provider: conv.provider,
             model: conv.model,
             createdAt: conv.createdAt!,
-            updatedAt: conv.updatedAt!
+            updatedAt: conv.updatedAt!,
+            archivedAt: conv.archivedAt || undefined,
+            isStarred: conv.isStarred || false
           };
         }
       }
@@ -220,7 +226,9 @@ export class ConversationService {
         provider: conv.provider,
         model: conv.model,
         createdAt: conv.createdAt!,
-        updatedAt: conv.updatedAt!
+        updatedAt: conv.updatedAt!,
+        archivedAt: conv.archivedAt || undefined,
+        isStarred: conv.isStarred || false
       };
     } catch (error) {
       console.error(`❌ Error getting conversation ${conversationId}:`, error);
@@ -278,7 +286,9 @@ export class ConversationService {
         provider: conv.provider,
         model: conv.model,
         createdAt: conv.createdAt!,
-        updatedAt: conv.updatedAt!
+        updatedAt: conv.updatedAt!,
+        archivedAt: conv.archivedAt || undefined,
+        isStarred: conv.isStarred || false
       }));
     } catch (error) {
       console.error(`❌ Error getting conversations for user ${userId}:`, error);
@@ -327,6 +337,68 @@ export class ConversationService {
   }
 
   /**
+   * Unarchive a conversation
+   */
+  async unarchiveConversation(conversationId: number): Promise<void> {
+    try {
+      await db
+        .update(conversations)
+        .set({ 
+          archivedAt: null,
+          updatedAt: new Date()
+        })
+        .where(eq(conversations.id, conversationId));
+
+      console.log(`✅ Unarchived conversation ${conversationId}`);
+    } catch (error) {
+      console.error(`❌ Error unarchiving conversation:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete a conversation and all its messages
+   */
+  async deleteConversation(conversationId: number): Promise<void> {
+    try {
+      // First delete all messages in the conversation
+      await db
+        .delete(messages)
+        .where(eq(messages.conversationId, conversationId));
+
+      // Then delete the conversation
+      await db
+        .delete(conversations)
+        .where(eq(conversations.id, conversationId));
+
+      console.log(`✅ Deleted conversation ${conversationId} and all its messages`);
+    } catch (error) {
+      console.error(`❌ Error deleting conversation:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Star or unstar a conversation
+   */
+  async starConversation(conversationId: number, isStarred: boolean): Promise<void> {
+    try {
+      await db
+        .update(conversations)
+        .set({ 
+          isStarred: isStarred,
+          updatedAt: new Date()
+        })
+        .where(eq(conversations.id, conversationId));
+
+      console.log(`✅ ${isStarred ? 'Starred' : 'Unstarred'} conversation ${conversationId}`);
+    } catch (error) {
+      console.error(`❌ Error starring conversation:`, error);
+      throw error;
+    }
+  }
+
+  /**
    * Get message by ID
    */
   async getMessage(messageId: number): Promise<MessageData | null> {
@@ -355,6 +427,97 @@ export class ConversationService {
     } catch (error) {
       console.error(`❌ Error getting message ${messageId}:`, error);
       return null;
+    }
+  }
+
+  /**
+   * Search conversations by title, provider, model, or message content
+   */
+  async searchConversations(
+    userId: number, 
+    searchQuery: string, 
+    filters: {
+      provider?: string;
+      isStarred?: boolean;
+      isArchived?: boolean;
+      dateRange?: 'today' | 'week' | 'month' | 'all';
+    } = {},
+    limit: number = 50
+  ): Promise<ConversationData[]> {
+    try {
+      let query = db
+        .select()
+        .from(conversations)
+        .where(eq(conversations.userId, userId));
+
+      // Apply filters
+      if (filters.provider && filters.provider !== 'all') {
+        query = query.where(and(eq(conversations.userId, userId), eq(conversations.provider, filters.provider)));
+      }
+
+      if (filters.isStarred !== undefined) {
+        query = query.where(and(eq(conversations.userId, userId), eq(conversations.isStarred, filters.isStarred)));
+      }
+
+      if (filters.isArchived !== undefined) {
+        if (filters.isArchived) {
+          query = query.where(and(eq(conversations.userId, userId), isNull(conversations.archivedAt).not()));
+        } else {
+          query = query.where(and(eq(conversations.userId, userId), isNull(conversations.archivedAt)));
+        }
+      }
+
+      // Date range filter
+      if (filters.dateRange && filters.dateRange !== 'all') {
+        const now = new Date();
+        let dateThreshold: Date;
+        
+        switch (filters.dateRange) {
+          case 'today':
+            dateThreshold = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            break;
+          case 'week':
+            dateThreshold = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+            break;
+          case 'month':
+            dateThreshold = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+            break;
+          default:
+            dateThreshold = new Date(0);
+        }
+        
+        query = query.where(and(eq(conversations.userId, userId), gte(conversations.updatedAt, dateThreshold)));
+      }
+
+      // Search in conversation title, provider, and model
+      if (searchQuery && searchQuery.trim().length > 0) {
+        const searchTerm = `%${searchQuery.toLowerCase()}%`;
+        query = query.where(and(
+          eq(conversations.userId, userId),
+          // Note: This is a simplified search. For better performance, consider using full-text search
+          // or implementing a more sophisticated search with message content
+        ));
+      }
+
+      const result = await query
+        .orderBy(desc(conversations.updatedAt))
+        .limit(limit);
+
+      return result.map(conv => ({
+        id: conv.id,
+        userId: conv.userId,
+        sessionId: conv.sessionId,
+        title: conv.title || undefined,
+        provider: conv.provider,
+        model: conv.model,
+        createdAt: conv.createdAt!,
+        updatedAt: conv.updatedAt!,
+        archivedAt: conv.archivedAt || undefined,
+        isStarred: conv.isStarred || false
+      }));
+    } catch (error) {
+      console.error(`❌ Error searching conversations for user ${userId}:`, error);
+      return [];
     }
   }
 

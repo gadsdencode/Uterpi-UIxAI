@@ -27,7 +27,8 @@ import {
   VolumeX,
   Mic,
   MicOff,
-  CreditCard
+  CreditCard,
+  MessageSquare
 } from "lucide-react";
 import { Message, CommandSuggestion, LLMModel, ModelCapabilities } from "../types";
 import { useAIProvider } from "../hooks/useAIProvider";
@@ -57,6 +58,7 @@ import { CreditLimitMessage } from './CreditLimitMessage';
 import { AICreditsQuickPurchase } from './AICreditsQuickPurchase';
 import { navigateTo } from './Router';
 import { useCreditUpdates } from '../hooks/useCreditUpdates';
+import ChatHistory from './ChatHistory';
 
 interface ParticlesProps {
   className?: string;
@@ -674,6 +676,7 @@ const FuturisticAIChat: React.FC = () => {
   const [showImproveModal, setShowImproveModal] = useState(false);
   const [showAnalyzeModal, setShowAnalyzeModal] = useState(false);
   const [showFileManager, setShowFileManager] = useState(false);
+  const [showChatHistory, setShowChatHistory] = useState(false);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [isChatActive, setIsChatActive] = useState(false); // Track if chat is actively processing
@@ -1727,6 +1730,23 @@ const FuturisticAIChat: React.FC = () => {
                 </div>
               )}
               
+              {/* Chat History */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <RippleButton
+                    onClick={() => setShowChatHistory(true)}
+                    className="px-2 sm:px-3 py-2 bg-slate-800/50 hover:bg-slate-700/50 rounded-lg border border-slate-700/50 text-xs sm:text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 flex-shrink-0"
+                    aria-label="Chat History"
+                  >
+                    <span className="hidden sm:inline">History</span>
+                    <MessageSquare className="w-4 h-4 sm:hidden" />
+                  </RippleButton>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>View chat history</p>
+                </TooltipContent>
+              </Tooltip>
+
               {/* New Chat */}
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -2530,6 +2550,17 @@ const FuturisticAIChat: React.FC = () => {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Chat History Modal */}
+      <ChatHistory
+        isOpen={showChatHistory}
+        onClose={() => setShowChatHistory(false)}
+        onSelectConversation={(conversation) => {
+          // TODO: Load the selected conversation into the current chat
+          setShowChatHistory(false);
+          toast.success(`Loaded conversation: ${conversation.title || 'Untitled'}`);
+        }}
+      />
 
     </div>
     </TooltipProvider>

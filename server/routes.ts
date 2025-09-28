@@ -759,8 +759,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user!.id;
       const limit = parseInt(req.query.limit as string) || 20;
+      const search = req.query.search as string;
+      const provider = req.query.provider as string;
+      const isStarred = req.query.isStarred === 'true';
+      const isArchived = req.query.isArchived === 'true';
+      const dateRange = req.query.dateRange as 'today' | 'week' | 'month' | 'all' || 'all';
       
-      const conversations = await conversationService.getUserConversations(userId, limit);
+      let conversations;
+      
+      if (search || provider !== 'all' || isStarred || isArchived || dateRange !== 'all') {
+        // Use search with filters
+        conversations = await conversationService.searchConversations(
+          userId,
+          search || '',
+          {
+            provider: provider !== 'all' ? provider : undefined,
+            isStarred: isStarred || undefined,
+            isArchived: isArchived || undefined,
+            dateRange
+          },
+          limit
+        );
+      } else {
+        // Use regular get conversations
+        conversations = await conversationService.getUserConversations(userId, limit);
+      }
       
       res.json({
         success: true,
@@ -789,6 +812,165 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       console.error('❌ Error getting conversation messages:', error);
+      res.status(500).json({
+        success: false,
+        error: error?.toString()
+      });
+    }
+  });
+
+  // Update conversation title
+  app.patch("/api/conversations/:id/title", requireAuth, async (req, res) => {
+    try {
+      const conversationId = parseInt(req.params.id);
+      const { title } = req.body;
+      const userId = req.user!.id;
+
+      if (!title || typeof title !== 'string' || title.trim().length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: "Title is required and must be a non-empty string"
+        });
+      }
+
+      // Verify conversation belongs to user
+      const conversation = await conversationService.getConversation(conversationId);
+      if (!conversation || conversation.userId !== userId) {
+        return res.status(404).json({
+          success: false,
+          error: "Conversation not found"
+        });
+      }
+
+      await conversationService.updateConversationTitle(conversationId, title.trim());
+      
+      res.json({
+        success: true,
+        message: "Conversation title updated successfully"
+      });
+    } catch (error) {
+      console.error('❌ Error updating conversation title:', error);
+      res.status(500).json({
+        success: false,
+        error: error?.toString()
+      });
+    }
+  });
+
+  // Archive conversation
+  app.patch("/api/conversations/:id/archive", requireAuth, async (req, res) => {
+    try {
+      const conversationId = parseInt(req.params.id);
+      const userId = req.user!.id;
+
+      // Verify conversation belongs to user
+      const conversation = await conversationService.getConversation(conversationId);
+      if (!conversation || conversation.userId !== userId) {
+        return res.status(404).json({
+          success: false,
+          error: "Conversation not found"
+        });
+      }
+
+      await conversationService.archiveConversation(conversationId);
+      
+      res.json({
+        success: true,
+        message: "Conversation archived successfully"
+      });
+    } catch (error) {
+      console.error('❌ Error archiving conversation:', error);
+      res.status(500).json({
+        success: false,
+        error: error?.toString()
+      });
+    }
+  });
+
+  // Unarchive conversation
+  app.patch("/api/conversations/:id/unarchive", requireAuth, async (req, res) => {
+    try {
+      const conversationId = parseInt(req.params.id);
+      const userId = req.user!.id;
+
+      // Verify conversation belongs to user
+      const conversation = await conversationService.getConversation(conversationId);
+      if (!conversation || conversation.userId !== userId) {
+        return res.status(404).json({
+          success: false,
+          error: "Conversation not found"
+        });
+      }
+
+      await conversationService.unarchiveConversation(conversationId);
+      
+      res.json({
+        success: true,
+        message: "Conversation unarchived successfully"
+      });
+    } catch (error) {
+      console.error('❌ Error unarchiving conversation:', error);
+      res.status(500).json({
+        success: false,
+        error: error?.toString()
+      });
+    }
+  });
+
+  // Delete conversation
+  app.delete("/api/conversations/:id", requireAuth, async (req, res) => {
+    try {
+      const conversationId = parseInt(req.params.id);
+      const userId = req.user!.id;
+
+      // Verify conversation belongs to user
+      const conversation = await conversationService.getConversation(conversationId);
+      if (!conversation || conversation.userId !== userId) {
+        return res.status(404).json({
+          success: false,
+          error: "Conversation not found"
+        });
+      }
+
+      await conversationService.deleteConversation(conversationId);
+      
+      res.json({
+        success: true,
+        message: "Conversation deleted successfully"
+      });
+    } catch (error) {
+      console.error('❌ Error deleting conversation:', error);
+      res.status(500).json({
+        success: false,
+        error: error?.toString()
+      });
+    }
+  });
+
+  // Star/unstar conversation
+  app.patch("/api/conversations/:id/star", requireAuth, async (req, res) => {
+    try {
+      const conversationId = parseInt(req.params.id);
+      const { isStarred } = req.body;
+      const userId = req.user!.id;
+
+      // Verify conversation belongs to user
+      const conversation = await conversationService.getConversation(conversationId);
+      if (!conversation || conversation.userId !== userId) {
+        return res.status(404).json({
+          success: false,
+          error: "Conversation not found"
+        });
+      }
+
+      await conversationService.starConversation(conversationId, isStarred);
+      
+      res.json({
+        success: true,
+        message: isStarred ? "Conversation starred successfully" : "Conversation unstarred successfully"
+      });
+    } catch (error) {
+      console.error('❌ Error starring conversation:', error);
       res.status(500).json({
         success: false,
         error: error?.toString()

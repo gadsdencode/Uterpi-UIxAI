@@ -1,0 +1,735 @@
+"use client";
+
+import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  Search,
+  MessageSquare,
+  Clock,
+  MoreVertical,
+  Trash2,
+  Edit3,
+  Copy,
+  Share2,
+  Archive,
+  Filter,
+  ChevronDown,
+  ChevronRight,
+  Calendar,
+  Tag,
+  User,
+  Bot,
+  Sparkles,
+  X,
+  Loader2,
+  RefreshCw,
+  Plus,
+  FolderOpen,
+  Star,
+  StarOff,
+  Eye,
+  EyeOff
+} from "lucide-react";
+import { useAuth } from "../hooks/useAuth";
+import { toast } from "sonner";
+import { Button } from "./ui/button";
+import { Input } from "./ui/input";
+import { Badge } from "./ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
+import { ScrollArea } from "./ui/scroll-area";
+import { Separator } from "./ui/separator";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "./ui/dropdown-menu";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "./ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
+import { Checkbox } from "./ui/checkbox";
+import { cn } from "../lib/utils";
+
+// Types
+interface Conversation {
+  id: number;
+  userId: number;
+  sessionId: string;
+  title?: string;
+  provider: string;
+  model: string;
+  createdAt: string;
+  updatedAt: string;
+  messageCount?: number;
+  lastMessage?: string;
+  isStarred?: boolean;
+  isArchived?: boolean;
+}
+
+interface Message {
+  id: number;
+  conversationId: number;
+  content: string;
+  role: "user" | "assistant" | "system";
+  messageIndex: number;
+  attachments?: string[];
+  metadata?: any;
+  createdAt: string;
+}
+
+interface ChatHistoryProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSelectConversation?: (conversation: Conversation) => void;
+  currentConversationId?: number;
+}
+
+interface FilterState {
+  search: string;
+  provider: string;
+  dateRange: string;
+  starred: boolean;
+  archived: boolean;
+}
+
+const ChatHistory: React.FC<ChatHistoryProps> = ({
+  isOpen,
+  onClose,
+  onSelectConversation,
+  currentConversationId
+}) => {
+  const { user } = useAuth();
+  
+  // State management
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  
+  // Filter and search state
+  const [filters, setFilters] = useState<FilterState>({
+    search: "",
+    provider: "all",
+    dateRange: "all",
+    starred: false,
+    archived: false
+  });
+  
+  const [showFilters, setShowFilters] = useState(false);
+  const [selectedConversations, setSelectedConversations] = useState<Set<number>>(new Set());
+  const [viewMode, setViewMode] = useState<"list" | "grid">("list");
+  const [sortBy, setSortBy] = useState<"date" | "title" | "provider">("date");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+
+  // Fetch conversations
+  const fetchConversations = useCallback(async () => {
+    if (!user) return;
+    
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      // Build query parameters
+      const params = new URLSearchParams({
+        limit: '100'
+      });
+
+      if (filters.search) {
+        params.append('search', filters.search);
+      }
+      if (filters.provider !== 'all') {
+        params.append('provider', filters.provider);
+      }
+      if (filters.starred) {
+        params.append('isStarred', 'true');
+      }
+      if (filters.archived) {
+        params.append('isArchived', 'true');
+      }
+      if (filters.dateRange !== 'all') {
+        params.append('dateRange', filters.dateRange);
+      }
+
+      const response = await fetch(`/api/conversations?${params.toString()}`, {
+        credentials: "include"
+      });
+      
+      if (!response.ok) {
+        throw new Error("Failed to fetch conversations");
+      }
+      
+      const data = await response.json();
+      setConversations(data.conversations || []);
+    } catch (err) {
+      console.error("Error fetching conversations:", err);
+      setError(err instanceof Error ? err.message : "Failed to load conversations");
+      toast.error("Failed to load chat history");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [user, filters]);
+
+  // Fetch messages for a conversation
+  const fetchMessages = useCallback(async (conversationId: number) => {
+    setIsLoadingMessages(true);
+    setError(null);
+    
+    try {
+      const response = await fetch(`/api/conversations/${conversationId}/messages`, {
+        credentials: "include"
+      });
+      
+      if (!response.ok) {
+        throw new Error("Failed to fetch messages");
+      }
+      
+      const data = await response.json();
+      setMessages(data.messages || []);
+    } catch (err) {
+      console.error("Error fetching messages:", err);
+      setError(err instanceof Error ? err.message : "Failed to load messages");
+      toast.error("Failed to load messages");
+    } finally {
+      setIsLoadingMessages(false);
+    }
+  }, []);
+
+  // Load conversations on mount and when filters change
+  useEffect(() => {
+    if (isOpen && user) {
+      fetchConversations();
+    }
+  }, [isOpen, user, fetchConversations]);
+
+  // Sort conversations (filtering is done server-side)
+  const sortedConversations = useMemo(() => {
+    const sorted = [...conversations];
+    
+    sorted.sort((a, b) => {
+      let comparison = 0;
+      
+      switch (sortBy) {
+        case "date":
+          comparison = new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime();
+          break;
+        case "title":
+          comparison = (a.title || "").localeCompare(b.title || "");
+          break;
+        case "provider":
+          comparison = a.provider.localeCompare(b.provider);
+          break;
+      }
+      
+      return sortOrder === "asc" ? comparison : -comparison;
+    });
+    
+    return sorted;
+  }, [conversations, sortBy, sortOrder]);
+
+  // Handle conversation selection
+  const handleSelectConversation = (conversation: Conversation) => {
+    setSelectedConversation(conversation);
+    fetchMessages(conversation.id);
+    onSelectConversation?.(conversation);
+  };
+
+  // Handle conversation actions
+  const handleStarConversation = async (conversationId: number, isStarred: boolean) => {
+    try {
+      const response = await fetch(`/api/conversations/${conversationId}/star`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({ isStarred })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update conversation');
+      }
+
+      // Update local state
+      setConversations(prev => 
+        prev.map(conv => 
+          conv.id === conversationId ? { ...conv, isStarred } : conv
+        )
+      );
+
+      if (selectedConversation?.id === conversationId) {
+        setSelectedConversation(prev => prev ? { ...prev, isStarred } : null);
+      }
+
+      toast.success(isStarred ? "Conversation starred" : "Conversation unstarred");
+    } catch (error) {
+      toast.error("Failed to update conversation");
+    }
+  };
+
+  const handleArchiveConversation = async (conversationId: number, isArchived: boolean) => {
+    try {
+      const endpoint = isArchived ? 'archive' : 'unarchive';
+      const response = await fetch(`/api/conversations/${conversationId}/${endpoint}`, {
+        method: 'PATCH',
+        credentials: 'include'
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update conversation');
+      }
+
+      // Update local state
+      setConversations(prev => 
+        prev.map(conv => 
+          conv.id === conversationId ? { ...conv, isArchived } : conv
+        )
+      );
+
+      if (selectedConversation?.id === conversationId) {
+        setSelectedConversation(prev => prev ? { ...prev, isArchived } : null);
+      }
+
+      toast.success(isArchived ? "Conversation archived" : "Conversation unarchived");
+    } catch (error) {
+      toast.error("Failed to update conversation");
+    }
+  };
+
+  const handleDeleteConversation = async (conversationId: number) => {
+    try {
+      const response = await fetch(`/api/conversations/${conversationId}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to delete conversation');
+      }
+
+      // Update local state
+      setConversations(prev => prev.filter(conv => conv.id !== conversationId));
+      if (selectedConversation?.id === conversationId) {
+        setSelectedConversation(null);
+        setMessages([]);
+      }
+
+      toast.success("Conversation deleted");
+    } catch (error) {
+      toast.error("Failed to delete conversation");
+    }
+  };
+
+  const handleRenameConversation = async (conversationId: number, newTitle: string) => {
+    try {
+      const response = await fetch(`/api/conversations/${conversationId}/title`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({ title: newTitle })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to rename conversation');
+      }
+
+      // Update local state
+      setConversations(prev => 
+        prev.map(conv => 
+          conv.id === conversationId ? { ...conv, title: newTitle } : conv
+        )
+      );
+
+      if (selectedConversation?.id === conversationId) {
+        setSelectedConversation(prev => prev ? { ...prev, title: newTitle } : null);
+      }
+
+      toast.success("Conversation renamed");
+    } catch (error) {
+      toast.error("Failed to rename conversation");
+    }
+  };
+
+  // Format date for display
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffInHours = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60));
+    
+    if (diffInHours < 1) return "Just now";
+    if (diffInHours < 24) return `${diffInHours}h ago`;
+    if (diffInHours < 168) return `${Math.floor(diffInHours / 24)}d ago`;
+    return date.toLocaleDateString();
+  };
+
+  // Get provider icon
+  const getProviderIcon = (provider: string) => {
+    switch (provider.toLowerCase()) {
+      case "openai":
+        return <Sparkles className="w-4 h-4 text-green-500" />;
+      case "azure":
+        return <Bot className="w-4 h-4 text-blue-500" />;
+      case "gemini":
+        return <Sparkles className="w-4 h-4 text-purple-500" />;
+      case "uterpi":
+        return <Bot className="w-4 h-4 text-orange-500" />;
+      case "lmstudio":
+        return <Bot className="w-4 h-4 text-indigo-500" />;
+      default:
+        return <MessageSquare className="w-4 h-4 text-gray-500" />;
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <TooltipProvider>
+      <Dialog open={isOpen} onOpenChange={onClose}>
+        <DialogContent className="max-w-6xl h-[80vh] p-0 bg-slate-900/95 backdrop-blur-xl border-slate-700/50">
+          <DialogHeader className="p-6 border-b border-slate-700/50">
+            <div className="flex items-center justify-between">
+              <div>
+                <DialogTitle className="text-2xl font-bold text-white flex items-center gap-2">
+                  <MessageSquare className="w-6 h-6" />
+                  Chat History
+                </DialogTitle>
+                <DialogDescription className="text-slate-400 mt-1">
+                  Browse and manage your conversation history
+                </DialogDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={fetchConversations}
+                  disabled={isLoading}
+                  className="text-slate-400 hover:text-white"
+                >
+                  <RefreshCw className={cn("w-4 h-4", isLoading && "animate-spin")} />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={onClose}
+                  className="text-slate-400 hover:text-white"
+                >
+                  <X className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div className="flex h-full">
+            {/* Sidebar - Conversations List */}
+            <div className="w-1/2 border-r border-slate-700/50 flex flex-col">
+              {/* Search and Filters */}
+              <div className="p-4 border-b border-slate-700/50">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <Input
+                      placeholder="Search conversations..."
+                      value={filters.search}
+                      onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
+                      className="pl-10 bg-slate-800/50 border-slate-600 text-white placeholder-slate-400"
+                    />
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowFilters(!showFilters)}
+                    className="text-slate-400 hover:text-white"
+                  >
+                    <Filter className="w-4 h-4" />
+                  </Button>
+                </div>
+
+                {/* Filters */}
+                <AnimatePresence>
+                  {showFilters && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      className="space-y-3"
+                    >
+                      <div className="grid grid-cols-2 gap-2">
+                        <select
+                          value={filters.provider}
+                          onChange={(e) => setFilters(prev => ({ ...prev, provider: e.target.value }))}
+                          className="px-3 py-2 bg-slate-800/50 border border-slate-600 rounded-md text-white text-sm"
+                          aria-label="Filter by AI provider"
+                        >
+                          <option value="all">All Providers</option>
+                          <option value="openai">OpenAI</option>
+                          <option value="azure">Azure</option>
+                          <option value="gemini">Gemini</option>
+                          <option value="uterpi">Uterpi</option>
+                          <option value="lmstudio">LM Studio</option>
+                        </select>
+                        <select
+                          value={filters.dateRange}
+                          onChange={(e) => setFilters(prev => ({ ...prev, dateRange: e.target.value }))}
+                          className="px-3 py-2 bg-slate-800/50 border border-slate-600 rounded-md text-white text-sm"
+                          aria-label="Filter by date range"
+                        >
+                          <option value="all">All Time</option>
+                          <option value="today">Today</option>
+                          <option value="week">This Week</option>
+                          <option value="month">This Month</option>
+                        </select>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <label className="flex items-center gap-2 text-sm text-slate-300">
+                          <Checkbox
+                            checked={filters.starred}
+                            onCheckedChange={(checked) => setFilters(prev => ({ ...prev, starred: !!checked }))}
+                          />
+                          Starred only
+                        </label>
+                        <label className="flex items-center gap-2 text-sm text-slate-300">
+                          <Checkbox
+                            checked={filters.archived}
+                            onCheckedChange={(checked) => setFilters(prev => ({ ...prev, archived: !!checked }))}
+                          />
+                          Archived
+                        </label>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+
+              {/* Conversations List */}
+              <ScrollArea className="flex-1">
+                <div className="p-4 space-y-2">
+                  {isLoading ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+                    </div>
+                  ) : error ? (
+                    <div className="text-center py-8">
+                      <p className="text-red-400 mb-2">{error}</p>
+                      <Button variant="outline" size="sm" onClick={fetchConversations}>
+                        Try Again
+                      </Button>
+                    </div>
+                  ) : sortedConversations.length === 0 ? (
+                    <div className="text-center py-8">
+                      <MessageSquare className="w-12 h-12 text-slate-600 mx-auto mb-4" />
+                      <p className="text-slate-400">No conversations found</p>
+                    </div>
+                  ) : (
+                    sortedConversations.map((conversation) => (
+                      <motion.div
+                        key={conversation.id}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className={cn(
+                          "group relative p-3 rounded-lg border cursor-pointer transition-all duration-200",
+                          selectedConversation?.id === conversation.id
+                            ? "bg-slate-800/50 border-slate-600"
+                            : "bg-slate-800/20 border-slate-700/50 hover:bg-slate-800/30 hover:border-slate-600/50"
+                        )}
+                        onClick={() => handleSelectConversation(conversation)}
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              {getProviderIcon(conversation.provider)}
+                              <h3 className="font-medium text-white truncate">
+                                {conversation.title || `Chat with ${conversation.provider}`}
+                              </h3>
+                              {conversation.isStarred && (
+                                <Star className="w-4 h-4 text-yellow-500 fill-current" />
+                              )}
+                            </div>
+                            <p className="text-sm text-slate-400 truncate mb-2">
+                              {conversation.lastMessage || "No messages yet"}
+                            </p>
+                            <div className="flex items-center gap-2 text-xs text-slate-500">
+                              <Clock className="w-3 h-3" />
+                              <span>{formatDate(conversation.updatedAt)}</span>
+                              <Badge variant="secondary" className="text-xs">
+                                {conversation.provider}
+                              </Badge>
+                            </div>
+                          </div>
+                          
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-white"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <MoreVertical className="w-4 h-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="bg-slate-800 border-slate-700">
+                              <DropdownMenuItem
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleStarConversation(conversation.id, !conversation.isStarred);
+                                }}
+                              >
+                                {conversation.isStarred ? (
+                                  <>
+                                    <StarOff className="w-4 h-4 mr-2" />
+                                    Unstar
+                                  </>
+                                ) : (
+                                  <>
+                                    <Star className="w-4 h-4 mr-2" />
+                                    Star
+                                  </>
+                                )}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleArchiveConversation(conversation.id, !conversation.isArchived);
+                                }}
+                              >
+                                {conversation.isArchived ? (
+                                  <>
+                                    <Eye className="w-4 h-4 mr-2" />
+                                    Unarchive
+                                  </>
+                                ) : (
+                                  <>
+                                    <Archive className="w-4 h-4 mr-2" />
+                                    Archive
+                                  </>
+                                )}
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  // TODO: Implement rename functionality
+                                }}
+                              >
+                                <Edit3 className="w-4 h-4 mr-2" />
+                                Rename
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteConversation(conversation.id);
+                                }}
+                                className="text-red-400"
+                              >
+                                <Trash2 className="w-4 h-4 mr-2" />
+                                Delete
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
+                      </motion.div>
+                    ))
+                  )}
+                </div>
+              </ScrollArea>
+            </div>
+
+            {/* Main Content - Messages */}
+            <div className="w-1/2 flex flex-col">
+              {selectedConversation ? (
+                <>
+                  {/* Conversation Header */}
+                  <div className="p-4 border-b border-slate-700/50">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                          {getProviderIcon(selectedConversation.provider)}
+                          {selectedConversation.title || `Chat with ${selectedConversation.provider}`}
+                        </h2>
+                        <p className="text-sm text-slate-400">
+                          {selectedConversation.provider} • {selectedConversation.model} • {formatDate(selectedConversation.updatedAt)}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button variant="ghost" size="sm" className="text-slate-400 hover:text-white">
+                          <Share2 className="w-4 h-4" />
+                        </Button>
+                        <Button variant="ghost" size="sm" className="text-slate-400 hover:text-white">
+                          <Copy className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Messages */}
+                  <ScrollArea className="flex-1">
+                    <div className="p-4 space-y-4">
+                      {isLoadingMessages ? (
+                        <div className="flex items-center justify-center py-8">
+                          <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+                        </div>
+                      ) : messages.length === 0 ? (
+                        <div className="text-center py-8">
+                          <MessageSquare className="w-12 h-12 text-slate-600 mx-auto mb-4" />
+                          <p className="text-slate-400">No messages in this conversation</p>
+                        </div>
+                      ) : (
+                        messages.map((message) => (
+                          <motion.div
+                            key={message.id}
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className={cn(
+                              "flex gap-3 p-3 rounded-lg",
+                              message.role === "user"
+                                ? "bg-slate-800/30 ml-8"
+                                : "bg-slate-800/20 mr-8"
+                            )}
+                          >
+                            <div className={cn(
+                              "w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0",
+                              message.role === "user"
+                                ? "bg-blue-600"
+                                : "bg-slate-600"
+                            )}>
+                              {message.role === "user" ? (
+                                <User className="w-4 h-4 text-white" />
+                              ) : (
+                                <Bot className="w-4 h-4 text-white" />
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="text-sm font-medium text-white">
+                                  {message.role === "user" ? "You" : "Assistant"}
+                                </span>
+                                <span className="text-xs text-slate-500">
+                                  {formatDate(message.createdAt)}
+                                </span>
+                              </div>
+                              <p className="text-slate-300 whitespace-pre-wrap">
+                                {message.content}
+                              </p>
+                            </div>
+                          </motion.div>
+                        ))
+                      )}
+                    </div>
+                  </ScrollArea>
+                </>
+              ) : (
+                <div className="flex-1 flex items-center justify-center">
+                  <div className="text-center">
+                    <MessageSquare className="w-16 h-16 text-slate-600 mx-auto mb-4" />
+                    <h3 className="text-lg font-semibold text-white mb-2">Select a conversation</h3>
+                    <p className="text-slate-400">Choose a conversation from the sidebar to view its messages</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </TooltipProvider>
+  );
+};
+
+export default ChatHistory;

@@ -757,6 +757,7 @@ export const conversations = pgTable("conversations", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
   archivedAt: timestamp("archived_at"),
+  isStarred: boolean("is_starred").default(false),
 });
 
 // Individual messages within conversations

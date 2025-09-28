@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { GreetingService, GreetingContext, GreetingOptions } from '../lib/greetingService';
 import { User } from './useAuth';
-import { useAI } from './useAI';
+import { useAIProvider } from './useAIProvider';
 
 export interface UseDynamicGreetingOptions {
   enableAI: boolean;
@@ -38,9 +38,26 @@ export function useDynamicGreeting(
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [isAIGenerated, setIsAIGenerated] = useState<boolean>(false);
+  
+  // Track if we've already generated a greeting to prevent rapid changes
+  const hasGeneratedGreeting = useRef<boolean>(false);
+  const lastUserKey = useRef<string>('');
+  const debounceTimeout = useRef<NodeJS.Timeout | null>(null);
+  const isGenerating = useRef<boolean>(false);
 
   const mergedOptions = { ...defaultOptions, ...options };
-  const { aiService } = useAI(user as any);
+  
+  // Use AI provider for greeting generation
+  const { sendMessage, isLoading: aiLoading } = useAIProvider({
+    enableStreaming: false,
+    systemMessage: "You are Uterpi, a friendly AI assistant. Generate warm, personalized greeting messages.",
+    chatOptions: {
+      maxTokens: 150,
+      temperature: 0.8,
+      topP: 0.1
+    },
+    userContext: { user }
+  });
 
   // Get greeting service instance
   const greetingService = GreetingService.getInstance();
@@ -55,28 +72,41 @@ export function useDynamicGreeting(
       return;
     }
 
+    // Create a unique key for the current user state
+    const currentUserKey = `${user?.id || 'no-user'}-${user?.firstName || ''}-${user?.username || ''}-${user?.bio || ''}-${user?.age || ''}-${user?.dateOfBirth || ''}`;
+    
+    // If we've already generated a greeting for this user state, don't regenerate
+    if (hasGeneratedGreeting.current && lastUserKey.current === currentUserKey) {
+      return;
+    }
+
+    // If we're already generating, don't start another generation
+    if (isGenerating.current) {
+      return;
+    }
+
+    isGenerating.current = true;
     setIsLoading(true);
     setError(null);
 
     try {
-      // Set AI service if available
-      if (aiService) {
-        greetingService.setAIService(aiService);
-      }
-
       // Build context
       const context = greetingService.buildContext(user);
       
       // Generate greeting
       const newGreeting = await greetingService.generateGreeting(context, {
-        useAI: mergedOptions.enableAI && !!aiService,
+        useAI: mergedOptions.enableAI && !!sendMessage,
         fallbackToTemplate: mergedOptions.fallbackToTemplate,
         includeSuggestions: mergedOptions.includeSuggestions,
         maxLength: mergedOptions.maxLength
-      });
+      }, sendMessage);
 
       setGreeting(newGreeting);
-      setIsAIGenerated(mergedOptions.enableAI && !!aiService);
+      setIsAIGenerated(mergedOptions.enableAI && !!sendMessage);
+      
+      // Mark as generated and store the user key
+      hasGeneratedGreeting.current = true;
+      lastUserKey.current = currentUserKey;
       
     } catch (err) {
       console.error('Error generating greeting:', err);
@@ -89,29 +119,46 @@ export function useDynamicGreeting(
       
       setGreeting(fallbackGreeting);
       setIsAIGenerated(false);
+      
+      // Mark as generated even for fallback
+      hasGeneratedGreeting.current = true;
+      lastUserKey.current = currentUserKey;
     } finally {
+      isGenerating.current = false;
       setIsLoading(false);
     }
-  }, [user, aiService, mergedOptions, greetingService]);
+  }, [user?.id, user?.firstName, user?.username, user?.bio, user?.age, user?.dateOfBirth, sendMessage, mergedOptions.enableAI, mergedOptions.fallbackToTemplate, mergedOptions.includeSuggestions, mergedOptions.maxLength]);
 
   /**
    * Refresh greeting manually
    */
   const refreshGreeting = useCallback(async () => {
+    // Reset tracking to allow regeneration
+    hasGeneratedGreeting.current = false;
+    lastUserKey.current = '';
+    isGenerating.current = false;
     await generateGreeting();
   }, [generateGreeting]);
 
-  // Generate greeting on mount and when user changes
+  // Generate greeting on mount and when user changes with debounce
   useEffect(() => {
-    generateGreeting();
-  }, [generateGreeting]);
-
-  // Refresh when user changes if enabled
-  useEffect(() => {
-    if (mergedOptions.refreshOnUserChange) {
-      generateGreeting();
+    // Clear any existing timeout
+    if (debounceTimeout.current) {
+      clearTimeout(debounceTimeout.current);
     }
-  }, [user?.id, user?.firstName, user?.username, mergedOptions.refreshOnUserChange, generateGreeting]);
+    
+    // Debounce the greeting generation to prevent rapid changes
+    debounceTimeout.current = setTimeout(() => {
+      generateGreeting();
+    }, 300); // 300ms debounce
+    
+    // Cleanup timeout on unmount
+    return () => {
+      if (debounceTimeout.current) {
+        clearTimeout(debounceTimeout.current);
+      }
+    };
+  }, [user?.id, user?.firstName, user?.username, user?.bio, user?.age, user?.dateOfBirth, mergedOptions.enableAI, mergedOptions.fallbackToTemplate, mergedOptions.includeSuggestions, mergedOptions.maxLength]);
 
   return {
     greeting,
@@ -136,7 +183,19 @@ export function useContextualGreeting(
   const [isAIGenerated, setIsAIGenerated] = useState<boolean>(false);
 
   const mergedOptions = { ...defaultOptions, ...options };
-  const { aiService } = useAI(user as any);
+  
+  // Use AI provider for greeting generation
+  const { sendMessage, isLoading: aiLoading } = useAIProvider({
+    enableStreaming: false,
+    systemMessage: "You are Uterpi, a friendly AI assistant. Generate warm, personalized greeting messages.",
+    chatOptions: {
+      maxTokens: 150,
+      temperature: 0.8,
+      topP: 0.1
+    },
+    userContext: { user }
+  });
+  
   const greetingService = GreetingService.getInstance();
 
   /**
@@ -153,10 +212,6 @@ export function useContextualGreeting(
     setError(null);
 
     try {
-      if (aiService) {
-        greetingService.setAIService(aiService);
-      }
-
       // Build enhanced context with conversation history
       const context = greetingService.buildContext(user, {
         conversationHistory: conversationHistory.slice(-5), // Last 5 messages
@@ -167,14 +222,14 @@ export function useContextualGreeting(
       });
 
       const newGreeting = await greetingService.generateGreeting(context, {
-        useAI: mergedOptions.enableAI && !!aiService,
+        useAI: mergedOptions.enableAI && !!sendMessage,
         fallbackToTemplate: mergedOptions.fallbackToTemplate,
         includeSuggestions: mergedOptions.includeSuggestions,
         maxLength: mergedOptions.maxLength
-      });
+      }, sendMessage);
 
       setGreeting(newGreeting);
-      setIsAIGenerated(mergedOptions.enableAI && !!aiService);
+      setIsAIGenerated(mergedOptions.enableAI && !!sendMessage);
       
     } catch (err) {
       console.error('Error generating contextual greeting:', err);
@@ -193,7 +248,7 @@ export function useContextualGreeting(
     } finally {
       setIsLoading(false);
     }
-  }, [user, aiService, conversationHistory, mergedOptions, greetingService]);
+  }, [user?.id, user?.firstName, user?.username, user?.bio, user?.age, user?.dateOfBirth, sendMessage, conversationHistory.length, mergedOptions.enableAI, mergedOptions.fallbackToTemplate, mergedOptions.includeSuggestions, mergedOptions.maxLength]);
 
   const refreshGreeting = useCallback(async () => {
     await generateContextualGreeting();
@@ -201,7 +256,7 @@ export function useContextualGreeting(
 
   useEffect(() => {
     generateContextualGreeting();
-  }, [generateContextualGreeting]);
+  }, [user?.id, user?.firstName, user?.username, user?.bio, user?.age, user?.dateOfBirth, conversationHistory.length, mergedOptions.enableAI, mergedOptions.fallbackToTemplate, mergedOptions.includeSuggestions, mergedOptions.maxLength]);
 
   return {
     greeting,

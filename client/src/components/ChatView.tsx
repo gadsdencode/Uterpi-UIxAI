@@ -639,9 +639,10 @@ const FuturisticAIChat: React.FC = () => {
 
   const [messages, setMessages] = useState<Message[]>([]);
   
-  // Initialize messages with dynamic greeting when it's ready
+  // Initialize messages with dynamic greeting when it's ready (only once)
+  const hasInitializedGreeting = useRef(false);
   useEffect(() => {
-    if (greeting && !greetingLoading && messages.length === 0) {
+    if (greeting && !greetingLoading && messages.length === 0 && !hasInitializedGreeting.current) {
       setMessages([
         {
           id: "1",
@@ -650,6 +651,7 @@ const FuturisticAIChat: React.FC = () => {
           timestamp: new Date(),
         }
       ]);
+      hasInitializedGreeting.current = true;
     }
   }, [greeting, greetingLoading, messages.length]);
   const [input, setInput] = useState("");
@@ -1887,7 +1889,6 @@ const FuturisticAIChat: React.FC = () => {
                           {message.role === 'assistant' && message.id === "1" && isAIGenerated && (
                             <div className="flex items-center gap-1 text-xs text-slate-400">
                               <Sparkles className="w-3 h-3 text-violet-400" />
-                              <span>AI-generated greeting</span>
                             </div>
                           )}
                           {message.attachments && (

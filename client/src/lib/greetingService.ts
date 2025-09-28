@@ -27,7 +27,6 @@ export interface GreetingOptions {
 
 export class GreetingService {
   private static instance: GreetingService;
-  private aiService: any; // Will be injected
 
   private constructor() {}
 
@@ -36,10 +35,6 @@ export class GreetingService {
       GreetingService.instance = new GreetingService();
     }
     return GreetingService.instance;
-  }
-
-  public setAIService(aiService: any): void {
-    this.aiService = aiService;
   }
 
   /**
@@ -52,11 +47,12 @@ export class GreetingService {
       fallbackToTemplate: true,
       includeSuggestions: true,
       maxLength: 150
-    }
+    },
+    sendMessage?: (messages: any[]) => Promise<string>
   ): Promise<string> {
     try {
-      if (options.useAI && this.aiService) {
-        return await this.generateAIGreeting(context, options);
+      if (options.useAI && sendMessage) {
+        return await this.generateAIGreeting(context, options, sendMessage);
       }
     } catch (error) {
       console.warn('AI greeting generation failed, falling back to template:', error);
@@ -74,17 +70,24 @@ export class GreetingService {
    */
   private async generateAIGreeting(
     context: GreetingContext,
-    options: GreetingOptions
+    options: GreetingOptions,
+    sendMessage: (messages: any[]) => Promise<string>
   ): Promise<string> {
     const prompt = this.buildGreetingPrompt(context, options);
     
-    const response = await this.aiService.sendMessage(prompt, {
-      maxTokens: options.maxLength,
-      temperature: 0.8, // Slightly creative but not too random
-      systemMessage: this.getGreetingSystemMessage()
-    });
+    // Create a message array with the greeting prompt
+    const messages = [
+      {
+        id: "greeting-prompt",
+        role: "user" as const,
+        content: prompt,
+        timestamp: new Date()
+      }
+    ];
+    
+    const response = await sendMessage(messages);
 
-    return this.sanitizeGreeting(response.content || response);
+    return this.sanitizeGreeting(response);
   }
 
   /**

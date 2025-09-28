@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Search,
@@ -33,7 +33,8 @@ import {
   FileText,
   FileJson,
   FileSpreadsheet,
-  FileType
+  FileType,
+  ArrowUp
 } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { toast } from "sonner";
@@ -125,6 +126,66 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
   const [isExporting, setIsExporting] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportFormat, setExportFormat] = useState<'json' | 'markdown' | 'csv' | 'txt'>('json');
+  
+  // Refs for scroll areas
+  const messagesScrollRef = useRef<HTMLDivElement>(null);
+  const conversationsScrollRef = useRef<HTMLDivElement>(null);
+
+  // Scroll to bottom of messages with smooth scrolling
+  const scrollToBottom = useCallback(() => {
+    if (messagesScrollRef.current) {
+      const scrollContainer = messagesScrollRef.current.querySelector('[data-radix-scroll-area-viewport]');
+      if (scrollContainer) {
+        scrollContainer.scrollTo({
+          top: scrollContainer.scrollHeight,
+          behavior: 'smooth'
+        });
+      }
+    }
+  }, []);
+
+  // Scroll to top of conversations with smooth scrolling
+  const scrollToTop = useCallback(() => {
+    if (conversationsScrollRef.current) {
+      const scrollContainer = conversationsScrollRef.current.querySelector('[data-radix-scroll-area-viewport]');
+      if (scrollContainer) {
+        scrollContainer.scrollTo({
+          top: 0,
+          behavior: 'smooth'
+        });
+      }
+    }
+  }, []);
+
+  // Auto-scroll to bottom when messages change
+  useEffect(() => {
+    if (messages.length > 0) {
+      // Small delay to ensure DOM is updated
+      setTimeout(scrollToBottom, 100);
+    }
+  }, [messages, scrollToBottom]);
+
+  // Keyboard navigation support
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isOpen) return;
+      
+      // Ctrl/Cmd + Home: Scroll to top of conversations
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Home') {
+        e.preventDefault();
+        scrollToTop();
+      }
+      
+      // Ctrl/Cmd + End: Scroll to bottom of messages
+      if ((e.ctrlKey || e.metaKey) && e.key === 'End') {
+        e.preventDefault();
+        scrollToBottom();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, scrollToTop, scrollToBottom]);
 
   // Fetch conversations
   const fetchConversations = useCallback(async () => {
@@ -495,7 +556,7 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
   return (
     <TooltipProvider>
       <Dialog open={isOpen} onOpenChange={onClose}>
-        <DialogContent className="max-w-6xl h-[80vh] p-0 bg-slate-900/95 backdrop-blur-xl border-slate-700/50">
+        <DialogContent className="max-w-6xl h-[85vh] max-h-[800px] min-h-[600px] p-0 bg-slate-900/95 backdrop-blur-xl border-slate-700/50 overflow-hidden">
           <DialogHeader className="p-6 border-b border-slate-700/50">
             <div className="flex items-center justify-between">
               <div>
@@ -541,9 +602,9 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
             </div>
           </DialogHeader>
 
-          <div className="flex h-full">
+          <div className="flex h-full min-h-0 flex-col sm:flex-row">
             {/* Sidebar - Conversations List */}
-            <div className="w-1/2 border-r border-slate-700/50 flex flex-col">
+            <div className="w-full sm:w-1/2 border-r-0 sm:border-r border-b sm:border-b-0 border-slate-700/50 flex flex-col min-h-0 h-1/2 sm:h-full">
               {/* Search and Filters */}
               <div className="p-4 border-b border-slate-700/50">
                 <div className="flex items-center gap-2 mb-3">
@@ -563,6 +624,15 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                     className="text-slate-400 hover:text-white"
                   >
                     <Filter className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={scrollToTop}
+                    className="text-slate-400 hover:text-white"
+                    title="Scroll to top"
+                  >
+                    <ArrowUp className="w-4 h-4" />
                   </Button>
                 </div>
 
@@ -669,7 +739,7 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
               </div>
 
               {/* Conversations List */}
-              <ScrollArea className="flex-1">
+              <ScrollArea ref={conversationsScrollRef} className="flex-1 min-h-0 scrollbar-thin scrollbar-thumb-slate-600 scrollbar-track-slate-800">
                 <div className="p-4 space-y-2">
                   {isLoading ? (
                     <div className="flex items-center justify-center py-8">
@@ -849,7 +919,7 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
             </div>
 
             {/* Main Content - Messages */}
-            <div className="w-1/2 flex flex-col">
+            <div className="w-full sm:w-1/2 flex flex-col min-h-0 h-1/2 sm:h-full">
               {selectedConversation ? (
                 <>
                   {/* Conversation Header */}
@@ -909,7 +979,7 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                   </div>
 
                   {/* Messages */}
-                  <ScrollArea className="flex-1">
+                  <ScrollArea ref={messagesScrollRef} className="flex-1 min-h-0 scrollbar-thin scrollbar-thumb-slate-600 scrollbar-track-slate-800">
                     <div className="p-4 space-y-4">
                       {isLoadingMessages ? (
                         <div className="flex items-center justify-center py-8">

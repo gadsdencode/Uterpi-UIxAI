@@ -655,6 +655,140 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
     return date.toLocaleDateString();
   };
 
+  // Copy conversation to clipboard
+  const handleCopyConversation = async () => {
+    if (!selectedConversation || messages.length === 0) {
+      toast.error("No conversation to copy");
+      return;
+    }
+
+    try {
+      // Format the conversation for copying
+      let conversationText = `Conversation: ${selectedConversation.title || 'Untitled'}\n`;
+      conversationText += `Provider: ${selectedConversation.provider} • Model: ${selectedConversation.model}\n`;
+      conversationText += `Date: ${formatDate(selectedConversation.updatedAt)}\n`;
+      conversationText += `${'='.repeat(50)}\n\n`;
+
+      messages.forEach((message) => {
+        const filteredContent = extractConversationContent(message.content);
+        const { messages: parsedMessages, isParsed } = parseConversationForDisplay(filteredContent);
+        
+        if (isParsed) {
+          parsedMessages.forEach((parsedMsg) => {
+            const speaker = parsedMsg.role === 'user' ? 'User' : 'Assistant';
+            conversationText += `${speaker}: ${parsedMsg.content}\n\n`;
+          });
+        } else {
+          const speaker = message.role === 'user' ? 'User' : 'Assistant';
+          conversationText += `${speaker}: ${filteredContent}\n\n`;
+        }
+      });
+
+      // Check if clipboard API is supported
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(conversationText);
+        toast.success("Conversation copied to clipboard");
+      } else {
+        // Fallback for older browsers
+        const textArea = document.createElement('textarea');
+        textArea.value = conversationText;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        textArea.style.top = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        
+        try {
+          document.execCommand('copy');
+          toast.success("Conversation copied to clipboard");
+        } catch (fallbackError) {
+          console.error('Fallback copy failed:', fallbackError);
+          toast.error("Failed to copy conversation");
+        } finally {
+          document.body.removeChild(textArea);
+        }
+      }
+    } catch (error) {
+      console.error('Error copying conversation:', error);
+      toast.error("Failed to copy conversation");
+    }
+  };
+
+  // Share conversation
+  const handleShareConversation = async () => {
+    if (!selectedConversation || messages.length === 0) {
+      toast.error("No conversation to share");
+      return;
+    }
+
+    try {
+      // Format the conversation for sharing
+      let conversationText = `Conversation: ${selectedConversation.title || 'Untitled'}\n`;
+      conversationText += `Provider: ${selectedConversation.provider} • Model: ${selectedConversation.model}\n`;
+      conversationText += `Date: ${formatDate(selectedConversation.updatedAt)}\n`;
+      conversationText += `${'='.repeat(50)}\n\n`;
+
+      messages.forEach((message) => {
+        const filteredContent = extractConversationContent(message.content);
+        const { messages: parsedMessages, isParsed } = parseConversationForDisplay(filteredContent);
+        
+        if (isParsed) {
+          parsedMessages.forEach((parsedMsg) => {
+            const speaker = parsedMsg.role === 'user' ? 'User' : 'Assistant';
+            conversationText += `${speaker}: ${parsedMsg.content}\n\n`;
+          });
+        } else {
+          const speaker = message.role === 'user' ? 'User' : 'Assistant';
+          conversationText += `${speaker}: ${filteredContent}\n\n`;
+        }
+      });
+
+      // Check if Web Share API is supported
+      if (navigator.share) {
+        await navigator.share({
+          title: `Chat Conversation: ${selectedConversation.title || 'Untitled'}`,
+          text: conversationText,
+          url: window.location.href
+        });
+        toast.success("Conversation shared successfully");
+      } else {
+        // Fallback: copy to clipboard
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(conversationText);
+          toast.success("Conversation copied to clipboard (sharing not supported)");
+        } else {
+          // Fallback for older browsers
+          const textArea = document.createElement('textarea');
+          textArea.value = conversationText;
+          textArea.style.position = 'fixed';
+          textArea.style.left = '-999999px';
+          textArea.style.top = '-999999px';
+          document.body.appendChild(textArea);
+          textArea.focus();
+          textArea.select();
+          
+          try {
+            document.execCommand('copy');
+            toast.success("Conversation copied to clipboard (sharing not supported)");
+          } catch (fallbackError) {
+            console.error('Fallback copy failed:', fallbackError);
+            toast.error("Failed to copy conversation");
+          } finally {
+            document.body.removeChild(textArea);
+          }
+        }
+      }
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        // User cancelled the share
+        return;
+      }
+      console.error('Error sharing conversation:', error);
+      toast.error("Failed to share conversation");
+    }
+  };
+
   // Get provider icon
   const getProviderIcon = (provider: string) => {
     switch (provider.toLowerCase()) {
@@ -1090,12 +1224,38 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
-                        <Button variant="ghost" size="sm" className="text-slate-400 hover:text-white">
-                          <Share2 className="w-4 h-4" />
-                        </Button>
-                        <Button variant="ghost" size="sm" className="text-slate-400 hover:text-white">
-                          <Copy className="w-4 h-4" />
-                        </Button>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              className="text-slate-400 hover:text-white"
+                              onClick={handleShareConversation}
+                              aria-label="Share conversation"
+                            >
+                              <Share2 className="w-4 h-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Share conversation</p>
+                          </TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              className="text-slate-400 hover:text-white"
+                              onClick={handleCopyConversation}
+                              aria-label="Copy conversation to clipboard"
+                            >
+                              <Copy className="w-4 h-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Copy conversation to clipboard</p>
+                          </TooltipContent>
+                        </Tooltip>
                       </div>
                     </div>
                   </div>

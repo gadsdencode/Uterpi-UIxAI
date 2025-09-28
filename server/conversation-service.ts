@@ -563,7 +563,7 @@ export class ConversationService {
         messages: messages.map(msg => ({
           id: msg.id,
           role: msg.role,
-          content: msg.content,
+          content: this.extractConversationContent(msg.content),
           messageIndex: msg.messageIndex,
           attachments: msg.attachments,
           metadata: msg.metadata,
@@ -650,7 +650,7 @@ export class ConversationService {
             messages: messages.map(msg => ({
               id: msg.id,
               role: msg.role,
-              content: msg.content,
+              content: this.extractConversationContent(msg.content),
               messageIndex: msg.messageIndex,
               attachments: msg.attachments,
               metadata: msg.metadata,
@@ -921,6 +921,71 @@ export class ConversationService {
   }
 
   /**
+   * Extract actual conversation content from analysis prompts
+   */
+  private extractConversationContent(content: string): string {
+    // Check if this looks like an analysis prompt
+    const analysisIndicators = [
+      'ANALYSIS TASK:',
+      'ANALYSIS CRITERIA:',
+      'CONVERSATION:',
+      'analyze this conversation',
+      'user interaction patterns',
+      'hidden insights',
+      'interaction style analysis',
+      'conversation dynamics',
+      'behavioral insights',
+      'return only a json object',
+      'json object with this structure',
+      'provide deep insights',
+      'conversation to understand'
+    ];
+
+    const hasAnalysisIndicators = analysisIndicators.some(indicator => 
+      content.toLowerCase().includes(indicator.toLowerCase())
+    );
+
+    if (!hasAnalysisIndicators) {
+      return content; // Not an analysis prompt, return as-is
+    }
+
+    // Try multiple extraction patterns
+    const patterns = [
+      /CONVERSATION:\s*([\s\S]*?)(?=ANALYSIS TASK:|$)/i,
+      /conversation:\s*([\s\S]*?)(?=analysis task:|$)/i,
+      /analyze this conversation[:\s]*([\s\S]*?)(?=analysis task:|$)/i
+    ];
+
+    for (const pattern of patterns) {
+      const match = content.match(pattern);
+      if (match) {
+        const conversationContent = match[1].trim();
+        
+        // Clean up the conversation content
+        let cleanedContent = conversationContent
+          .replace(/^assistant:\s*/gim, 'Assistant: ')
+          .replace(/^user:\s*/gim, 'User: ')
+          .replace(/\n\s*\n/g, '\n\n') // Normalize line breaks
+          .trim();
+
+        // If we have a clean conversation, return it
+        if (cleanedContent.length > 0 && cleanedContent !== conversationContent) {
+          return cleanedContent;
+        }
+      }
+    }
+
+    // If we can't extract clean conversation content, return a summary
+    const firstLine = content.split('\n')[0];
+    if (firstLine.length < 100) {
+      return firstLine;
+    }
+
+    // Return truncated version if it's too long
+    return content.substring(0, 200) + (content.length > 200 ? '...' : '');
+  }
+
+  /**
    * Generate conversation title from first few messages
    */
   async generateConversationTitle(conversationId: number): Promise<string> {
@@ -942,8 +1007,9 @@ export class ConversationService {
         return "New Conversation";
       }
 
-      // Create a title from the first user message (first 50 characters)
-      let title = firstUserMessage.content.trim();
+      // Extract clean content and create a title from the first user message
+      const cleanContent = this.extractConversationContent(firstUserMessage.content);
+      let title = cleanContent.trim();
       if (title.length > 50) {
         title = title.substring(0, 47) + "...";
       }

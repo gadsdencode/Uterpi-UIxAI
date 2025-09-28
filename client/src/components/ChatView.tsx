@@ -649,7 +649,7 @@ const FuturisticAIChat: React.FC = () => {
       // Convert API messages to local Message format
       const localMessages: Message[] = apiMessages.map((apiMsg: any) => ({
         id: apiMsg.id.toString(),
-        content: apiMsg.content,
+        content: extractConversationContent(apiMsg.content),
         role: apiMsg.role === 'system' ? 'assistant' : apiMsg.role, // Convert system to assistant
         timestamp: new Date(apiMsg.createdAt),
         attachments: apiMsg.attachments || undefined,
@@ -674,6 +674,69 @@ const FuturisticAIChat: React.FC = () => {
       setIsLoadingConversation(false);
     }
   };
+
+  // Function to extract actual conversation content from analysis prompts
+  const extractConversationContent = useCallback((content: string): string => {
+    // Check if this looks like an analysis prompt
+    const analysisIndicators = [
+      'ANALYSIS TASK:',
+      'ANALYSIS CRITERIA:',
+      'CONVERSATION:',
+      'analyze this conversation',
+      'user interaction patterns',
+      'hidden insights',
+      'interaction style analysis',
+      'conversation dynamics',
+      'behavioral insights',
+      'return only a json object',
+      'json object with this structure',
+      'provide deep insights',
+      'conversation to understand'
+    ];
+
+    const hasAnalysisIndicators = analysisIndicators.some(indicator => 
+      content.toLowerCase().includes(indicator.toLowerCase())
+    );
+
+    if (!hasAnalysisIndicators) {
+      return content; // Not an analysis prompt, return as-is
+    }
+
+    // Try multiple extraction patterns
+    const patterns = [
+      /CONVERSATION:\s*([\s\S]*?)(?=ANALYSIS TASK:|$)/i,
+      /conversation:\s*([\s\S]*?)(?=analysis task:|$)/i,
+      /analyze this conversation[:\s]*([\s\S]*?)(?=analysis task:|$)/i
+    ];
+
+    for (const pattern of patterns) {
+      const match = content.match(pattern);
+      if (match) {
+        const conversationContent = match[1].trim();
+        
+        // Clean up the conversation content
+        let cleanedContent = conversationContent
+          .replace(/^assistant:\s*/gim, 'Assistant: ')
+          .replace(/^user:\s*/gim, 'User: ')
+          .replace(/\n\s*\n/g, '\n\n') // Normalize line breaks
+          .trim();
+
+        // If we have a clean conversation, return it
+        if (cleanedContent.length > 0 && cleanedContent !== conversationContent) {
+          return cleanedContent;
+        }
+      }
+    }
+
+    // If we can't extract clean conversation content, return a summary
+    const firstLine = content.split('\n')[0];
+    if (firstLine.length < 100) {
+      return firstLine;
+    }
+
+    // Return truncated version if it's too long
+    return content.substring(0, 200) + (content.length > 200 ? '...' : '');
+  }, []);
 
   // Start a new conversation
   const startNewConversation = () => {

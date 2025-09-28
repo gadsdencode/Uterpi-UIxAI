@@ -131,6 +131,69 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const conversationsScrollRef = useRef<HTMLDivElement>(null);
 
+  // Function to extract actual conversation content from analysis prompts
+  const extractConversationContent = useCallback((content: string): string => {
+    // Check if this looks like an analysis prompt
+    const analysisIndicators = [
+      'ANALYSIS TASK:',
+      'ANALYSIS CRITERIA:',
+      'CONVERSATION:',
+      'analyze this conversation',
+      'user interaction patterns',
+      'hidden insights',
+      'interaction style analysis',
+      'conversation dynamics',
+      'behavioral insights',
+      'return only a json object',
+      'json object with this structure',
+      'provide deep insights',
+      'conversation to understand'
+    ];
+
+    const hasAnalysisIndicators = analysisIndicators.some(indicator => 
+      content.toLowerCase().includes(indicator.toLowerCase())
+    );
+
+    if (!hasAnalysisIndicators) {
+      return content; // Not an analysis prompt, return as-is
+    }
+
+    // Try multiple extraction patterns
+    const patterns = [
+      /CONVERSATION:\s*([\s\S]*?)(?=ANALYSIS TASK:|$)/i,
+      /conversation:\s*([\s\S]*?)(?=analysis task:|$)/i,
+      /analyze this conversation[:\s]*([\s\S]*?)(?=analysis task:|$)/i
+    ];
+
+    for (const pattern of patterns) {
+      const match = content.match(pattern);
+      if (match) {
+        const conversationContent = match[1].trim();
+        
+        // Clean up the conversation content
+        let cleanedContent = conversationContent
+          .replace(/^assistant:\s*/gim, 'Assistant: ')
+          .replace(/^user:\s*/gim, 'User: ')
+          .replace(/\n\s*\n/g, '\n\n') // Normalize line breaks
+          .trim();
+
+        // If we have a clean conversation, return it
+        if (cleanedContent.length > 0 && cleanedContent !== conversationContent) {
+          return cleanedContent;
+        }
+      }
+    }
+
+    // If we can't extract clean conversation content, return a summary
+    const firstLine = content.split('\n')[0];
+    if (firstLine.length < 100) {
+      return firstLine;
+    }
+
+    // Return truncated version if it's too long
+    return content.substring(0, 200) + (content.length > 200 ? '...' : '');
+  }, []);
+
   // Scroll to bottom of messages with smooth scrolling
   const scrollToBottom = useCallback(() => {
     if (messagesScrollRef.current) {
@@ -1024,9 +1087,23 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                                   {formatDate(message.createdAt)}
                                 </span>
                               </div>
-                              <p className="text-slate-300 whitespace-pre-wrap">
-                                {message.content}
-                              </p>
+                              <div className="text-slate-300 whitespace-pre-wrap">
+                                {(() => {
+                                  const filteredContent = extractConversationContent(message.content);
+                                  const isFiltered = filteredContent !== message.content;
+                                  
+                                  return (
+                                    <>
+                                      {isFiltered && (
+                                        <div className="mb-2 p-2 bg-slate-800/30 rounded text-xs text-slate-400 border-l-2 border-slate-600">
+                                          <span className="font-medium">📝 Analysis prompt detected</span> - Showing extracted conversation content
+                                        </div>
+                                      )}
+                                      <p>{filteredContent}</p>
+                                    </>
+                                  );
+                                })()}
+                              </div>
                             </div>
                           </motion.div>
                         ))

@@ -560,15 +560,20 @@ export class ConversationService {
           email: user?.email,
           name: user?.firstName && user?.lastName ? `${user.firstName} ${user.lastName}` : undefined
         },
-        messages: messages.map(msg => ({
-          id: msg.id,
-          role: msg.role,
-          content: this.extractConversationContent(msg.content),
-          messageIndex: msg.messageIndex,
-          attachments: msg.attachments,
-          metadata: msg.metadata,
-          createdAt: msg.createdAt
-        })),
+        messages: messages.flatMap(msg => {
+          const filteredContent = this.extractConversationContent(msg.content);
+          const parsedMessages = this.parseConversationIntoMessages(filteredContent, msg);
+          
+          return parsedMessages.map((parsedMsg, index) => ({
+            id: `${msg.id}-${index}`,
+            role: parsedMsg.role,
+            content: parsedMsg.content,
+            messageIndex: msg.messageIndex + index,
+            attachments: msg.attachments,
+            metadata: msg.metadata,
+            createdAt: parsedMsg.timestamp
+          }));
+        }),
         exportInfo: {
           exportedAt: new Date().toISOString(),
           totalMessages: messages.length,
@@ -647,15 +652,20 @@ export class ConversationService {
               isStarred: conversation.isStarred,
               archivedAt: conversation.archivedAt
             },
-            messages: messages.map(msg => ({
-              id: msg.id,
-              role: msg.role,
-              content: this.extractConversationContent(msg.content),
-              messageIndex: msg.messageIndex,
-              attachments: msg.attachments,
-              metadata: msg.metadata,
-              createdAt: msg.createdAt
-            }))
+            messages: messages.flatMap(msg => {
+              const filteredContent = this.extractConversationContent(msg.content);
+              const parsedMessages = this.parseConversationIntoMessages(filteredContent, msg);
+              
+              return parsedMessages.map((parsedMsg, index) => ({
+                id: `${msg.id}-${index}`,
+                role: parsedMsg.role,
+                content: parsedMsg.content,
+                messageIndex: msg.messageIndex + index,
+                attachments: msg.attachments,
+                metadata: msg.metadata,
+                createdAt: parsedMsg.timestamp
+              }));
+            })
           });
         }
       }
@@ -983,6 +993,74 @@ export class ConversationService {
 
     // Return truncated version if it's too long
     return content.substring(0, 200) + (content.length > 200 ? '...' : '');
+  }
+
+  /**
+   * Parse conversation content into separate messages for export
+   */
+  private parseConversationIntoMessages(content: string, originalMessage: any): Array<{role: string, content: string, timestamp: Date}> {
+    // Check if this looks like a conversation with multiple speakers
+    const hasMultipleSpeakers = content.includes('Assistant:') && content.includes('User:');
+    
+    if (!hasMultipleSpeakers) {
+      return [{
+        role: originalMessage.role,
+        content,
+        timestamp: new Date(originalMessage.createdAt)
+      }];
+    }
+
+    const messages: Array<{role: string, content: string, timestamp: Date}> = [];
+    const lines = content.split('\n');
+    let currentSpeaker = '';
+    let currentContent = '';
+
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+      
+      // Check if this line starts a new speaker
+      if (trimmedLine.match(/^(Assistant|assistant):\s*/)) {
+        // Save previous message if exists
+        if (currentSpeaker && currentContent.trim()) {
+          messages.push({
+            role: currentSpeaker.toLowerCase(),
+            content: currentContent.trim(),
+            timestamp: new Date(originalMessage.createdAt)
+          });
+        }
+        
+        // Start new assistant message
+        currentSpeaker = 'assistant';
+        currentContent = trimmedLine.replace(/^(Assistant|assistant):\s*/, '');
+      } else if (trimmedLine.match(/^(User|user):\s*/)) {
+        // Save previous message if exists
+        if (currentSpeaker && currentContent.trim()) {
+          messages.push({
+            role: currentSpeaker.toLowerCase(),
+            content: currentContent.trim(),
+            timestamp: new Date(originalMessage.createdAt)
+          });
+        }
+        
+        // Start new user message
+        currentSpeaker = 'user';
+        currentContent = trimmedLine.replace(/^(User|user):\s*/, '');
+      } else if (currentSpeaker && trimmedLine) {
+        // Continue current message
+        currentContent += '\n' + trimmedLine;
+      }
+    }
+
+    // Add the last message
+    if (currentSpeaker && currentContent.trim()) {
+      messages.push({
+        role: currentSpeaker.toLowerCase(),
+        content: currentContent.trim(),
+        timestamp: new Date(originalMessage.createdAt)
+      });
+    }
+
+    return messages;
   }
 
   /**

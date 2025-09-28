@@ -647,14 +647,42 @@ const FuturisticAIChat: React.FC = () => {
       const apiMessages = data.messages || [];
 
       // Convert API messages to local Message format
-      const localMessages: Message[] = apiMessages.map((apiMsg: any) => ({
-        id: apiMsg.id.toString(),
-        content: extractConversationContent(apiMsg.content),
-        role: apiMsg.role === 'system' ? 'assistant' : apiMsg.role, // Convert system to assistant
-        timestamp: new Date(apiMsg.createdAt),
-        attachments: apiMsg.attachments || undefined,
-        metadata: apiMsg.metadata || undefined
-      }));
+      const localMessages: Message[] = [];
+      
+      for (const apiMsg of apiMessages) {
+        const filteredContent = extractConversationContent(apiMsg.content);
+        
+        // Check if this is a conversation that needs to be parsed into multiple messages
+        const isConversationContent = filteredContent.includes('Assistant:') && filteredContent.includes('User:');
+        
+        if (isConversationContent && filteredContent !== apiMsg.content) {
+          // Parse the conversation into separate messages
+          const parsedMessages = parseConversationIntoMessages(filteredContent, apiMsg);
+          if (parsedMessages.length > 0) {
+            localMessages.push(...parsedMessages);
+          } else {
+            // Fallback: if parsing fails, add as single message
+            localMessages.push({
+              id: apiMsg.id.toString(),
+              content: filteredContent,
+              role: apiMsg.role === 'system' ? 'assistant' : apiMsg.role,
+              timestamp: new Date(apiMsg.createdAt),
+              attachments: apiMsg.attachments || undefined,
+              metadata: apiMsg.metadata || undefined
+            });
+          }
+        } else {
+          // Regular message, add as-is
+          localMessages.push({
+            id: apiMsg.id.toString(),
+            content: filteredContent,
+            role: apiMsg.role === 'system' ? 'assistant' : apiMsg.role,
+            timestamp: new Date(apiMsg.createdAt),
+            attachments: apiMsg.attachments || undefined,
+            metadata: apiMsg.metadata || undefined
+          });
+        }
+      }
 
       // Update state
       setMessages(localMessages);
@@ -736,6 +764,81 @@ const FuturisticAIChat: React.FC = () => {
 
     // Return truncated version if it's too long
     return content.substring(0, 200) + (content.length > 200 ? '...' : '');
+  }, []);
+
+  // Function to parse conversation content into separate messages
+  const parseConversationIntoMessages = useCallback((content: string, originalMessage: any): Message[] => {
+    // Check if this looks like a conversation with multiple speakers
+    const conversationPatterns = [
+      /(?:Assistant|assistant):\s*([^\n]*(?:\n(?!User|Assistant|user|assistant)[^\n]*)*)/gi,
+      /(?:User|user):\s*([^\n]*(?:\n(?!User|Assistant|user|assistant)[^\n]*)*)/gi
+    ];
+
+    const messages: Message[] = [];
+    let messageIndex = 0;
+
+    // Split content by speaker patterns
+    const lines = content.split('\n');
+    let currentSpeaker = '';
+    let currentContent = '';
+
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+      
+      // Check if this line starts a new speaker
+      if (trimmedLine.match(/^(Assistant|assistant):\s*/)) {
+        // Save previous message if exists
+        if (currentSpeaker && currentContent.trim()) {
+          messages.push({
+            id: `${originalMessage.id}-${messageIndex}`,
+            content: currentContent.trim(),
+            role: currentSpeaker.toLowerCase() === 'assistant' ? 'assistant' : 'user',
+            timestamp: new Date(originalMessage.createdAt),
+            attachments: originalMessage.attachments,
+            metadata: originalMessage.metadata
+          });
+          messageIndex++;
+        }
+        
+        // Start new assistant message
+        currentSpeaker = 'assistant';
+        currentContent = trimmedLine.replace(/^(Assistant|assistant):\s*/, '');
+      } else if (trimmedLine.match(/^(User|user):\s*/)) {
+        // Save previous message if exists
+        if (currentSpeaker && currentContent.trim()) {
+          messages.push({
+            id: `${originalMessage.id}-${messageIndex}`,
+            content: currentContent.trim(),
+            role: currentSpeaker.toLowerCase() === 'assistant' ? 'assistant' : 'user',
+            timestamp: new Date(originalMessage.createdAt),
+            attachments: originalMessage.attachments,
+            metadata: originalMessage.metadata
+          });
+          messageIndex++;
+        }
+        
+        // Start new user message
+        currentSpeaker = 'user';
+        currentContent = trimmedLine.replace(/^(User|user):\s*/, '');
+      } else if (currentSpeaker && trimmedLine) {
+        // Continue current message
+        currentContent += '\n' + trimmedLine;
+      }
+    }
+
+    // Add the last message
+    if (currentSpeaker && currentContent.trim()) {
+      messages.push({
+        id: `${originalMessage.id}-${messageIndex}`,
+        content: currentContent.trim(),
+        role: currentSpeaker.toLowerCase() === 'assistant' ? 'assistant' : 'user',
+        timestamp: new Date(originalMessage.createdAt),
+        attachments: originalMessage.attachments,
+        metadata: originalMessage.metadata
+      });
+    }
+
+    return messages;
   }, []);
 
   // Start a new conversation

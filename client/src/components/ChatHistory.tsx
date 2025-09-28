@@ -194,6 +194,65 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
     return content.substring(0, 200) + (content.length > 200 ? '...' : '');
   }, []);
 
+  // Function to parse conversation content into separate messages for display
+  const parseConversationForDisplay = useCallback((content: string): { messages: Array<{role: string, content: string}>, isParsed: boolean } => {
+    // Check if this looks like a conversation with multiple speakers
+    const hasMultipleSpeakers = content.includes('Assistant:') && content.includes('User:');
+    
+    if (!hasMultipleSpeakers) {
+      return { messages: [{ role: 'single', content }], isParsed: false };
+    }
+
+    const messages: Array<{role: string, content: string}> = [];
+    const lines = content.split('\n');
+    let currentSpeaker = '';
+    let currentContent = '';
+
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+      
+      // Check if this line starts a new speaker
+      if (trimmedLine.match(/^(Assistant|assistant):\s*/)) {
+        // Save previous message if exists
+        if (currentSpeaker && currentContent.trim()) {
+          messages.push({
+            role: currentSpeaker.toLowerCase(),
+            content: currentContent.trim()
+          });
+        }
+        
+        // Start new assistant message
+        currentSpeaker = 'assistant';
+        currentContent = trimmedLine.replace(/^(Assistant|assistant):\s*/, '');
+      } else if (trimmedLine.match(/^(User|user):\s*/)) {
+        // Save previous message if exists
+        if (currentSpeaker && currentContent.trim()) {
+          messages.push({
+            role: currentSpeaker.toLowerCase(),
+            content: currentContent.trim()
+          });
+        }
+        
+        // Start new user message
+        currentSpeaker = 'user';
+        currentContent = trimmedLine.replace(/^(User|user):\s*/, '');
+      } else if (currentSpeaker && trimmedLine) {
+        // Continue current message
+        currentContent += '\n' + trimmedLine;
+      }
+    }
+
+    // Add the last message
+    if (currentSpeaker && currentContent.trim()) {
+      messages.push({
+        role: currentSpeaker.toLowerCase(),
+        content: currentContent.trim()
+      });
+    }
+
+    return { messages, isParsed: true };
+  }, []);
+
   // Scroll to bottom of messages with smooth scrolling
   const scrollToBottom = useCallback(() => {
     if (messagesScrollRef.current) {
@@ -1091,6 +1150,7 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                                 {(() => {
                                   const filteredContent = extractConversationContent(message.content);
                                   const isFiltered = filteredContent !== message.content;
+                                  const { messages: parsedMessages, isParsed } = parseConversationForDisplay(filteredContent);
                                   
                                   return (
                                     <>
@@ -1099,7 +1159,27 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                                           <span className="font-medium">📝 Analysis prompt detected</span> - Showing extracted conversation content
                                         </div>
                                       )}
-                                      <p>{filteredContent}</p>
+                                      {isParsed ? (
+                                        <div className="space-y-2">
+                                          {parsedMessages.map((parsedMsg, index) => (
+                                            <div key={index} className={cn(
+                                              "p-2 rounded text-sm",
+                                              parsedMsg.role === 'user' 
+                                                ? "bg-blue-600/20 ml-4" 
+                                                : "bg-slate-600/20 mr-4"
+                                            )}>
+                                              <div className="flex items-center gap-2 mb-1">
+                                                <span className="text-xs font-medium text-slate-400">
+                                                  {parsedMsg.role === 'user' ? '👤 User' : '🤖 Assistant'}
+                                                </span>
+                                              </div>
+                                              <p className="text-slate-200">{parsedMsg.content}</p>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      ) : (
+                                        <p>{filteredContent}</p>
+                                      )}
                                     </>
                                   );
                                 })()}

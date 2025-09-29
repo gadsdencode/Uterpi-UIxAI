@@ -218,7 +218,15 @@ export const useAIProvider = (options: AIProviderOptions = {}): UseAIProviderRet
   const wrappedSendMessage = useCallback(async (messages: Message[]): Promise<string> => {
     console.log(`🎯 useAIProvider: Sending message via ${currentProvider}`);
     const response = await activeHook.sendMessage(messages);
-    const sanitized = sanitizeAIResponse(response);
+    
+    // Check if this is a greeting generation request
+    const isGreeting = messages.some(msg => 
+      msg.content.toLowerCase().includes('generate a warm, personalized greeting') ||
+      msg.content.toLowerCase().includes('greeting message') ||
+      msg.id === 'greeting-prompt'
+    );
+    
+    const sanitized = sanitizeAIResponse(response, isGreeting);
     console.log(`✅ useAIProvider: Response from ${currentProvider}:`, sanitized ? `${sanitized.substring(0, 100)}...` : 'EMPTY');
     return sanitized;
   }, [activeHook, currentProvider]);

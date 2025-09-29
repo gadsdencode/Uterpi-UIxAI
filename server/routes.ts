@@ -1274,8 +1274,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const targetUrl = `${baseInfo.url}/v1/chat/completions`;
           const proxyAuth = process.env.LMSTUDIO_API_KEY ? `Bearer ${process.env.LMSTUDIO_API_KEY}` : "Bearer lm-studio";
 
+          // Fix message formatting for LM Studio streaming
+          // LM Studio requires alternating user/assistant messages when streaming
+          let formattedMessages = enhancedMessages || messages;
+          
+          if (stream && formattedMessages && formattedMessages.length > 0) {
+            // Remove system messages and ensure proper alternation for streaming
+            const nonSystemMessages = formattedMessages.filter((msg: any) => msg.role !== 'system');
+            
+            // Extract system message content if it exists
+            const systemMessage = formattedMessages.find((msg: any) => msg.role === 'system');
+            
+            if (systemMessage && nonSystemMessages.length > 0) {
+              // Prepend system context to the first user message
+              const firstUserIndex = nonSystemMessages.findIndex((msg: any) => msg.role === 'user');
+              if (firstUserIndex !== -1) {
+                nonSystemMessages[firstUserIndex] = {
+                  ...nonSystemMessages[firstUserIndex],
+                  content: `Context: ${systemMessage.content}\n\nUser: ${nonSystemMessages[firstUserIndex].content}`
+                };
+              }
+            }
+            
+            formattedMessages = nonSystemMessages;
+          }
+
           const requestBody = {
-            messages: enhancedMessages || messages,
+            messages: formattedMessages,
             model: model || "nomadic-icdu-v8",
             max_tokens: max_tokens || 1024,
             temperature: temperature || 0.7,

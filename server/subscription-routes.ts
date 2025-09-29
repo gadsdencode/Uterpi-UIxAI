@@ -11,15 +11,6 @@ import {
   requireTeamRole,
   getEnhancedSubscriptionDetails 
 } from './subscription-middleware';
-import {
-  createTeamSubscription,
-  purchaseAICredits,
-  updateTeamSeats,
-  trackAIUsage,
-  checkCreditBalance,
-  CREDIT_PACKAGES,
-  STRIPE_PRODUCTS
-} from './stripe-enhanced';
 import { db } from './db';
 import { 
   users, 
@@ -30,6 +21,15 @@ import {
 } from '@shared/schema';
 import { eq, desc, and, gte, sql } from 'drizzle-orm';
 import { grandfatherExistingUsers, verifyGrandfatherStatus } from './grandfather-users-migration';
+import { 
+  createTeamSubscription,
+  purchaseAICredits,
+  updateTeamSeats,
+  trackAIUsage,
+  checkCreditBalance,
+  CREDIT_PACKAGES,
+  STRIPE_PRODUCTS
+} from './stripe-consolidated';
 
 const router = Router();
 

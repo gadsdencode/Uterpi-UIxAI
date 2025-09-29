@@ -7,7 +7,7 @@ import Stripe from 'stripe';
 import { db } from './db';
 import { users, subscriptions, aiCreditsTransactions, subscriptionFeatures } from '@shared/schema';
 import { eq } from 'drizzle-orm';
-import { STRIPE_PRODUCTS, CREDIT_PACKAGES } from './stripe-enhanced';
+import { STRIPE_PRODUCTS, CREDIT_PACKAGES } from './stripe-consolidated';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   // Using default API version to avoid type conflicts

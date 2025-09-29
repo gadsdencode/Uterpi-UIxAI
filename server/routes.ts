@@ -8,10 +8,20 @@ import { engagementService } from "./engagement";
 import { aiCoachService } from "./ai-coach";
 import { db } from "./db";
 import { eq, desc, and, gte } from "drizzle-orm";
-import { createStripeCustomer, createSetupIntent, createSubscription, cancelSubscription, reactivateSubscription, createBillingPortalSession, syncSubscriptionFromStripe } from "./stripe";
-import { createSubscriptionCheckoutSession, createCreditsCheckoutSession, getCheckoutSession } from "./stripe-checkout";
 import { requireActiveSubscription, enhanceWithSubscription, requireCredits, requireMinimumCredits, requireDynamicCredits, checkFreemiumLimit, getEnhancedSubscriptionDetails, requireFeature, requireTeamRole, requireAIProvider, tierBasedRateLimit, estimateRequiredCredits } from "./subscription-middleware";
-import { trackAIUsage } from "./stripe-enhanced";
+import { 
+  createStripeCustomer, 
+  createSetupIntent, 
+  createSubscription, 
+  cancelSubscription, 
+  reactivateSubscription, 
+  createBillingPortalSession, 
+  syncSubscriptionFromStripe,
+  createSubscriptionCheckoutSession, 
+  createCreditsCheckoutSession, 
+  getCheckoutSession,
+  trackAIUsage
+} from "./stripe-consolidated";
 import { handleStripeWebhook, rawBodyParser } from "./webhooks";
 import { fileStorage } from "./file-storage";
 import { conversationService } from "./conversation-service";

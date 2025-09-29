@@ -186,8 +186,8 @@ export class LMStudioService {
       }
     } catch {}
     
-    // Handle tool calls if present
-    if (data.choices?.[0]?.message?.tool_calls) {
+    // Handle tool calls if present and non-empty
+    if (data.choices?.[0]?.message?.tool_calls && data.choices[0].message.tool_calls.length > 0) {
       console.log("Tool calls detected:", data.choices[0].message.tool_calls);
       // Return the tool calls as JSON string for processing
       return JSON.stringify(data.choices[0].message.tool_calls);

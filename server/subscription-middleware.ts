@@ -616,6 +616,14 @@ export function checkFreemiumLimit() {
         });
       }
 
+      // Check for admin override first - bypass all limits
+      const user = await storage.getUser(req.user.id);
+      if (user?.accessOverride) {
+        console.log(`✅ Admin override active for user ${req.user.id}, bypassing freemium limits`);
+        req.user.hasAdminOverride = true; // Flag for downstream middleware
+        return next();
+      }
+
       // BYOK exemption: if user supplies their own API key for non-LMStudio providers, skip freemium gating
       if (isBYOKNonLmstudio(req)) {
         return next();
@@ -845,6 +853,22 @@ export function requireDynamicCredits(estimateFunction: (req: any) => number, op
           error: 'Authentication required',
           code: 'NOT_AUTHENTICATED',
         });
+      }
+
+      // Check for admin override first - bypass all credit requirements
+      if (req.user.hasAdminOverride) {
+        console.log(`✅ Admin override active for user ${req.user.id}, bypassing credit requirements`);
+        return next();
+      }
+
+      // If not already checked, fetch user to check override
+      if (!req.user.hasAdminOverride) {
+        const user = await storage.getUser(req.user.id);
+        if (user?.accessOverride) {
+          console.log(`✅ Admin override active for user ${req.user.id}, bypassing credit requirements`);
+          req.user.hasAdminOverride = true;
+          return next();
+        }
       }
 
       // BYOK exemption

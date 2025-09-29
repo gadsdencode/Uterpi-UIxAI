@@ -2594,6 +2594,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           endsAt: user.subscriptionEndsAt,
           plan: planData,
           details: subscriptionData,
+          // Include admin override flag so frontend knows to bypass UI restrictions
+          hasAdminOverride: user.accessOverride || false,
         }
       });
     } catch (error) {
@@ -2624,7 +2626,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const messagesRemaining = Math.max(0, monthlyMessageAllowance - messagesUsed);
       
       res.json({
-        hasAccess: ['active', 'trialing', 'freemium'].includes(user.subscriptionStatus || tier),
+        hasAccess: ['active', 'trialing', 'freemium'].includes(user.subscriptionStatus || tier) || user.accessOverride,
+        hasAdminOverride: user.accessOverride || false,
         tier,
         features: {
           unlimitedChat: features?.unlimitedChat || false,

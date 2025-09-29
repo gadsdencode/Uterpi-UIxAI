@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/
 import { Button } from './ui/button';
 import { AlertCircle } from 'lucide-react';
 import { Toaster } from './ui/sonner';
+import { SnackbarProvider } from './SnackbarProvider';
 
 interface RouteState {
   path: string;
@@ -100,7 +101,11 @@ export function Router() {
       )}
 
       {/* Default to main app */}
-      {route.path === '/' && <App />}
+      {route.path === '/' && (
+        <SnackbarProvider>
+          <App />
+        </SnackbarProvider>
+      )}
       
       {/* Global toast notifications */}
       <Toaster />

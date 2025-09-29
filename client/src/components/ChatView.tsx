@@ -18,6 +18,7 @@ import {
   Cpu,
   CircuitBoard,
   AlertCircle,
+  CheckCircle,
   Download,
   Copy,
   ExternalLink,
@@ -45,6 +46,7 @@ import { FileManager } from './FileManager';
 import { AIProviderQuickSelector } from './AIProviderQuickSelector';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import { toast } from "sonner";
+import { useSnackbar } from './SnackbarProvider';
 import { useAuth } from '../hooks/useAuth';
 import { handleError, createError } from '../lib/error-handler';
 import { useDynamicGreeting } from '../hooks/useDynamicGreeting';
@@ -589,6 +591,7 @@ const OrigamiModal: React.FC<{
 
 const FuturisticAIChat: React.FC = () => {
   const { user } = useAuth(); // Get user context for AI personalization
+  const snackbar = useSnackbar(); // Snackbar for action confirmations
   
   // Credit status state
   const [creditBalance, setCreditBalance] = useState<number | null>(null);
@@ -962,7 +965,7 @@ const FuturisticAIChat: React.FC = () => {
             timestamp: new Date(),
           }
         ]);
-        toast.success("Started new conversation!");
+        snackbar.show("Started new conversation!", "success");
       }
 
       // Model selector moved to quick dropdown
@@ -1163,7 +1166,7 @@ const FuturisticAIChat: React.FC = () => {
       const targetModel = availableModels.find((m: any) => m.id === modelId);
       if (targetModel) {
         updateModel(targetModel);
-        toast.success(`Switched to ${targetModel.name}!`);
+        snackbar.show(`Switched to ${targetModel.name}!`, "success");
       }
     },
     onNewChat: () => {
@@ -1176,7 +1179,7 @@ const FuturisticAIChat: React.FC = () => {
           timestamp: new Date(),
         }
       ]);
-      toast.success("Started new conversation!");
+      snackbar.show("Started new conversation!", "success");
     }
   });
   
@@ -1819,7 +1822,7 @@ const FuturisticAIChat: React.FC = () => {
   const handleDownloadTranscript = async () => {
     try {
       downloadTranscript(messages, true);
-      toast.success('Transcript downloaded successfully!');
+      snackbar.show('Transcript downloaded successfully!', 'success');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to download transcript');
     }
@@ -1828,7 +1831,7 @@ const FuturisticAIChat: React.FC = () => {
   const handleCopyTranscript = async () => {
     try {
       await copyTranscriptToClipboard(messages, true);
-      toast.success('Transcript copied to clipboard!');
+      snackbar.show('Transcript copied to clipboard!', 'success');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to copy transcript');
     }
@@ -1838,9 +1841,9 @@ const FuturisticAIChat: React.FC = () => {
     try {
       const result = await shareTranscript(messages, true);
       if (result.method === 'share') {
-        toast.success('Transcript shared successfully!');
+        snackbar.show('Transcript shared successfully!', 'success');
       } else {
-        toast.success('Transcript copied to clipboard for sharing!');
+        snackbar.show('Transcript copied to clipboard for sharing!', 'success');
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to share transcript');
@@ -2816,7 +2819,7 @@ const FuturisticAIChat: React.FC = () => {
                     setAttachments(prev => [...prev, file.name]);
                     setAttachedFileIds(prev => [...prev, file.id]);
                     setShowFileManager(false);
-                    toast.success(`Attached "${file.name}"`);
+                    snackbar.show(`Attached "${file.name}"`, "success");
                   }}
                 />
               </div>
@@ -2833,7 +2836,7 @@ const FuturisticAIChat: React.FC = () => {
           try {
             await loadConversation(conversation.id, conversation.title || undefined);
             setShowChatHistory(false);
-            toast.success(`Loaded conversation: ${conversation.title || 'Untitled'}`);
+            snackbar.show(`Loaded conversation: ${conversation.title || 'Untitled'}`, "success");
           } catch (error) {
             console.error('Failed to load conversation:', error);
             // Error toast is already shown in loadConversation function

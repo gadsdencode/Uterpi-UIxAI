@@ -11,6 +11,7 @@ import { OpenAIService } from '../lib/openAI';
 import { GeminiService } from '../lib/gemini';
 import { HuggingFaceService } from '../lib/huggingface';
 import { LMStudioService } from '../lib/lmstudio';
+import { sanitizeAIResponse, sanitizeStreamingChunk } from '../lib/response-sanitizer';
 
 export type AIProvider = 'azure' | 'openai' | 'gemini' | 'huggingface' | 'uterpi' | 'lmstudio';
 
@@ -213,21 +214,41 @@ export const useAIProvider = (options: AIProviderOptions = {}): UseAIProviderRet
   // Forward all provider hook methods to the current provider
   const activeHook = getCurrentProviderHook();
 
-  // Wrap sendMessage to add debugging
+  // Wrap sendMessage to add debugging and sanitization
   const wrappedSendMessage = useCallback(async (messages: Message[]): Promise<string> => {
     console.log(`🎯 useAIProvider: Sending message via ${currentProvider}`);
     const response = await activeHook.sendMessage(messages);
-    console.log(`✅ useAIProvider: Response from ${currentProvider}:`, response ? `${response.substring(0, 100)}...` : 'EMPTY');
-    return response;
+    const sanitized = sanitizeAIResponse(response);
+    console.log(`✅ useAIProvider: Response from ${currentProvider}:`, sanitized ? `${sanitized.substring(0, 100)}...` : 'EMPTY');
+    return sanitized;
   }, [activeHook, currentProvider]);
 
-  // Wrap sendStreamingMessage to add debugging
+  // Wrap sendStreamingMessage to add debugging and sanitization
   const wrappedSendStreamingMessage = useCallback(async (
     messages: Message[],
     onChunk: (chunk: string) => void
   ): Promise<void> => {
     console.log(`🌊 useAIProvider: Sending STREAMING message via ${currentProvider}`);
-    await activeHook.sendStreamingMessage(messages, onChunk);
+    let streamBuffer = '';
+    let fullResponse = '';
+    
+    await activeHook.sendStreamingMessage(messages, (chunk: string) => {
+      // Sanitize streaming chunks to remove malformed patterns
+      const { sanitized, newBuffer } = sanitizeStreamingChunk(chunk, streamBuffer);
+      streamBuffer = newBuffer;
+      
+      if (sanitized) {
+        fullResponse += sanitized;
+        onChunk(sanitized);
+      }
+    });
+    
+    // Final sanitization of the complete response
+    // This catches any patterns that span multiple chunks
+    if (streamBuffer) {
+      onChunk(streamBuffer);
+    }
+    
     console.log(`✅ useAIProvider: Streaming completed for ${currentProvider}`);
   }, [activeHook, currentProvider]);
 

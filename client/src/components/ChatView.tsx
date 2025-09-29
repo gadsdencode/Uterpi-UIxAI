@@ -59,6 +59,7 @@ import { AICreditsQuickPurchase } from './AICreditsQuickPurchase';
 import { navigateTo } from './Router';
 import { useCreditUpdates } from '../hooks/useCreditUpdates';
 import ChatHistory from './ChatHistory';
+import { SpeechSettings } from './SpeechSettings';
 
 interface ParticlesProps {
   className?: string;
@@ -905,6 +906,7 @@ const FuturisticAIChat: React.FC = () => {
   const [showAnalyzeModal, setShowAnalyzeModal] = useState(false);
   const [showFileManager, setShowFileManager] = useState(false);
   const [showChatHistory, setShowChatHistory] = useState(false);
+  const [showSpeechSettings, setShowSpeechSettings] = useState(false);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [isChatActive, setIsChatActive] = useState(false); // Track if chat is actively processing
@@ -1911,7 +1913,7 @@ const FuturisticAIChat: React.FC = () => {
               </div>
             </div>
             
-            <div className="flex items-center gap-1 sm:gap-2 overflow-x-auto">
+            <div className="flex items-center gap-1 sm:gap-2">
               {/* Credit Status Indicator */}
               {user && (
                 <div className="flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-2 bg-slate-800/50 rounded-lg border border-slate-700/50 flex-shrink-0">
@@ -2387,6 +2389,28 @@ const FuturisticAIChat: React.FC = () => {
                   <div className="flex-shrink-0">
                     <AIProviderQuickSelector />
                   </div>
+                  
+                  {/* Speech Settings Button */}
+                  {speechAvailable && (
+                    <>
+                      <div className="w-px h-6 sm:h-8 bg-slate-700 flex-shrink-0" /> {/* Divider */}
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <RippleButton
+                            onClick={() => setShowSpeechSettings(true)}
+                            className="p-2 text-slate-400 hover:text-violet-400 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 flex-shrink-0"
+                            aria-label="Speech settings"
+                          >
+                            <Mic className="w-4 h-4" />
+                          </RippleButton>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>Speech settings & testing</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </>
+                  )}
+                  
                   <div className="w-px h-6 sm:h-8 bg-slate-700 flex-shrink-0" /> {/* Divider */}
                   
                   <Tooltip>
@@ -2815,6 +2839,12 @@ const FuturisticAIChat: React.FC = () => {
             // Error toast is already shown in loadConversation function
           }
         }}
+      />
+
+      {/* Speech Settings Modal */}
+      <SpeechSettings
+        isOpen={showSpeechSettings}
+        onClose={() => setShowSpeechSettings(false)}
       />
 
     </div>

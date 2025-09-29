@@ -54,7 +54,7 @@ export interface SpeechSynthesisResult {
   duration?: number;
 }
 
-export type SpeechProvider = 'web' | 'azure' | 'openai' | 'google' | 'elevenlabs';
+export type SpeechProvider = 'web' | 'azure' | 'openai' | 'google' | 'elevenlabs' | 'lmstudio';
 
 export interface VoiceInfo {
   id: string;

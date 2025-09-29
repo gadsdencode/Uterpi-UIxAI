@@ -5,6 +5,7 @@ import { WebSpeechService } from './webSpeechService';
 import { AzureSpeechService } from './azureSpeechService';
 import { OpenAISpeechService } from './openaiSpeechService';
 import { GoogleSpeechService } from './googleSpeechService';
+import { LMStudioSpeechService } from './lmstudioSpeechService';
 import { AIProvider } from '../../hooks/useAIProvider';
 
 export class SpeechServiceFactory {
@@ -44,9 +45,10 @@ export class SpeechServiceFactory {
         return 'openai';
       case 'gemini':
         return 'google';
+      case 'lmstudio':
+        return 'lmstudio';
       case 'huggingface':
       case 'uterpi':
-      case 'lmstudio':
         // Hugging Face and Uterpi can use Web Speech API as fallback
         // or Azure if configured
         if ((import.meta as any).env?.VITE_AZURE_SPEECH_KEY) {
@@ -75,7 +77,7 @@ export class SpeechServiceFactory {
       return service;
     }
     
-    // Fallback chain
+    // Fallback chain - prioritize based on capability and availability
     const fallbackProviders: SpeechProvider[] = ['web', 'azure', 'openai', 'google'];
     
     for (const fallback of fallbackProviders) {
@@ -84,7 +86,7 @@ export class SpeechServiceFactory {
       try {
         service = await this.getService(fallback, config);
         if (service.isAvailable()) {
-          console.log(`Using ${fallback} speech service as fallback`);
+          console.log(`Using ${fallback} speech service as fallback for ${preferredProvider}`);
           return service;
         }
       } catch (error) {
@@ -138,6 +140,8 @@ export class SpeechServiceFactory {
         return new OpenAISpeechService();
       case 'google':
         return new GoogleSpeechService();
+      case 'lmstudio':
+        return new LMStudioSpeechService();
       case 'web':
       default:
         return new WebSpeechService();

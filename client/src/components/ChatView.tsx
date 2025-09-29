@@ -62,6 +62,10 @@ import { navigateTo } from './Router';
 import { useCreditUpdates } from '../hooks/useCreditUpdates';
 import ChatHistory from './ChatHistory';
 import { SpeechSettings } from './SpeechSettings';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeHighlight from 'rehype-highlight';
+import 'highlight.js/styles/github-dark.css';
 
 interface ParticlesProps {
   className?: string;
@@ -2159,7 +2163,71 @@ const FuturisticAIChat: React.FC = () => {
                     ) : (
                       <HolographicBubble isUser={message.role === 'user'}>
                         <div className="space-y-2">
-                          <p className="text-sm leading-relaxed">{message.content}</p>
+                          {message.role === 'assistant' ? (
+                            <div className="text-sm leading-relaxed prose prose-invert max-w-none">
+                              <ReactMarkdown 
+                                remarkPlugins={[remarkGfm]}
+                                rehypePlugins={[rehypeHighlight]}
+                                components={{
+                                  pre: ({ children, ...props }) => (
+                                    <pre className="bg-black/70 text-white p-4 rounded-lg my-2 overflow-x-auto" {...props}>
+                                      {children}
+                                    </pre>
+                                  ),
+                                  code: ({ className, children, ...props }: any) => {
+                                    const isInline = !className;
+                                    if (isInline) {
+                                      return (
+                                        <code className="bg-slate-700/50 text-violet-300 px-1 py-0.5 rounded text-xs" {...props}>
+                                          {children}
+                                        </code>
+                                      );
+                                    }
+                                    return (
+                                      <code className={className} {...props}>
+                                        {children}
+                                      </code>
+                                    );
+                                  },
+                                p: ({ children }) => (
+                                  <p className="text-sm leading-relaxed mb-2">{children}</p>
+                                ),
+                                ul: ({ children }) => (
+                                  <ul className="list-disc list-inside space-y-1 text-sm">{children}</ul>
+                                ),
+                                ol: ({ children }) => (
+                                  <ol className="list-decimal list-inside space-y-1 text-sm">{children}</ol>
+                                ),
+                                li: ({ children }) => (
+                                  <li className="text-sm">{children}</li>
+                                ),
+                                h1: ({ children }) => (
+                                  <h1 className="text-lg font-bold mb-2">{children}</h1>
+                                ),
+                                h2: ({ children }) => (
+                                  <h2 className="text-base font-semibold mb-2">{children}</h2>
+                                ),
+                                h3: ({ children }) => (
+                                  <h3 className="text-sm font-semibold mb-1">{children}</h3>
+                                ),
+                                blockquote: ({ children }) => (
+                                  <blockquote className="border-l-4 border-violet-500 pl-3 py-1 italic text-sm text-slate-300">
+                                    {children}
+                                  </blockquote>
+                                ),
+                                a: ({ children, href, ...props }) => (
+                                  <a href={href} className="text-violet-400 hover:text-violet-300 underline" target="_blank" rel="noopener noreferrer" {...props}>
+                                    {children}
+                                  </a>
+                                ),
+                              }}
+                            >
+                              {message.content}
+                            </ReactMarkdown>
+                            </div>
+                          ) : (
+                            <p className="text-sm leading-relaxed">{message.content}</p>
+                          )}
                           {/* Show AI-generated indicator for the first message if it was AI-generated */}
                           {message.role === 'assistant' && message.id === "1" && isAIGenerated && (
                             <div className="flex items-center gap-1 text-xs text-slate-400">

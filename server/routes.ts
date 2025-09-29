@@ -1274,33 +1274,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const targetUrl = `${baseInfo.url}/v1/chat/completions`;
           const proxyAuth = process.env.LMSTUDIO_API_KEY ? `Bearer ${process.env.LMSTUDIO_API_KEY}` : "Bearer lm-studio";
 
-          // Fix message formatting for LM Studio streaming
-          // LM Studio requires alternating user/assistant messages when streaming
-          let formattedMessages = enhancedMessages || messages;
+          // Prepare messages based on streaming mode
+          let messagesToSend = messages;
           
-          if (stream && formattedMessages && formattedMessages.length > 0) {
-            // Remove system messages and ensure proper alternation for streaming
-            const nonSystemMessages = formattedMessages.filter((msg: any) => msg.role !== 'system');
-            
-            // Extract system message content if it exists
-            const systemMessage = formattedMessages.find((msg: any) => msg.role === 'system');
-            
-            if (systemMessage && nonSystemMessages.length > 0) {
-              // Prepend system context to the first user message
-              const firstUserIndex = nonSystemMessages.findIndex((msg: any) => msg.role === 'user');
-              if (firstUserIndex !== -1) {
-                nonSystemMessages[firstUserIndex] = {
-                  ...nonSystemMessages[firstUserIndex],
-                  content: `Context: ${systemMessage.content}\n\nUser: ${nonSystemMessages[firstUserIndex].content}`
-                };
-              }
+          // For streaming, we need to handle messages specially
+          if (stream) {
+            // Use original messages if available (they're in the raw format without Azure conversion artifacts)
+            if (original_messages && original_messages.length > 0) {
+              messagesToSend = original_messages;
+              console.log(`🔧 Using original messages for LM Studio streaming (${messagesToSend.length} messages)`);
             }
             
-            formattedMessages = nonSystemMessages;
+            // Filter out system messages as they break LM Studio's streaming
+            // LM Studio streaming requires strict user/assistant alternation
+            messagesToSend = messagesToSend.filter((msg: any) => msg.role !== 'system');
+            
+            // Ensure alternating pattern - if first message is assistant, prepend a user message
+            if (messagesToSend.length > 0 && messagesToSend[0].role === 'assistant') {
+              messagesToSend = [
+                { role: 'user', content: 'Continue our conversation' },
+                ...messagesToSend
+              ];
+            }
+            
+            console.log(`🔧 Final streaming messages (${messagesToSend.length}):`, messagesToSend.map((m: any) => m.role).join(' -> '));
+          } else {
+            // For non-streaming, we can use enhanced messages with system context
+            messagesToSend = enhancedMessages || messages;
           }
 
           const requestBody = {
-            messages: formattedMessages,
+            messages: messagesToSend,
             model: model || "nomadic-icdu-v8",
             max_tokens: max_tokens || 1024,
             temperature: temperature || 0.7,

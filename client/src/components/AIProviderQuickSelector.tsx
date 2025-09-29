@@ -19,6 +19,7 @@ import {
 } from './ui/dropdown-menu';
 import { Badge } from './ui/badge';
 import { useAIProvider, AIProvider } from '../hooks/useAIProvider';
+import { useServiceStatus } from '../hooks/useServiceStatus';
 import { LLMModel } from '../types';
 import { cn } from '../lib/utils';
 
@@ -93,6 +94,14 @@ export const AIProviderQuickSelector: React.FC = () => {
     getAvailableModels,
     isProviderConfigured
   } = useAIProvider();
+
+  // Service status monitoring
+  const {
+    serviceStatus,
+    getServiceStatus,
+    isServiceDown,
+    checkProvider
+  } = useServiceStatus();
 
   const [isOpen, setIsOpen] = useState(false);
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
@@ -497,17 +506,35 @@ export const AIProviderQuickSelector: React.FC = () => {
                           <span>{provider.icon}</span>
                           <span className="text-xs font-medium">{provider.name}</span>
                         </div>
-                        <Badge 
-                          variant={isConfigured ? "default" : "outline"}
-                          className={cn(
-                            "text-[10px] h-4 px-2 font-medium",
-                            isConfigured 
-                              ? "bg-green-600/80 text-green-100 border-green-500/50" 
-                              : "border-amber-500/60 text-amber-300 bg-amber-950/30"
+                        <div className="flex items-center gap-1">
+                          <Badge 
+                            variant={isConfigured ? "default" : "outline"}
+                            className={cn(
+                              "text-[10px] h-4 px-2 font-medium",
+                              isConfigured 
+                                ? "bg-green-600/80 text-green-100 border-green-500/50" 
+                                : "border-amber-500/60 text-amber-300 bg-amber-950/30"
+                            )}
+                          >
+                            {isConfigured ? "Configured" : "Setup Required"}
+                          </Badge>
+                          {isConfigured && (
+                            <div className={cn(
+                              "w-2 h-2 rounded-full",
+                              (() => {
+                                const status = getServiceStatus(provider.id);
+                                switch (status.serviceStatus) {
+                                  case 'online': return "bg-green-500";
+                                  case 'offline': return "bg-red-500";
+                                  case 'credit_required': return "bg-yellow-500";
+                                  case 'auth_required': return "bg-orange-500";
+                                  case 'rate_limited': return "bg-purple-500";
+                                  default: return "bg-yellow-500";
+                                }
+                              })()
+                            )} />
                           )}
-                        >
-                          {isConfigured ? "Configured" : "Setup Required"}
-                        </Badge>
+                        </div>
                       </div>
                       
                       {isConfigured && (
@@ -555,6 +582,45 @@ export const AIProviderQuickSelector: React.FC = () => {
                     </div>
                   );
                 })}
+              </div>
+              
+              {/* Service Status Summary */}
+              <DropdownMenuSeparator className="bg-slate-700" />
+              <div className="px-2 py-3">
+                <div className="text-xs text-slate-400 mb-2">Service Status</div>
+                <div className="space-y-1">
+                  {providers.filter(p => isProviderConfigured(p.id)).map(provider => {
+                    const status = getServiceStatus(provider.id);
+                    
+                    const getStatusDisplay = () => {
+                      switch (status.serviceStatus) {
+                        case 'online': return { color: 'bg-green-500', textColor: 'text-green-400', label: 'Online' };
+                        case 'offline': return { color: 'bg-red-500', textColor: 'text-red-400', label: 'Offline' };
+                        case 'credit_required': return { color: 'bg-yellow-500', textColor: 'text-yellow-400', label: 'Credits Required' };
+                        case 'auth_required': return { color: 'bg-orange-500', textColor: 'text-orange-400', label: 'Auth Required' };
+                        case 'rate_limited': return { color: 'bg-purple-500', textColor: 'text-purple-400', label: 'Rate Limited' };
+                        default: return { color: 'bg-yellow-500', textColor: 'text-yellow-400', label: 'Unknown' };
+                      }
+                    };
+                    
+                    const statusDisplay = getStatusDisplay();
+                    
+                    return (
+                      <div key={provider.id} className="flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-2">
+                          <span>{provider.icon}</span>
+                          <span className="text-slate-300">{provider.name}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className={cn("w-2 h-2 rounded-full", statusDisplay.color)} />
+                          <span className={cn("text-xs", statusDisplay.textColor)}>
+                            {statusDisplay.label}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </>
           )}

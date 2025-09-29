@@ -32,10 +32,11 @@ import {
   MessageSquare
 } from "lucide-react";
 import { Message, CommandSuggestion, LLMModel, ModelCapabilities } from "../types";
-import { useAIProvider } from "../hooks/useAIProvider";
+import { useAIProvider, AIProvider } from "../hooks/useAIProvider";
 import { SYSTEM_MESSAGE_PRESETS } from "../hooks/useAzureAI";
 import { useIntelligentToast } from "../hooks/useIntelligentToast";
 import { useSpeech } from "../hooks/useSpeech";
+import { useServiceStatus } from "../hooks/useServiceStatus";
 import { AzureAIService } from "../lib/azureAI";
 import { SystemMessageSelector } from './SystemMessageSelector';
 import CloneUIModal from './CloneUIModal';
@@ -44,6 +45,7 @@ import ImproveModal from './ImproveModal';
 import AnalyzeModal from './AnalyzeModal';
 import { FileManager } from './FileManager';
 import { AIProviderQuickSelector } from './AIProviderQuickSelector';
+import { ServiceStatusIndicator, ServiceStatusSummary } from './ServiceStatusIndicator';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import { toast } from "sonner";
 import { useSnackbar } from './SnackbarProvider';
@@ -1029,6 +1031,32 @@ const FuturisticAIChat: React.FC = () => {
     userContext: { user } // Pass user context correctly
   });
 
+  // Service status monitoring
+  const {
+    serviceStatus,
+    isMonitoring,
+    startMonitoring,
+    stopMonitoring,
+    checkProvider,
+    getServiceStatus,
+    isServiceDown,
+    getOfflineServices
+  } = useServiceStatus({
+    checkInterval: 120000, // Check every 2 minutes (reduced frequency)
+    maxConsecutiveFailures: 3,
+    timeoutMs: 10000
+  });
+
+  // Start monitoring when component mounts
+  useEffect(() => {
+    const providers: AIProvider[] = ['lmstudio', 'azure', 'openai', 'gemini', 'huggingface', 'uterpi'];
+    startMonitoring(providers);
+    
+    return () => {
+      stopMonitoring();
+    };
+  }, [startMonitoring, stopMonitoring]);
+
   // Display label for current model in header
   const displayModelName = (() => {
     if (currentProvider === 'lmstudio') {
@@ -1637,6 +1665,9 @@ const FuturisticAIChat: React.FC = () => {
         userId: user?.id?.toString(),
         timestamp: new Date()
       });
+
+      // Note: Removed automatic health check trigger to prevent rapid cycling
+      // Service status is monitored independently via the useServiceStatus hook
       
       // Check if this is a credit limit error (402 status)
       if (err instanceof Error && err.message.includes('Subscription error:')) {
@@ -2460,6 +2491,19 @@ const FuturisticAIChat: React.FC = () => {
                   {/* Quick Provider & Model Selector */}
                   <div className="flex-shrink-0">
                     <AIProviderQuickSelector />
+                  </div>
+                  
+                  {/* Service Status Indicator */}
+                  <div className="flex-shrink-0">
+                    <ServiceStatusIndicator
+                      provider={currentProvider}
+                      status={getServiceStatus(currentProvider)}
+                      onRefresh={() => {
+                        // Use the built-in cooldown mechanism instead of setTimeout
+                        checkProvider(currentProvider);
+                      }}
+                      compact
+                    />
                   </div>
                   
                   {/* Speech Settings Button */}

@@ -1078,6 +1078,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // UNIVERSAL AI PROXY WITH CREDIT CHECKING
   // =============================================================================
 
+  // Rate limiting for health checks (ping messages)
+  const healthCheckRateLimit = new Map<string, { count: number; resetTime: number }>();
+  const HEALTH_CHECK_LIMIT = 2; // 2 requests per minute per user (very restrictive)
+  const HEALTH_CHECK_WINDOW = 60000; // 1 minute
+
   // Universal AI chat completions endpoint with dynamic credit checking for all providers
   app.post("/ai/v1/chat/completions", requireAuth, checkFreemiumLimit(), requireDynamicCredits((req) => {
     const body: any = (req as any).body || {};
@@ -1088,7 +1093,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const effectiveEnableContext = isVectorizationEnabled() ? enableContext : false;
     return estimateRequiredCredits(raw || [], effectiveEnableContext, hasAttachments, model || '');
   }, 'chat'), async (req, res) => {
-    console.log('🚀 Chat endpoint called for user:', req.user?.id);
+    // Check if this is a health check (ping message)
+    const body: any = (req as any).body || {};
+    const messages = body.original_messages || body.messages || [];
+    const isHealthCheck = messages.length === 1 && 
+                         messages[0]?.content?.toLowerCase() === 'ping' && 
+                         messages[0]?.role === 'user';
+
+    if (isHealthCheck) {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ error: 'User not authenticated' });
+      }
+      
+      const now = Date.now();
+      const userIdStr = String(userId);
+      const userLimit = healthCheckRateLimit.get(userIdStr);
+
+      if (userLimit) {
+        if (now > userLimit.resetTime) {
+          // Reset the counter
+          healthCheckRateLimit.set(userIdStr, { count: 1, resetTime: now + HEALTH_CHECK_WINDOW });
+        } else if (userLimit.count >= HEALTH_CHECK_LIMIT) {
+          // Rate limit exceeded
+          console.log(`⚠️ Health check rate limit exceeded for user ${userId}`);
+          return res.status(429).json({ 
+            error: 'Health check rate limit exceeded. Please wait before checking again.',
+            retryAfter: Math.ceil((userLimit.resetTime - now) / 1000)
+          });
+        } else {
+          // Increment counter
+          userLimit.count++;
+        }
+      } else {
+        // First health check for this user
+        healthCheckRateLimit.set(userIdStr, { count: 1, resetTime: now + HEALTH_CHECK_WINDOW });
+      }
+    }
+
+    console.log('🚀 Chat endpoint called for user:', req.user?.id, isHealthCheck ? '(health check)' : '');
     try {
       const { provider, messages, model, max_tokens, temperature, top_p, stream, sessionId, enableContext = true, original_messages, ...otherParams } = req.body;
       

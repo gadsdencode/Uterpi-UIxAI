@@ -164,11 +164,35 @@ export class ExternalServiceError extends Error implements ClientError {
   retryable = true;
   userMessage = 'A service is temporarily unavailable. Please try again later.';
   service: string;
+  errorType?: 'network' | 'timeout' | 'auth' | 'rate_limit' | 'server_error' | 'unknown';
 
-  constructor(service: string, message: string) {
+  constructor(service: string, message: string, errorType?: 'network' | 'timeout' | 'auth' | 'rate_limit' | 'server_error' | 'unknown') {
     super(`External service error (${service}): ${message}`);
     this.name = 'ExternalServiceError';
     this.service = service;
+    this.errorType = errorType;
+    
+    // Customize user message based on error type
+    if (errorType) {
+      this.userMessage = this.getUserMessageForErrorType(errorType, service);
+    }
+  }
+
+  private getUserMessageForErrorType(errorType: string, service: string): string {
+    switch (errorType) {
+      case 'network':
+        return `${service} is currently unreachable. Please check your internet connection and try again.`;
+      case 'timeout':
+        return `${service} is responding slowly. Please wait a moment and try again.`;
+      case 'auth':
+        return `${service} authentication failed. Please check your API key in settings.`;
+      case 'rate_limit':
+        return `${service} rate limit exceeded. Please wait a moment before trying again.`;
+      case 'server_error':
+        return `${service} is experiencing technical difficulties. Please try again later.`;
+      default:
+        return `${service} is temporarily unavailable. Please try again later.`;
+    }
   }
 }
 
@@ -212,12 +236,32 @@ export class ErrorHandler {
 
     // Handle JSON parsing errors
     if (error.name === 'SyntaxError' && error.message.includes('JSON')) {
-      return new ExternalServiceError('API', 'Invalid response format');
+      return new ExternalServiceError('API', 'Invalid response format', 'server_error');
     }
 
     // Handle timeout errors
     if (error.message.includes('timeout') || error.message.includes('aborted')) {
       return new NetworkError('Request timed out');
+    }
+
+    // Handle connection refused errors
+    if (error.message.includes('ECONNREFUSED') || error.message.includes('fetch failed')) {
+      return new ExternalServiceError('AI Service', 'Service is currently unreachable', 'network');
+    }
+
+    // Handle authentication errors
+    if (error.message.includes('401') || error.message.includes('unauthorized') || error.message.includes('api key')) {
+      return new ExternalServiceError('AI Service', 'Authentication failed', 'auth');
+    }
+
+    // Handle rate limit errors
+    if (error.message.includes('429') || error.message.includes('rate limit') || error.message.includes('quota')) {
+      return new ExternalServiceError('AI Service', 'Rate limit exceeded', 'rate_limit');
+    }
+
+    // Handle server errors
+    if (error.message.includes('500') || error.message.includes('502') || error.message.includes('503') || error.message.includes('504')) {
+      return new ExternalServiceError('AI Service', 'Server error occurred', 'server_error');
     }
 
     // Default to generic error
@@ -412,7 +456,8 @@ export const createError = {
   notFound: (resource?: string) => new NotFoundError(resource),
   subscription: (code: string, message: string, details?: any) => new SubscriptionError(code, message, details),
   rateLimit: (message?: string) => new RateLimitError(message),
-  externalService: (service: string, message: string) => new ExternalServiceError(service, message)
+  externalService: (service: string, message: string, errorType?: 'network' | 'timeout' | 'auth' | 'rate_limit' | 'server_error' | 'unknown') => 
+    new ExternalServiceError(service, message, errorType)
 };
 
 // Enhanced fetch wrapper with error handling

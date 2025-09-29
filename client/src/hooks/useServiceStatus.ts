@@ -1,0 +1,542 @@
+/**
+ * AI Service Status Monitoring Hook
+ * Provides real-time monitoring of AI service availability and health
+ */
+
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { AIProvider } from './useAIProvider';
+
+// Debounce utility function
+const debounce = <T extends (...args: any[]) => void>(func: T, delay: number): T => {
+  let timeoutId: NodeJS.Timeout;
+  return ((...args: any[]) => {
+    clearTimeout(timeoutId);
+    timeoutId = setTimeout(() => func(...args), delay);
+  }) as T;
+};
+
+export interface ServiceStatus {
+  isOnline: boolean;
+  lastChecked: Date | null;
+  lastError: string | null;
+  consecutiveFailures: number;
+  isChecking: boolean;
+  responseTime?: number;
+  errorType?: 'network' | 'timeout' | 'auth' | 'rate_limit' | 'server_error' | 'credit_required' | 'unknown';
+  serviceStatus: 'online' | 'offline' | 'auth_required' | 'credit_required' | 'rate_limited' | 'checking';
+}
+
+export interface ServiceStatusMap {
+  [key: string]: ServiceStatus;
+}
+
+interface ServiceStatusOptions {
+  checkInterval?: number; // milliseconds
+  maxConsecutiveFailures?: number;
+  timeoutMs?: number;
+  retryDelay?: number;
+}
+
+const DEFAULT_OPTIONS: Required<ServiceStatusOptions> = {
+  checkInterval: 300000, // 300 seconds (5 minutes - much reduced frequency)
+  maxConsecutiveFailures: 3,
+  timeoutMs: 10000, // 10 seconds
+  retryDelay: 5000 // 5 seconds
+};
+
+export const useServiceStatus = (options: ServiceStatusOptions = {}) => {
+  const opts = { ...DEFAULT_OPTIONS, ...options };
+  const [serviceStatus, setServiceStatus] = useState<ServiceStatusMap>({});
+  const [isMonitoring, setIsMonitoring] = useState(false);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const checkPromisesRef = useRef<Map<string, Promise<void>>>(new Map());
+  const lastCheckTimeRef = useRef<Map<string, number>>(new Map());
+  const debouncedUpdateRef = useRef<Map<string, ReturnType<typeof debounce>>>(new Map());
+  const clientRateLimitRef = useRef<Map<string, { count: number; resetTime: number }>>(new Map());
+
+  // Initialize service status for all providers
+  const initializeServiceStatus = useCallback((providers: AIProvider[]) => {
+    const initialStatus: ServiceStatusMap = {};
+    providers.forEach(provider => {
+      initialStatus[provider] = {
+        isOnline: true, // Assume online initially
+        lastChecked: null,
+        lastError: null,
+        consecutiveFailures: 0,
+        isChecking: false,
+        serviceStatus: 'online'
+      };
+    });
+    setServiceStatus(initialStatus);
+  }, []);
+
+  // Perform health check for a specific service
+  const checkServiceHealth = useCallback(async (provider: AIProvider): Promise<ServiceStatus> => {
+    const startTime = Date.now();
+    
+    try {
+      // Create a timeout promise
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Health check timeout')), opts.timeoutMs);
+      });
+
+      // Create health check promise based on provider
+      const healthCheckPromise = performProviderHealthCheck(provider);
+      
+      // Race between health check and timeout
+      await Promise.race([healthCheckPromise, timeoutPromise]);
+      
+      const responseTime = Date.now() - startTime;
+      
+      return {
+        isOnline: true,
+        lastChecked: new Date(),
+        lastError: null,
+        consecutiveFailures: 0,
+        isChecking: false,
+        responseTime,
+        errorType: undefined,
+        serviceStatus: 'online'
+      };
+    } catch (error) {
+      const responseTime = Date.now() - startTime;
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const errorType = categorizeError(errorMessage);
+      const serviceStatus = determineServiceStatus(errorMessage, errorType);
+      
+      // Only count infrastructure failures as consecutive failures
+      const isInfrastructureFailure = serviceStatus === 'offline';
+      
+      return {
+        isOnline: serviceStatus !== 'offline', // Service is "online" unless it's a true infrastructure failure
+        lastChecked: new Date(),
+        lastError: errorMessage,
+        consecutiveFailures: isInfrastructureFailure ? 1 : 0,
+        isChecking: false,
+        responseTime,
+        errorType,
+        serviceStatus
+      };
+    }
+  }, [opts.timeoutMs]);
+
+  // Perform actual health check for each provider
+  const performProviderHealthCheck = async (provider: AIProvider): Promise<void> => {
+    const testMessage = { role: 'user' as const, content: 'ping' };
+    
+    switch (provider) {
+      case 'lmstudio': {
+        const { LMStudioService } = await import('../lib/lmstudio');
+        const baseUrl = localStorage.getItem('lmstudio-base-url') || 'https://lmstudio.uterpi.com';
+        const service = new LMStudioService({ 
+          apiKey: 'not-needed', 
+          baseUrl, 
+          modelName: 'nomadic-icdu-v8' 
+        });
+        await service.sendChatCompletion([testMessage], { maxTokens: 10 });
+        break;
+      }
+      
+      case 'gemini': {
+        const apiKey = localStorage.getItem('gemini-api-key');
+        if (!apiKey) throw new Error('Gemini API key not configured');
+        
+        const { GeminiService } = await import('../lib/gemini');
+        const service = new GeminiService({ 
+          apiKey, 
+          modelName: 'gemini-2.5-flash' 
+        });
+        await service.sendChatCompletion([testMessage], { maxTokens: 10 });
+        break;
+      }
+      
+      case 'openai': {
+        const apiKey = localStorage.getItem('openai-api-key');
+        if (!apiKey) throw new Error('OpenAI API key not configured');
+        
+        const { OpenAIService } = await import('../lib/openAI');
+        const service = new OpenAIService({ 
+          apiKey, 
+          modelName: 'gpt-4o-mini' 
+        });
+        await service.sendChatCompletion([testMessage], { maxTokens: 10 });
+        break;
+      }
+      
+      case 'azure': {
+        // Azure AI is server-side configured, just test the endpoint
+        const response = await fetch('/ai/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            provider: 'azure',
+            messages: [testMessage],
+            max_tokens: 10,
+            stream: false
+          })
+        });
+        
+        if (!response.ok) {
+          throw new Error(`Azure AI endpoint returned ${response.status}`);
+        }
+        break;
+      }
+      
+      case 'huggingface': {
+        const apiToken = localStorage.getItem('huggingface-api-token');
+        const endpointUrl = localStorage.getItem('huggingface-endpoint-url');
+        if (!apiToken || !endpointUrl) {
+          throw new Error('Hugging Face configuration incomplete');
+        }
+        
+        const { HuggingFaceService } = await import('../lib/huggingface');
+        const service = new HuggingFaceService({ 
+          apiToken, 
+          endpointUrl, 
+          modelName: 'hf-endpoint' 
+        });
+        await service.sendChatCompletion([testMessage], { maxTokens: 10 });
+        break;
+      }
+      
+      case 'uterpi': {
+        // Uterpi is server-side configured
+        const response = await fetch('/ai/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            provider: 'uterpi',
+            messages: [testMessage],
+            max_tokens: 10,
+            stream: false
+          })
+        });
+        
+        if (!response.ok) {
+          throw new Error(`Uterpi endpoint returned ${response.status}`);
+        }
+        break;
+      }
+      
+      default:
+        throw new Error(`Unknown provider: ${provider}`);
+    }
+  };
+
+  // Categorize error types for better user feedback
+  const categorizeError = (errorMessage: string): ServiceStatus['errorType'] => {
+    const message = errorMessage.toLowerCase();
+    
+    if (message.includes('fetch failed') || message.includes('econnrefused') || message.includes('network')) {
+      return 'network';
+    }
+    if (message.includes('timeout') || message.includes('aborted')) {
+      return 'timeout';
+    }
+    if (message.includes('api key') || message.includes('authentication') || message.includes('unauthorized')) {
+      return 'auth';
+    }
+    if (message.includes('rate limit') || message.includes('quota')) {
+      return 'rate_limit';
+    }
+    if (message.includes('subscription error') || message.includes('402') || message.includes('credit') || message.includes('insufficient')) {
+      return 'credit_required';
+    }
+    if (message.includes('500') || message.includes('502') || message.includes('503') || message.includes('504')) {
+      return 'server_error';
+    }
+    
+    return 'unknown';
+  };
+
+  // Determine service status based on error type
+  const determineServiceStatus = (errorMessage: string, errorType: ServiceStatus['errorType']): ServiceStatus['serviceStatus'] => {
+    const message = errorMessage.toLowerCase();
+    
+    // Infrastructure failures - service is truly offline
+    if (errorType === 'network' || errorType === 'timeout' || errorType === 'server_error') {
+      return 'offline';
+    }
+    
+    // User account issues - service is online but user can't use it
+    if (errorType === 'credit_required' || message.includes('subscription error') || message.includes('402')) {
+      return 'credit_required';
+    }
+    
+    if (errorType === 'auth' || message.includes('401') || message.includes('unauthorized')) {
+      return 'auth_required';
+    }
+    
+    if (errorType === 'rate_limit' || message.includes('429') || message.includes('rate limit')) {
+      return 'rate_limited';
+    }
+    
+    // Default to offline for unknown errors
+    return 'offline';
+  };
+
+  // Update service status with proper consecutive failure logic and debouncing
+  const updateServiceStatus = useCallback((provider: AIProvider, status: ServiceStatus) => {
+    // Get or create debounced update function for this provider
+    if (!debouncedUpdateRef.current.has(provider)) {
+      debouncedUpdateRef.current.set(provider, debounce((newStatus: ServiceStatus) => {
+        setServiceStatus(prev => {
+          const currentStatus = prev[provider];
+          const isInfrastructureFailure = newStatus.serviceStatus === 'offline';
+          const isUserIssue = ['credit_required', 'auth_required', 'rate_limited'].includes(newStatus.serviceStatus);
+          
+          // Only count infrastructure failures as consecutive failures
+          // User issues (credits, auth, rate limits) don't count as consecutive failures
+          let consecutiveFailures = currentStatus?.consecutiveFailures || 0;
+          
+          if (isInfrastructureFailure) {
+            consecutiveFailures = (currentStatus?.consecutiveFailures || 0) + 1;
+          } else if (newStatus.serviceStatus === 'online') {
+            consecutiveFailures = 0; // Reset on successful connection
+          }
+          // For user issues, keep the existing consecutive failure count
+          
+          return {
+            ...prev,
+            [provider]: {
+              ...currentStatus,
+              ...newStatus,
+              consecutiveFailures,
+              // Ensure isOnline reflects the actual service availability
+              isOnline: newStatus.serviceStatus === 'online' || isUserIssue
+            }
+          };
+        });
+      }, 500)); // 500ms debounce
+    }
+    
+    // Call the debounced update function
+    debouncedUpdateRef.current.get(provider)!(status);
+  }, []);
+
+  // Check all services
+  const checkAllServices = useCallback(async (providers: AIProvider[]) => {
+    const checkPromises = providers.map(async (provider) => {
+      // Skip if already checking this provider
+      if (checkPromisesRef.current.has(provider)) {
+        return;
+      }
+
+      // Client-side rate limiting for automatic checks
+      const now = Date.now();
+      const clientRateLimit = clientRateLimitRef.current.get(provider);
+      const CLIENT_RATE_LIMIT = 2; // More restrictive for automatic checks
+      const CLIENT_RATE_WINDOW = 300000; // 5 minutes
+      
+      if (clientRateLimit) {
+        if (now > clientRateLimit.resetTime) {
+          // Reset the counter
+          clientRateLimitRef.current.set(provider, { count: 1, resetTime: now + CLIENT_RATE_WINDOW });
+        } else if (clientRateLimit.count >= CLIENT_RATE_LIMIT) {
+          // Client-side rate limit exceeded for automatic checks
+          console.log(`Skipping automatic health check for ${provider} - client rate limit exceeded`);
+          return;
+        } else {
+          // Increment counter
+          clientRateLimit.count++;
+        }
+      } else {
+        // First automatic request for this provider
+        clientRateLimitRef.current.set(provider, { count: 1, resetTime: now + CLIENT_RATE_WINDOW });
+      }
+
+      // Mark as checking
+      updateServiceStatus(provider, { 
+        ...serviceStatus[provider], 
+        isChecking: true 
+      });
+
+      const checkPromise = checkServiceHealth(provider).then(() => {});
+      checkPromisesRef.current.set(provider, checkPromise);
+
+      try {
+        const status = await checkServiceHealth(provider);
+        updateServiceStatus(provider, status);
+      } catch (error) {
+        console.error(`Health check failed for ${provider}:`, error);
+        updateServiceStatus(provider, {
+          isOnline: false,
+          lastChecked: new Date(),
+          lastError: error instanceof Error ? error.message : 'Unknown error',
+          consecutiveFailures: (serviceStatus[provider]?.consecutiveFailures || 0) + 1,
+          isChecking: false,
+          errorType: 'unknown',
+          serviceStatus: 'offline'
+        });
+      } finally {
+        checkPromisesRef.current.delete(provider);
+      }
+    });
+
+    await Promise.allSettled(checkPromises);
+  }, [checkServiceHealth, updateServiceStatus, serviceStatus]);
+
+  // Start monitoring (with automatic checks disabled by default to prevent rapid cycling)
+  const startMonitoring = useCallback((providers: AIProvider[]) => {
+    if (isMonitoring) return;
+
+    setIsMonitoring(true);
+    initializeServiceStatus(providers);
+
+    // Initial check only - no automatic interval to prevent rapid cycling
+    checkAllServices(providers);
+
+    // Disabled automatic interval to prevent rapid cycling
+    // intervalRef.current = setInterval(() => {
+    //   checkAllServices(providers);
+    // }, opts.checkInterval);
+  }, [isMonitoring, initializeServiceStatus, checkAllServices]);
+
+  // Stop monitoring
+  const stopMonitoring = useCallback(() => {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+    setIsMonitoring(false);
+  }, []);
+
+  // Get service status
+  const getServiceStatus = useCallback((provider: AIProvider): ServiceStatus => {
+    return serviceStatus[provider] || {
+      isOnline: true,
+      lastChecked: null,
+      lastError: null,
+      consecutiveFailures: 0,
+      isChecking: false,
+      serviceStatus: 'online'
+    };
+  }, [serviceStatus]);
+
+  // Manual health check for specific provider with aggressive cooldown and client-side rate limiting
+  const checkProvider = useCallback(async (provider: AIProvider) => {
+    const now = Date.now();
+    const lastCheck = lastCheckTimeRef.current.get(provider) || 0;
+    const cooldownMs = 60000; // 60 second cooldown between manual checks (aggressive)
+    
+    // Client-side rate limiting: max 3 requests per minute per provider
+    const clientRateLimit = clientRateLimitRef.current.get(provider);
+    const CLIENT_RATE_LIMIT = 3;
+    const CLIENT_RATE_WINDOW = 60000; // 1 minute
+    
+    if (clientRateLimit) {
+      if (now > clientRateLimit.resetTime) {
+        // Reset the counter
+        clientRateLimitRef.current.set(provider, { count: 1, resetTime: now + CLIENT_RATE_WINDOW });
+      } else if (clientRateLimit.count >= CLIENT_RATE_LIMIT) {
+        // Client-side rate limit exceeded
+        console.log(`Client-side rate limit exceeded for ${provider} - skipping health check`);
+        return serviceStatus[provider] || {
+          isOnline: true,
+          lastChecked: null,
+          lastError: null,
+          consecutiveFailures: 0,
+          isChecking: false,
+          serviceStatus: 'online'
+        };
+      } else {
+        // Increment counter
+        clientRateLimit.count++;
+      }
+    } else {
+      // First request for this provider
+      clientRateLimitRef.current.set(provider, { count: 1, resetTime: now + CLIENT_RATE_WINDOW });
+    }
+    
+    // Skip if checked recently
+    if (now - lastCheck < cooldownMs) {
+      console.log(`Skipping health check for ${provider} - cooldown active (${Math.round((cooldownMs - (now - lastCheck)) / 1000)}s remaining)`);
+      return serviceStatus[provider] || {
+        isOnline: true,
+        lastChecked: null,
+        lastError: null,
+        consecutiveFailures: 0,
+        isChecking: false,
+        serviceStatus: 'online'
+      };
+    }
+    
+    lastCheckTimeRef.current.set(provider, now);
+    
+    updateServiceStatus(provider, { 
+      ...serviceStatus[provider], 
+      isChecking: true,
+      serviceStatus: 'checking'
+    });
+
+    try {
+      const status = await checkServiceHealth(provider);
+      updateServiceStatus(provider, status);
+      return status;
+    } catch (error) {
+      const errorStatus: ServiceStatus = {
+        isOnline: false,
+        lastChecked: new Date(),
+        lastError: error instanceof Error ? error.message : 'Unknown error',
+        consecutiveFailures: (serviceStatus[provider]?.consecutiveFailures || 0) + 1,
+        isChecking: false,
+        errorType: 'unknown',
+        serviceStatus: 'offline'
+      };
+      updateServiceStatus(provider, errorStatus);
+      return errorStatus;
+    }
+  }, [checkServiceHealth, updateServiceStatus, serviceStatus]);
+
+  // Check if service is considered down (only infrastructure failures)
+  const isServiceDown = useCallback((provider: AIProvider): boolean => {
+    const status = serviceStatus[provider] || {
+      isOnline: true,
+      lastChecked: null,
+      lastError: null,
+      consecutiveFailures: 0,
+      isChecking: false,
+      serviceStatus: 'online'
+    };
+    return status.serviceStatus === 'offline' && status.consecutiveFailures >= opts.maxConsecutiveFailures;
+  }, [serviceStatus, opts.maxConsecutiveFailures]);
+
+  // Get all offline services
+  const getOfflineServices = useCallback((): AIProvider[] => {
+    return Object.keys(serviceStatus).filter(provider => {
+      const status = serviceStatus[provider] || {
+        isOnline: true,
+        lastChecked: null,
+        lastError: null,
+        consecutiveFailures: 0,
+        isChecking: false,
+        serviceStatus: 'online'
+      };
+      return status.serviceStatus === 'offline' && status.consecutiveFailures >= opts.maxConsecutiveFailures;
+    }) as AIProvider[];
+  }, [serviceStatus, opts.maxConsecutiveFailures]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      stopMonitoring();
+      // Clear all debounced update functions and rate limiting
+      debouncedUpdateRef.current.clear();
+      clientRateLimitRef.current.clear();
+    };
+  }, [stopMonitoring]);
+
+  return {
+    serviceStatus,
+    isMonitoring,
+    startMonitoring,
+    stopMonitoring,
+    checkProvider,
+    checkAllServices,
+    getServiceStatus,
+    isServiceDown,
+    getOfflineServices
+  };
+};

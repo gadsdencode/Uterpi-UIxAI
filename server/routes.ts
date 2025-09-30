@@ -3192,7 +3192,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Use provided provider or default to gemini (no user preferences stored yet)
-      const aiProvider = provider || 'gemini';
+      const aiProvider = provider || 'lmstudio';
       const { client, config } = createAIClient(aiProvider);
 
       const templatePrompt = `Based on this description: "${description}"
@@ -3223,7 +3223,21 @@ Focus on practical, implementable templates that match the user's requirements. 
 
       let aiResponse;
       
-      if (aiProvider.toLowerCase() === 'gemini') {
+      if (aiProvider.toLowerCase() === 'lmstudio') {
+        const response = await client.chat.completions.create({
+          model: config.modelName,
+          messages: [
+            {
+              role: 'user',
+              content: templatePrompt
+            }
+          ],
+          temperature: 0.3,
+          max_tokens: 2048
+        });
+        
+        aiResponse = response.choices[0]?.message?.content || 'No response generated';
+      } else if (aiProvider.toLowerCase() === 'gemini') {
         const aiModel = client.getGenerativeModel({ 
           model: config.modelName,
           generationConfig: {
@@ -3235,7 +3249,7 @@ Focus on practical, implementable templates that match the user's requirements. 
         const result = await aiModel.generateContent(templatePrompt);
         const response = await result.response;
         aiResponse = response.text();
-      } else if (aiProvider.toLowerCase() === 'openai' || aiProvider.toLowerCase() === 'lmstudio') {
+      } else if (aiProvider.toLowerCase() === 'openai') {
         const response = await client.chat.completions.create({
           model: config.modelName,
           messages: [
@@ -3252,7 +3266,7 @@ Focus on practical, implementable templates that match the user's requirements. 
           temperature: 0.3
         });
         
-        aiResponse = response.choices[0].message.content;
+        aiResponse = response.choices[0]?.message?.content || 'No response generated';
       } else if (aiProvider.toLowerCase() === 'azure' || aiProvider.toLowerCase() === 'azureai') {
         const response = await retryWithBackoff(async () => {
           return await client.path("/chat/completions").post({
@@ -3357,7 +3371,7 @@ Focus on practical, implementable templates that match the user's requirements. 
       }
 
       // Use provided provider or default to gemini (no user preferences stored yet)
-      const aiProvider = provider || 'gemini';
+      const aiProvider = provider || 'lmstudio';
       const { client, config } = createAIClient(aiProvider);
 
       const suggestionPrompt = `Based on this user input for ${context || 'page generation'}: "${input}"
@@ -3390,7 +3404,21 @@ Focus on practical suggestions that would enhance the user's page concept.`;
 
       let aiResponse;
       
-      if (aiProvider.toLowerCase() === 'gemini') {
+      if (aiProvider.toLowerCase() === 'lmstudio') {
+        const response = await client.chat.completions.create({
+          model: config.modelName,
+          messages: [
+            {
+              role: 'user',
+              content: suggestionPrompt
+            }
+          ],
+          temperature: 0.4,
+          max_tokens: 1024
+        });
+        
+        aiResponse = response.choices[0]?.message?.content || 'No response generated';
+      } else if (aiProvider.toLowerCase() === 'gemini') {
         const aiModel = client.getGenerativeModel({ 
           model: config.modelName,
           generationConfig: {
@@ -3402,7 +3430,7 @@ Focus on practical suggestions that would enhance the user's page concept.`;
         const result = await aiModel.generateContent(suggestionPrompt);
         const response = await result.response;
         aiResponse = response.text();
-      } else if (aiProvider.toLowerCase() === 'openai' || aiProvider.toLowerCase() === 'lmstudio') {
+      } else if (aiProvider.toLowerCase() === 'openai') {
         const response = await client.chat.completions.create({
           model: config.modelName,
           messages: [
@@ -3419,7 +3447,7 @@ Focus on practical suggestions that would enhance the user's page concept.`;
           temperature: 0.4
         });
         
-        aiResponse = response.choices[0].message.content;
+        aiResponse = response.choices[0]?.message?.content || 'No response generated';
       } else if (aiProvider.toLowerCase() === 'azure' || aiProvider.toLowerCase() === 'azureai') {
         const response = await retryWithBackoff(async () => {
           return await client.path("/chat/completions").post({
@@ -3513,7 +3541,7 @@ Focus on practical suggestions that would enhance the user's page concept.`;
       }
 
       // Use provided AI config or default
-      const aiProvider = aiConfig?.provider || 'gemini';
+      const aiProvider = aiConfig?.provider || 'lmstudio';
       const { client, config } = createAIClient(aiProvider);
 
       const pagePrompt = `Generate a complete React/TypeScript web page based on these specifications:
@@ -3573,7 +3601,21 @@ Generate production-ready, modern React code with TypeScript, proper error handl
 
       let aiResponse;
       
-      if (aiProvider.toLowerCase() === 'gemini') {
+      if (aiProvider.toLowerCase() === 'lmstudio') {
+        const response = await client.chat.completions.create({
+          model: config.modelName,
+          messages: [
+            {
+              role: 'user',
+              content: pagePrompt
+            }
+          ],
+          temperature: 0.2,
+          max_tokens: 8192
+        });
+        
+        aiResponse = response.choices[0]?.message?.content || 'No response generated';
+      } else if (aiProvider.toLowerCase() === 'gemini') {
         const aiModel = client.getGenerativeModel({ 
           model: config.modelName,
           generationConfig: {
@@ -3585,7 +3627,7 @@ Generate production-ready, modern React code with TypeScript, proper error handl
         const result = await aiModel.generateContent(pagePrompt);
         const response = await result.response;
         aiResponse = response.text();
-      } else if (aiProvider.toLowerCase() === 'openai' || aiProvider.toLowerCase() === 'lmstudio') {
+      } else if (aiProvider.toLowerCase() === 'openai') {
         const response = await client.chat.completions.create({
           model: config.modelName,
           messages: [
@@ -3602,7 +3644,7 @@ Generate production-ready, modern React code with TypeScript, proper error handl
           temperature: 0.2
         });
         
-        aiResponse = response.choices[0].message.content;
+        aiResponse = response.choices[0]?.message?.content || 'No response generated';
       } else if (aiProvider.toLowerCase() === 'azure' || aiProvider.toLowerCase() === 'azureai') {
         const response = await retryWithBackoff(async () => {
           return await client.path("/chat/completions").post({
@@ -3763,7 +3805,7 @@ Generate production-ready, modern React code with TypeScript, proper error handl
       }
 
       // Get provider and API key from request
-      const provider = req.body.provider || 'gemini';
+      const provider = req.body.provider || 'lmstudio';
       const userApiKey = req.body.apiKey;
       
       console.log(`🖼️ Starting enhanced UI clone analysis with ${provider}...`);
@@ -3851,7 +3893,7 @@ You MUST respond with ONLY valid JSON in this exact structure. No markdown, no e
           console.error("Failed to parse Gemini response:", text);
           throw new Error("Invalid JSON response from Gemini");
         }
-      } else if (provider.toLowerCase() === 'openai') {
+      } else if (provider.toLowerCase() === 'lmstudio') {
         const response = await client.chat.completions.create({
           model: config.modelName,
           messages: [
@@ -3878,7 +3920,7 @@ You MUST respond with ONLY valid JSON in this exact structure. No markdown, no e
         });
         
         analysisResult = JSON.parse(response.choices[0].message.content || "{}");
-      } else if (provider.toLowerCase() === 'azure' || provider.toLowerCase() === 'azureai') {
+      } else if (provider.toLowerCase() === 'lmstudio') {
         const response = await retryWithBackoff(async () => {
           return await client.path("/chat/completions").post({
             body: {
@@ -4100,7 +4142,7 @@ You MUST respond with ONLY valid JSON in this exact structure. No markdown, no e
       }
 
       // Get provider from request or use default
-      const aiProvider = provider || 'gemini';
+      const aiProvider = provider || 'lmstudio';
       console.log(`📝 Starting code analysis with ${aiProvider}...`);
       
       const { client, config } = createAIClient(aiProvider, apiKey);

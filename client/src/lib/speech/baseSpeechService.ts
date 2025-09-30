@@ -29,6 +29,7 @@ export abstract class BaseSpeechService implements ISpeechService {
   abstract stopRecognition(): Promise<SpeechRecognitionResult>;
   abstract isAvailable(): boolean;
   abstract getCapabilities(): SpeechServiceCapabilities;
+  abstract isListening(): boolean;
 
   async initialize(config?: SpeechConfig): Promise<void> {
     this.config = { ...this.config, ...config };

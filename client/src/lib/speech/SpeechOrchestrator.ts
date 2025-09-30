@@ -24,6 +24,7 @@ export class SpeechOrchestrator {
   private restartTimestamps: number[] = [];
   private isActive: boolean = false;
   private optionsRef: STTOptions | undefined;
+  private consecutiveRestarts: number = 0;
 
   constructor(opts: OrchestratorOptions) {
     this.aiProvider = opts.aiProvider;
@@ -37,6 +38,10 @@ export class SpeechOrchestrator {
     // Chain results to orchestrator to track progress
     this.sttService.onRecognitionResult((r) => {
       this.lastProgressAt = Date.now();
+      // Reset consecutive restart counter on successful results
+      if (r.transcript && r.transcript.trim().length > 0) {
+        this.consecutiveRestarts = 0;
+      }
       if (this.onResult) this.onResult(r);
     });
   }
@@ -79,11 +84,16 @@ export class SpeechOrchestrator {
       const now = Date.now();
       const elapsed = now - this.lastProgressAt;
       if (elapsed > this.progressTimeoutMs) {
-        // Restart recognition session to break stalled state
-        this.recordRestart(now);
-        this.safeRestart().catch(() => {});
+        // Only restart if we haven't had too many consecutive restarts
+        if (this.consecutiveRestarts < 3) {
+          console.log(`[Orchestrator] 🔄 Progress timeout (${elapsed}ms), restarting...`);
+          this.recordRestart(now);
+          this.safeRestart().catch(() => {});
+        } else {
+          console.log(`[Orchestrator] ⚠️ Too many consecutive restarts (${this.consecutiveRestarts}), skipping restart`);
+        }
       }
-    }, Math.max(1000, Math.floor(this.progressTimeoutMs / 2)));
+    }, Math.max(2000, Math.floor(this.progressTimeoutMs / 3))); // Less frequent checks
   }
 
   private clearWatchdog(): void {
@@ -95,6 +105,7 @@ export class SpeechOrchestrator {
 
   private recordRestart(now: number): void {
     this.restartTimestamps.push(now);
+    this.consecutiveRestarts++;
     // keep last minute
     const oneMinuteAgo = now - 60000;
     this.restartTimestamps = this.restartTimestamps.filter(t => t >= oneMinuteAgo);
@@ -107,6 +118,7 @@ export class SpeechOrchestrator {
     // If too many restarts, fallback to another provider
     if (this.restartTimestamps.length >= this.maxRestartsPerMinute) {
       try {
+        console.log(`[Orchestrator] 🔄 Too many restarts (${this.restartTimestamps.length}), trying alternative service`);
         const alt = await SpeechServiceFactory.getBestServiceFor(this.aiProvider, 'stt');
         if (alt && alt !== this.sttService) {
           this.sttService.dispose();
@@ -118,14 +130,26 @@ export class SpeechOrchestrator {
         }
         // reset counters after switching
         this.restartTimestamps = [];
-      } catch {}
+        this.consecutiveRestarts = 0;
+      } catch (error) {
+        console.warn('[Orchestrator] Failed to switch to alternative service:', error);
+      }
     }
 
     try {
+      console.log('[Orchestrator] 🔄 Stopping current recognition...');
       await this.sttService.stopRecognition().catch(() => ({} as any));
-    } catch {}
-    this.lastProgressAt = Date.now();
-    await this.sttService.startRecognition(this.optionsRef);
+      
+      // Add a small delay before restarting to avoid rapid restarts
+      await new Promise(resolve => setTimeout(resolve, 200));
+      
+      console.log('[Orchestrator] 🔄 Starting recognition...');
+      this.lastProgressAt = Date.now();
+      await this.sttService.startRecognition(this.optionsRef);
+      console.log('[Orchestrator] ✅ Recognition restarted successfully');
+    } catch (error) {
+      console.warn('[Orchestrator] Failed to restart recognition:', error);
+    }
   }
 }
 

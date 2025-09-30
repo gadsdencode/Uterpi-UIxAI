@@ -46,6 +46,9 @@ export interface SpeechRecognitionResult {
     transcript: string;
     confidence: number;
   }>;
+  // Additional fields for better transcript handling
+  finalTranscript?: string;
+  interimTranscript?: string;
 }
 
 export interface SpeechSynthesisResult {

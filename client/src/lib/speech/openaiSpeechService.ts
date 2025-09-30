@@ -269,6 +269,10 @@ export class OpenAISpeechService extends BaseSpeechService {
     return !!apiKey;
   }
 
+  isListening(): boolean {
+    return this.isRecording;
+  }
+
   getCapabilities(): SpeechServiceCapabilities {
     return {
       supportsTTS: true,

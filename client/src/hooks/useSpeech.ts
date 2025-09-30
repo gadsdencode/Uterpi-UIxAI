@@ -198,12 +198,12 @@ export const useSpeech = (options: UseSpeechOptions = {}): UseSpeechReturn => {
           aiProvider: currentProvider,
           onResult: (result) => {
             console.log('🎤 useSpeech received result:', result);
-            // Always update transcript with the latest result
-            setTranscript(result.transcript);
-            if (result.isFinal) {
-              setInterimTranscript('');
-            } else {
-              setInterimTranscript(result.transcript);
+            // CORRECT IMPLEMENTATION: Use the separate final and interim transcripts
+            if (result.finalTranscript !== undefined) {
+              setTranscript(result.finalTranscript);
+            }
+            if (result.interimTranscript !== undefined) {
+              setInterimTranscript(result.interimTranscript);
             }
             if (options.onRecognitionResult) {
               console.log('🎤 Calling onRecognitionResult callback with:', result);
@@ -289,6 +289,27 @@ export const useSpeech = (options: UseSpeechOptions = {}): UseSpeechReturn => {
     };
   }, [currentProvider]); // Remove options and initialize from dependencies
 
+  // Sync listening state with the service
+  useEffect(() => {
+    if (!sttService || !isInitialized) return;
+
+    const syncListeningState = () => {
+      const serviceIsListening = sttService.isListening();
+      if (serviceIsListening !== isListening) {
+        console.log(`🎤 Syncing listening state: ${isListening} -> ${serviceIsListening}`);
+        setIsListening(serviceIsListening);
+      }
+    };
+
+    // Sync immediately
+    syncListeningState();
+
+    // Set up periodic sync
+    const interval = setInterval(syncListeningState, 500); // Check every 500ms
+
+    return () => clearInterval(interval);
+  }, [sttService, isInitialized, isListening]);
+
   // Speak text using TTS
   const speak = useCallback(async (text: string, ttsOptions?: TTSOptions) => {
     if (!ttsService || !isInitialized) {
@@ -342,7 +363,8 @@ export const useSpeech = (options: UseSpeechOptions = {}): UseSpeechReturn => {
       }
     }
 
-    if (isListening) {
+    // Check if already listening using the service's state
+    if (sttService && sttService.isListening()) {
       return;
     }
     
@@ -365,27 +387,32 @@ export const useSpeech = (options: UseSpeechOptions = {}): UseSpeechReturn => {
       console.warn('⚠️ Speech recognition on non-HTTPS context - functionality may be limited');
     }
 
-    setIsListening(true);
     setTranscript('');
     setInterimTranscript('');
     setError(null);
 
     try {
       await orchestratorRef.current!.start(sttOptions);
+      // Update listening state after successful start
+      setIsListening(true);
     } catch (error) {
       console.error('Failed to start recognition:', error);
-      setIsListening(false);
       setError((error as Error).message);
       if (options.onRecognitionError) {
         options.onRecognitionError(error as Error);
       }
       throw error;
     }
-  }, [sttService, isInitialized, isListening, microphonePermission, options, initialize]);
+  }, [sttService, isInitialized, microphonePermission, options, initialize]);
 
   // Stop listening and get final transcript
   const stopListening = useCallback(async (): Promise<string> => {
-    if (!orchestratorRef.current || !isListening) {
+    if (!orchestratorRef.current) {
+      return transcript;
+    }
+
+    // Check if actually listening using the service's state
+    if (sttService && !sttService.isListening()) {
       return transcript;
     }
 
@@ -393,6 +420,7 @@ export const useSpeech = (options: UseSpeechOptions = {}): UseSpeechReturn => {
       const result = await orchestratorRef.current.stop();
       setTranscript(result.transcript);
       setInterimTranscript('');
+      setIsListening(false);
       return result.transcript;
     } catch (error) {
       console.error('Failed to stop recognition:', error);
@@ -400,10 +428,8 @@ export const useSpeech = (options: UseSpeechOptions = {}): UseSpeechReturn => {
         options.onRecognitionError(error as Error);
       }
       return transcript;
-    } finally {
-      setIsListening(false);
     }
-  }, [sttService, isListening, transcript, options]);
+  }, [sttService, transcript, options]);
 
   // Set voice by VoiceInfo or voice ID
   const setVoice = useCallback((voice: VoiceInfo | string) => {

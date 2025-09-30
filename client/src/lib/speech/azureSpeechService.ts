@@ -233,6 +233,10 @@ export class AzureSpeechService extends BaseSpeechService {
     return !!this.subscriptionKey || !!(import.meta as any).env?.VITE_AZURE_SPEECH_KEY;
   }
 
+  isListening(): boolean {
+    return this.isRecording;
+  }
+
   getCapabilities(): SpeechServiceCapabilities {
     return {
       supportsTTS: true,

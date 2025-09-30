@@ -251,6 +251,10 @@ export class LMStudioSpeechService extends BaseSpeechService {
     return this.isSTTAvailable() || this.isTTSAvailable();
   }
 
+  isListening(): boolean {
+    return this.isRecording;
+  }
+
   getCapabilities(): SpeechServiceCapabilities {
     return {
       supportsTTS: this.isTTSAvailable(),

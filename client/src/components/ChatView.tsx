@@ -918,8 +918,8 @@ const FuturisticAIChat: React.FC = () => {
   const [showChatHistory, setShowChatHistory] = useState(false);
   const [showSpeechSettings, setShowSpeechSettings] = useState(false);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
-  const [isRecording, setIsRecording] = useState(false);
   const [isChatActive, setIsChatActive] = useState(false); // Track if chat is actively processing
+  const [isSubmittingMessage, setIsSubmittingMessage] = useState(false); // Track if we're submitting a message
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [latestSources, setLatestSources] = useState<Array<{ fileId: number; name: string; mimeType: string; similarity: number; snippet: string }>>([]);
@@ -1235,20 +1235,42 @@ const FuturisticAIChat: React.FC = () => {
     autoInitialize: true, // Auto-initialize - the hook will handle API availability
     onRecognitionResult: (result) => {
       console.log('🎤 ChatView onRecognitionResult called with:', result);
-      if (result.transcript) {
-        console.log('🎤 ChatView setting input to:', result.transcript);
-        // For both interim and final results, show the full transcript
-        // The transcript already contains the accumulated text
-        setInput(result.transcript);
-      } else {
-        console.log('🎤 ChatView result has no transcript');
-      }
+      // The transcript state is now managed by the useSpeech hook
+      // We'll sync the input field with the hook's transcript state via useEffect
     },
     onRecognitionError: (error) => {
+      console.error('🎤 ChatView speech recognition error:', error);
       toast.error(`Speech recognition error: ${error.message}`);
-      setIsRecording(false);
     }
   });
+
+  // Sync input field with speech recognition transcript
+  useEffect(() => {
+    console.log('🎤 Transcript sync effect triggered:', {
+      transcript,
+      interimTranscript,
+      isSubmittingMessage,
+      currentInput: input
+    });
+    
+    // Only sync if we're not submitting a message
+    if (!isSubmittingMessage) {
+      // Use the most recent transcript (final + interim) for smooth streaming
+      const currentTranscript = transcript + (interimTranscript ? ' ' + interimTranscript : '');
+      if (currentTranscript.trim() && currentTranscript !== input) {
+        console.log('🎤 Syncing input with transcript:', currentTranscript);
+        setInput(currentTranscript);
+      } else {
+        console.log('🎤 Not syncing transcript:', {
+          currentTranscript,
+          hasContent: currentTranscript.trim().length > 0,
+          isDifferent: currentTranscript !== input
+        });
+      }
+    } else {
+      console.log('🎤 Not syncing transcript - submitting message');
+    }
+  }, [transcript, interimTranscript, isSubmittingMessage, input]);
 
   // Debug speech availability
   useEffect(() => {
@@ -1285,7 +1307,7 @@ const FuturisticAIChat: React.FC = () => {
   // Handle speech-to-text for input
   const handleVoiceInput = useCallback(async () => {
     try {
-      console.log('🎤 handleVoiceInput called, isRecording:', isRecording);
+      console.log('🎤 handleVoiceInput called, isListening:', isListening);
       console.log('🎤 Speech debug info:', { speechAvailable, isHTTPS, microphonePermission, speechError });
       
       // Check HTTPS requirement - use the actual function result
@@ -1298,10 +1320,9 @@ const FuturisticAIChat: React.FC = () => {
         return;
       }
       
-      if (isRecording) {
+      if (isListening) {
         // Stop recording and get transcript
         console.log('🎤 Stopping recording...');
-        setIsRecording(false);
         const finalTranscript = await stopListening();
         console.log('🎤 Final transcript:', finalTranscript);
         if (finalTranscript) {
@@ -1310,7 +1331,6 @@ const FuturisticAIChat: React.FC = () => {
       } else {
         // Start recording
         console.log('🎤 Starting recording...');
-        setIsRecording(true);
         setInput(''); // Clear input to show fresh transcript
         
         const listeningOptions = {
@@ -1322,6 +1342,7 @@ const FuturisticAIChat: React.FC = () => {
         
         await startListening(listeningOptions);
         console.log('🎤 Recording started successfully');
+        console.log('🎤 Speech state after start:', { isListening });
       }
     } catch (error) {
       console.error('🎤 Voice input error:', error);
@@ -1338,9 +1359,8 @@ const FuturisticAIChat: React.FC = () => {
         toast.error(`🎤 ${errorMessage}`);
       }
       
-      setIsRecording(false);
     }
-  }, [isRecording, startListening, stopListening, isHTTPS, microphonePermission, speechAvailable, speechError]);
+  }, [isListening, startListening, stopListening, isHTTPS, microphonePermission, speechAvailable, speechError]);
 
   // Mic permission badge helper
   const MicPermissionBadge = () => (
@@ -1520,7 +1540,8 @@ const FuturisticAIChat: React.FC = () => {
     }
 
     console.log('✅ handleSend - Proceeding with message send');
-    // Set chat as active to prevent interference from intelligent toasts
+    // Set flags to prevent speech interference
+    setIsSubmittingMessage(true);
     setIsChatActive(true);
     const startTime = Date.now();
     const userMessage: Message = {
@@ -1542,12 +1563,23 @@ const FuturisticAIChat: React.FC = () => {
     
     console.log('📝 Adding user message to chat:', userMessage);
     setMessages(updatedMessages);
-    setInput("");
     setAttachments([]);
     setAttachedFileIds([]);
     setIsTyping(true);
     setActiveMessage(userMessage.id);
     clearError(); // Clear any previous errors
+    
+    // Clear input immediately to show it's been submitted
+    setInput("");
+    
+    // Stop speech recognition after clearing input
+    if (isListening) {
+      console.log('🎤 Stopping speech recognition after message send');
+      stopListening().catch(error => {
+        console.warn('Failed to stop listening after message send:', error);
+      });
+    }
+    
     console.log('📝 User message added, proceeding to AI call');
 
     try {
@@ -1723,6 +1755,7 @@ const FuturisticAIChat: React.FC = () => {
     } finally {
       setIsTyping(false);
       setActiveMessage(null);
+      setIsSubmittingMessage(false); // Reset flag to allow speech results again
       // Clear chat active flag after a short delay to ensure response is complete
       setTimeout(() => setIsChatActive(false), 1000);
     }
@@ -2608,10 +2641,10 @@ const FuturisticAIChat: React.FC = () => {
                       <TooltipTrigger asChild>
                         <RippleButton
                           onClick={handleVoiceInput}
-                          className={`p-2 ${isRecording ? 'text-red-400 animate-pulse' : 'text-slate-400 hover:text-violet-400'} transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 flex-shrink-0`}
-                          aria-label={isRecording ? "Stop recording" : "Start voice input"}
+                          className={`p-2 ${isListening ? 'text-red-400 animate-pulse' : 'text-slate-400 hover:text-violet-400'} transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 flex-shrink-0`}
+                          aria-label={isListening ? "Stop recording" : "Start voice input"}
                         >
-                          {isRecording ? (
+                          {isListening ? (
                             <MicOff className="w-4 h-4 sm:w-5 sm:h-5" />
                           ) : (
                             <Mic className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -2620,7 +2653,7 @@ const FuturisticAIChat: React.FC = () => {
                       </TooltipTrigger>
                       <TooltipContent>
                         <p>
-                          {isRecording ? "Stop recording" : "Start voice input"}
+                          {isListening ? "Stop recording" : "Start voice input"}
                           {!isHTTPS && microphonePermission !== 'granted' && (
                             <span className="block text-xs text-yellow-400 mt-1">
                               ⚠️ HTTPS required for microphone access

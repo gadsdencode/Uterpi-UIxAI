@@ -251,6 +251,10 @@ export class GoogleSpeechService extends BaseSpeechService {
     return !!apiKey;
   }
 
+  isListening(): boolean {
+    return this.isRecording;
+  }
+
   getCapabilities(): SpeechServiceCapabilities {
     return {
       supportsTTS: true,

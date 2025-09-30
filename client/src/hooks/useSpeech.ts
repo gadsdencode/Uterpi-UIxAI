@@ -31,6 +31,7 @@ interface UseSpeechReturn {
   isListening: boolean;
   transcript: string;
   interimTranscript: string;
+  clearTranscript: () => void;
   
   // Voice Management
   voices: VoiceInfo[];
@@ -81,6 +82,7 @@ export const useSpeech = (options: UseSpeechOptions = {}): UseSpeechReturn => {
       isListening: false,
       transcript: '',
       interimTranscript: '',
+      clearTranscript: () => {},
       
       // Voice Management
       voices: [],
@@ -304,11 +306,11 @@ export const useSpeech = (options: UseSpeechOptions = {}): UseSpeechReturn => {
     // Sync immediately
     syncListeningState();
 
-    // Set up periodic sync
-    const interval = setInterval(syncListeningState, 500); // Check every 500ms
+    // Set up periodic sync with reduced frequency to avoid excessive updates
+    const interval = setInterval(syncListeningState, 1000); // Check every 1 second
 
     return () => clearInterval(interval);
-  }, [sttService, isInitialized, isListening]);
+  }, [sttService, isInitialized]); // Remove isListening from dependencies to prevent loops
 
   // Speak text using TTS
   const speak = useCallback(async (text: string, ttsOptions?: TTSOptions) => {
@@ -395,9 +397,11 @@ export const useSpeech = (options: UseSpeechOptions = {}): UseSpeechReturn => {
       await orchestratorRef.current!.start(sttOptions);
       // Update listening state after successful start
       setIsListening(true);
+      console.log('🎤 useSpeech: Listening state set to true after successful start');
     } catch (error) {
       console.error('Failed to start recognition:', error);
       setError((error as Error).message);
+      setIsListening(false); // Ensure state is reset on error
       if (options.onRecognitionError) {
         options.onRecognitionError(error as Error);
       }
@@ -421,15 +425,24 @@ export const useSpeech = (options: UseSpeechOptions = {}): UseSpeechReturn => {
       setTranscript(result.transcript);
       setInterimTranscript('');
       setIsListening(false);
+      console.log('🎤 useSpeech: Listening state set to false after successful stop');
       return result.transcript;
     } catch (error) {
       console.error('Failed to stop recognition:', error);
+      setIsListening(false); // Ensure state is reset even on error
       if (options.onRecognitionError) {
         options.onRecognitionError(error as Error);
       }
       return transcript;
     }
   }, [sttService, transcript, options]);
+
+  // Clear transcript state
+  const clearTranscript = useCallback(() => {
+    console.log('🎤 useSpeech: Clearing transcript state');
+    setTranscript('');
+    setInterimTranscript('');
+  }, []);
 
   // Set voice by VoiceInfo or voice ID
   const setVoice = useCallback((voice: VoiceInfo | string) => {
@@ -479,6 +492,7 @@ export const useSpeech = (options: UseSpeechOptions = {}): UseSpeechReturn => {
     isListening,
     transcript,
     interimTranscript,
+    clearTranscript,
     
     // Voice Management
     voices,

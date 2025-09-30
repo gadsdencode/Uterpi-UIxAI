@@ -843,8 +843,9 @@ export class WebSpeechService extends BaseSpeechService {
   }
 
   isListening(): boolean {
-    // Simply return whether recognition is actually running
-    return this.recognitionRunning;
+    // Return true if user has started listening and hasn't explicitly stopped
+    // This prevents the button from flickering during restart/error recovery cycles
+    return this.isRecording && !this.explicitlyStopped;
   }
 
   getCapabilities(): SpeechServiceCapabilities {

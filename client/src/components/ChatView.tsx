@@ -859,6 +859,7 @@ const FuturisticAIChat: React.FC = () => {
     setCurrentConversationTitle(null);
     hasInitializedGreeting.current = false;
     setInput("");
+    clearTranscript();
     setAttachments([]);
     setAttachedFileIds([]);
     clearError();
@@ -1226,6 +1227,7 @@ const FuturisticAIChat: React.FC = () => {
     isListening,
     transcript,
     interimTranscript,
+    clearTranscript,
     isAvailable: speechAvailable,
     isHTTPS,
     microphonePermission,
@@ -1332,6 +1334,7 @@ const FuturisticAIChat: React.FC = () => {
         // Start recording
         console.log('🎤 Starting recording...');
         setInput(''); // Clear input to show fresh transcript
+        clearTranscript(); // Clear any existing transcript state
         
         const listeningOptions = {
           language: 'en-US',
@@ -1342,7 +1345,10 @@ const FuturisticAIChat: React.FC = () => {
         
         await startListening(listeningOptions);
         console.log('🎤 Recording started successfully');
-        console.log('🎤 Speech state after start:', { isListening });
+        // Add a small delay to ensure state is properly updated
+        setTimeout(() => {
+          console.log('🎤 Speech state after start (delayed check):', { isListening });
+        }, 100);
       }
     } catch (error) {
       console.error('🎤 Voice input error:', error);
@@ -1571,6 +1577,9 @@ const FuturisticAIChat: React.FC = () => {
     
     // Clear input immediately to show it's been submitted
     setInput("");
+    
+    // Clear speech transcript state to prevent re-insertion
+    clearTranscript();
     
     // Stop speech recognition after clearing input
     if (isListening) {

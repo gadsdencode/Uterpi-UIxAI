@@ -53,6 +53,9 @@ export const useServiceStatus = (options: ServiceStatusOptions = {}) => {
   const lastCheckTimeRef = useRef<Map<string, number>>(new Map());
   const debouncedUpdateRef = useRef<Map<string, ReturnType<typeof debounce>>>(new Map());
   const clientRateLimitRef = useRef<Map<string, { count: number; resetTime: number }>>(new Map());
+  
+  // Global rate limiter to prevent ANY health checks from exceeding limits
+  const globalRateLimitRef = useRef<{ count: number; resetTime: number }>({ count: 0, resetTime: 0 });
 
   // Initialize service status for all providers
   const initializeServiceStatus = useCallback((providers: AIProvider[]) => {
@@ -318,17 +321,35 @@ export const useServiceStatus = (options: ServiceStatusOptions = {}) => {
 
   // Check all services
   const checkAllServices = useCallback(async (providers: AIProvider[]) => {
+    // Global rate limiting - prevent ANY health checks if global limit exceeded
+    const now = Date.now();
+    const globalLimit = globalRateLimitRef.current;
+    const GLOBAL_RATE_LIMIT = 5; // Max 5 health checks total per window
+    const GLOBAL_RATE_WINDOW = 300000; // 5 minutes
+    
+    if (globalLimit.count >= GLOBAL_RATE_LIMIT && now < globalLimit.resetTime) {
+      console.log(`Global health check rate limit exceeded - skipping all checks for ${Math.round((globalLimit.resetTime - now) / 1000)}s`);
+      return;
+    }
+    
+    if (now > globalLimit.resetTime) {
+      globalRateLimitRef.current = { count: 0, resetTime: now + GLOBAL_RATE_WINDOW };
+    }
+    
     const checkPromises = providers.map(async (provider) => {
       // Skip if already checking this provider
       if (checkPromisesRef.current.has(provider)) {
         return;
       }
+      
+      // Increment global counter
+      globalRateLimitRef.current.count++;
 
-      // Client-side rate limiting for automatic checks
+      // Client-side rate limiting for automatic checks - VERY RESTRICTIVE
       const now = Date.now();
       const clientRateLimit = clientRateLimitRef.current.get(provider);
-      const CLIENT_RATE_LIMIT = 2; // More restrictive for automatic checks
-      const CLIENT_RATE_WINDOW = 300000; // 5 minutes
+      const CLIENT_RATE_LIMIT = 1; // Only 1 automatic check per window
+      const CLIENT_RATE_WINDOW = 600000; // 10 minutes - much longer window
       
       if (clientRateLimit) {
         if (now > clientRateLimit.resetTime) {
@@ -378,21 +399,21 @@ export const useServiceStatus = (options: ServiceStatusOptions = {}) => {
     await Promise.allSettled(checkPromises);
   }, [checkServiceHealth, updateServiceStatus, serviceStatus]);
 
-  // Start monitoring (with automatic checks disabled by default to prevent rapid cycling)
+  // Start monitoring (with automatic checks DISABLED to prevent rate limit issues)
   const startMonitoring = useCallback((providers: AIProvider[]) => {
     if (isMonitoring) return;
 
     setIsMonitoring(true);
     initializeServiceStatus(providers);
 
-    // Initial check only - no automatic interval to prevent rapid cycling
-    checkAllServices(providers);
-
-    // Disabled automatic interval to prevent rapid cycling
+    // NO automatic checks - only manual checks allowed to prevent rate limit issues
+    console.log('Service monitoring started - automatic health checks DISABLED to prevent rate limits');
+    
+    // Completely disabled automatic interval to prevent rate limit issues
     // intervalRef.current = setInterval(() => {
     //   checkAllServices(providers);
     // }, opts.checkInterval);
-  }, [isMonitoring, initializeServiceStatus, checkAllServices]);
+  }, [isMonitoring, initializeServiceStatus]);
 
   // Stop monitoring
   const stopMonitoring = useCallback(() => {
@@ -418,13 +439,38 @@ export const useServiceStatus = (options: ServiceStatusOptions = {}) => {
   // Manual health check for specific provider with aggressive cooldown and client-side rate limiting
   const checkProvider = useCallback(async (provider: AIProvider) => {
     const now = Date.now();
-    const lastCheck = lastCheckTimeRef.current.get(provider) || 0;
-    const cooldownMs = 60000; // 60 second cooldown between manual checks (aggressive)
     
-    // Client-side rate limiting: max 3 requests per minute per provider
+    // Global rate limiting - prevent ANY health checks if global limit exceeded
+    const globalLimit = globalRateLimitRef.current;
+    const GLOBAL_RATE_LIMIT = 5; // Max 5 health checks total per window
+    const GLOBAL_RATE_WINDOW = 300000; // 5 minutes
+    
+    if (globalLimit.count >= GLOBAL_RATE_LIMIT && now < globalLimit.resetTime) {
+      console.log(`Global health check rate limit exceeded - skipping manual check for ${provider}`);
+      return serviceStatus[provider] || {
+        isOnline: true,
+        lastChecked: null,
+        lastError: null,
+        consecutiveFailures: 0,
+        isChecking: false,
+        serviceStatus: 'online'
+      };
+    }
+    
+    if (now > globalLimit.resetTime) {
+      globalRateLimitRef.current = { count: 0, resetTime: now + GLOBAL_RATE_WINDOW };
+    }
+    
+    // Increment global counter
+    globalRateLimitRef.current.count++;
+    
+    const lastCheck = lastCheckTimeRef.current.get(provider) || 0;
+    const cooldownMs = 120000; // 2 minute cooldown between manual checks (very aggressive)
+    
+    // Client-side rate limiting: max 1 request per 2 minutes per provider
     const clientRateLimit = clientRateLimitRef.current.get(provider);
-    const CLIENT_RATE_LIMIT = 3;
-    const CLIENT_RATE_WINDOW = 60000; // 1 minute
+    const CLIENT_RATE_LIMIT = 1;
+    const CLIENT_RATE_WINDOW = 120000; // 2 minutes
     
     if (clientRateLimit) {
       if (now > clientRateLimit.resetTime) {

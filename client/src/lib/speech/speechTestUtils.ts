@@ -215,7 +215,7 @@ export class SpeechTestUtils {
       console.warn('Microphone permission check failed:', error);
     }
     
-    const webSpeechAvailable = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+    const webSpeechAvailable = !!((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
     
     return {
       isHTTPS,

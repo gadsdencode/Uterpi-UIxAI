@@ -46,7 +46,8 @@ export class SpeechServiceFactory {
       case 'gemini':
         return 'google';
       case 'lmstudio':
-        return 'lmstudio';
+        // LM Studio should use Web Speech API for STT, not its own service
+        return 'web';
       case 'huggingface':
       case 'uterpi':
         // Hugging Face and Uterpi can use Web Speech API as fallback
@@ -107,8 +108,40 @@ export class SpeechServiceFactory {
     capability: 'tts' | 'stt',
     config?: SpeechConfig
   ): Promise<ISpeechService> {
+    // Check if we're in a browser environment and if speech APIs are available
+    if (typeof window === 'undefined') {
+      throw new Error('Speech services not available in non-browser environment');
+    }
+
+    // Enhanced validation for speech APIs
+    const hasSpeechRecognition = (() => {
+      try {
+        const SpeechRecognitionConstructor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        return !!(SpeechRecognitionConstructor && typeof SpeechRecognitionConstructor === 'function');
+      } catch (error) {
+        console.warn('Error checking SpeechRecognition availability:', error);
+        return false;
+      }
+    })();
+    
+    const hasSpeechSynthesis = (() => {
+      try {
+        return !!(window.speechSynthesis && typeof window.speechSynthesis === 'object');
+      } catch (error) {
+        console.warn('Error checking speechSynthesis availability:', error);
+        return false;
+      }
+    })();
+
+    if (!hasSpeechRecognition && !hasSpeechSynthesis) {
+      throw new Error('No speech APIs available in this browser');
+    }
+
     const preferred = this.mapAIProviderToSpeechProvider(aiProvider);
-    const providersOrder: SpeechProvider[] = [preferred, 'web', 'openai', 'google', 'azure'];
+    // For STT, always prioritize Web Speech API as it's the most reliable
+    const providersOrder: SpeechProvider[] = capability === 'stt' 
+      ? ['web', preferred, 'openai', 'google', 'azure']
+      : [preferred, 'web', 'openai', 'google', 'azure'];
 
     for (const p of providersOrder) {
       try {
@@ -117,34 +150,77 @@ export class SpeechServiceFactory {
         if ((capability === 'tts' && caps.supportsTTS) || (capability === 'stt' && caps.supportsSTT)) {
           // additionally ensure runtime availability
           if (service.isAvailable()) {
+            console.log(`✅ Using ${p} speech service for ${capability} with ${aiProvider} provider`);
             return service;
+          } else {
+            console.warn(`⚠️ ${p} speech service not available for ${capability}`);
           }
         }
-      } catch {
+      } catch (error) {
+        console.warn(`❌ Failed to initialize ${p} speech service:`, error);
         // try next
       }
     }
 
     // As last resort return WebSpeech (may still be partially available)
-    return await this.getService('web', config);
+    console.warn(`🔄 Falling back to Web Speech API for ${capability}`);
+    try {
+      return await this.getService('web', config);
+    } catch (error) {
+      console.error('Failed to create fallback Web Speech service:', error);
+      // Return a minimal service that won't crash
+      return new WebSpeechService();
+    }
   }
   
   /**
    * Create a new speech service instance
    */
   private static createService(provider: SpeechProvider): ISpeechService {
-    switch (provider) {
-      case 'azure':
-        return new AzureSpeechService();
-      case 'openai':
-        return new OpenAISpeechService();
-      case 'google':
-        return new GoogleSpeechService();
-      case 'lmstudio':
-        return new LMStudioSpeechService();
-      case 'web':
-      default:
+    try {
+      switch (provider) {
+        case 'azure':
+          return new AzureSpeechService();
+        case 'openai':
+          return new OpenAISpeechService();
+        case 'google':
+          return new GoogleSpeechService();
+        case 'lmstudio':
+          return new LMStudioSpeechService();
+        case 'web':
+        default:
+          return new WebSpeechService();
+      }
+    } catch (error) {
+      console.error(`Failed to create ${provider} speech service:`, error);
+      // Fallback to WebSpeechService which has the most comprehensive error handling
+      try {
         return new WebSpeechService();
+      } catch (fallbackError) {
+        console.error('Failed to create fallback WebSpeechService:', fallbackError);
+        // Return a minimal service that implements the interface but does nothing
+        return {
+          synthesizeSpeech: async () => { throw new Error('Speech services unavailable'); },
+          cancelSynthesis: () => {},
+          getAvailableVoices: async () => [],
+          startRecognition: async () => { throw new Error('Speech services unavailable'); },
+          stopRecognition: async () => ({ transcript: '', confidence: 0, isFinal: true }),
+          onRecognitionResult: () => {},
+          isAvailable: () => false,
+          getCapabilities: () => ({
+            supportsTTS: false,
+            supportsSTT: false,
+            supportsStreaming: false,
+            supportsVoiceCloning: false,
+            supportsEmotions: false,
+            supportsMultiLanguage: false,
+            availableVoices: [],
+            availableLanguages: []
+          }),
+          initialize: async () => {},
+          dispose: () => {}
+        };
+      }
     }
   }
   

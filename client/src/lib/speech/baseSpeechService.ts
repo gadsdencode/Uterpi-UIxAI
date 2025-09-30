@@ -36,11 +36,17 @@ export abstract class BaseSpeechService implements ISpeechService {
   }
 
   onRecognitionResult(callback: (result: SpeechRecognitionResult) => void): void {
+    console.log(`[BaseSpeech] 📝 Registering recognition callback, total callbacks: ${this.recognitionCallbacks.length + 1}`);
     this.recognitionCallbacks.push(callback);
   }
 
   protected notifyRecognitionResult(result: SpeechRecognitionResult): void {
-    this.recognitionCallbacks.forEach(callback => callback(result));
+    console.log(`[BaseSpeech] 📤 notifyRecognitionResult called with:`, result);
+    console.log(`[BaseSpeech] 📤 Number of callbacks: ${this.recognitionCallbacks.length}`);
+    this.recognitionCallbacks.forEach((callback, index) => {
+      console.log(`[BaseSpeech] 📤 Calling callback[${index}]`);
+      callback(result);
+    });
   }
 
   dispose(): void {

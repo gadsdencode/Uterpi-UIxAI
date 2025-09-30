@@ -1232,12 +1232,16 @@ const FuturisticAIChat: React.FC = () => {
     error: speechError,
     initialize
   } = useSpeech({
-    autoInitialize: false, // Don't auto-initialize - only when user explicitly enables speech
+    autoInitialize: true, // Auto-initialize - the hook will handle API availability
     onRecognitionResult: (result) => {
+      console.log('🎤 ChatView onRecognitionResult called with:', result);
       if (result.transcript) {
+        console.log('🎤 ChatView setting input to:', result.transcript);
         // For both interim and final results, show the full transcript
         // The transcript already contains the accumulated text
         setInput(result.transcript);
+      } else {
+        console.log('🎤 ChatView result has no transcript');
       }
     },
     onRecognitionError: (error) => {
@@ -1245,18 +1249,21 @@ const FuturisticAIChat: React.FC = () => {
       setIsRecording(false);
     }
   });
+
+  // Debug speech availability
+  useEffect(() => {
+    console.log('🎤 Speech Debug Info:', {
+      speechAvailable,
+      isHTTPS,
+      microphonePermission,
+      speechError,
+      currentProvider
+    });
+  }, [speechAvailable, isHTTPS, microphonePermission, speechError, currentProvider]);
   
   // Handle text-to-speech for messages
   const handleSpeak = useCallback(async (messageId: string, text: string) => {
     try {
-      // Initialize speech service if not already initialized
-      if (!speechAvailable && initialize) {
-        toast.info('Initializing text-to-speech...');
-        await initialize();
-        // Wait a bit for initialization to complete
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
-      
       if (speakingMessageId === messageId) {
         // Stop speaking if clicking same message
         stopSpeaking();
@@ -1273,44 +1280,51 @@ const FuturisticAIChat: React.FC = () => {
       toast.error('Failed to speak message');
       setSpeakingMessageId(null);
     }
-  }, [speakingMessageId, speak, stopSpeaking, speechAvailable, initialize]);
+  }, [speakingMessageId, speak, stopSpeaking]);
   
   // Handle speech-to-text for input
   const handleVoiceInput = useCallback(async () => {
     try {
-      // Initialize speech service if not already initialized
-      if (!speechAvailable && initialize) {
-        toast.info('Initializing speech service...');
-        await initialize();
-        // Wait a bit for initialization to complete
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
+      console.log('🎤 handleVoiceInput called, isRecording:', isRecording);
+      console.log('🎤 Speech debug info:', { speechAvailable, isHTTPS, microphonePermission, speechError });
       
-      // Check HTTPS requirement
-      if (!isHTTPS && microphonePermission !== 'granted') {
+      // Check HTTPS requirement - use the actual function result
+      const { isHTTPS: checkHTTPS } = await import('../lib/speech/speechUtils');
+      const isSecureContext = checkHTTPS();
+      console.log('🎤 HTTPS check result:', isSecureContext);
+      
+      if (!isSecureContext && microphonePermission !== 'granted') {
         toast.error('🔒 Microphone access requires HTTPS. Please use a secure connection.');
         return;
       }
       
       if (isRecording) {
         // Stop recording and get transcript
+        console.log('🎤 Stopping recording...');
         setIsRecording(false);
         const finalTranscript = await stopListening();
+        console.log('🎤 Final transcript:', finalTranscript);
         if (finalTranscript) {
           setInput(finalTranscript);
         }
       } else {
         // Start recording
+        console.log('🎤 Starting recording...');
         setIsRecording(true);
         setInput(''); // Clear input to show fresh transcript
-        await startListening({
+        
+        const listeningOptions = {
           language: 'en-US',
           continuous: true,
           interimResults: true
-        });
+        };
+        console.log('🎤 Listening options:', listeningOptions);
+        
+        await startListening(listeningOptions);
+        console.log('🎤 Recording started successfully');
       }
     } catch (error) {
-      console.error('Voice input error:', error);
+      console.error('🎤 Voice input error:', error);
       const errorMessage = (error as Error).message || 'Voice input failed';
       
       // Provide helpful error messages
@@ -1326,7 +1340,7 @@ const FuturisticAIChat: React.FC = () => {
       
       setIsRecording(false);
     }
-  }, [isRecording, startListening, stopListening, isHTTPS, microphonePermission, speechAvailable, initialize]);
+  }, [isRecording, startListening, stopListening, isHTTPS, microphonePermission, speechAvailable, speechError]);
 
   // Mic permission badge helper
   const MicPermissionBadge = () => (
@@ -2609,7 +2623,12 @@ const FuturisticAIChat: React.FC = () => {
                           {isRecording ? "Stop recording" : "Start voice input"}
                           {!isHTTPS && microphonePermission !== 'granted' && (
                             <span className="block text-xs text-yellow-400 mt-1">
-                              ⚠️ HTTPS required for continuous access
+                              ⚠️ HTTPS required for microphone access
+                            </span>
+                          )}
+                          {speechError && speechError.includes('HTTPS') && (
+                            <span className="block text-xs text-red-400 mt-1">
+                              🔒 {speechError}
                             </span>
                           )}
                         </p>

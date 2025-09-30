@@ -20,12 +20,12 @@ interface LMStudioSpeechConfig extends SpeechConfig {
 export class LMStudioSpeechService extends BaseSpeechService {
   private baseUrl: string = '';
   private apiKey: string = '';
-  private mediaRecorder: MediaRecorder | null = null;
-  private audioChunks: Blob[] = [];
+  private recognition: any = null; // Web Speech API recognition instance
   private isRecording: boolean = false;
   private currentTranscript: string = '';
   private continuousMode: boolean = false;
   private recognitionResolve?: (value: SpeechRecognitionResult) => void;
+  private recognitionReject?: (reason?: any) => void;
 
   constructor() {
     super('web'); // Use 'web' as provider type since LM Studio doesn't have native speech APIs
@@ -33,6 +33,11 @@ export class LMStudioSpeechService extends BaseSpeechService {
 
   async initialize(config?: LMStudioSpeechConfig): Promise<void> {
     await super.initialize(config);
+    
+    // Check if Speech Recognition API is available before proceeding
+    if (!this.isSTTAvailable() && !this.isTTSAvailable()) {
+      throw new Error('Speech Recognition and Synthesis APIs are not available in this browser');
+    }
     
     // Get LM Studio configuration
     this.baseUrl = config?.baseUrl || 
@@ -78,8 +83,12 @@ export class LMStudioSpeechService extends BaseSpeechService {
     }
 
     if (this.isRecording) {
+      console.warn('Recognition already in progress');
       return;
     }
+
+    // Clean up any existing recognition instance
+    this.cleanupRecognition();
 
     this.isRecording = true;
     this.currentTranscript = '';
@@ -87,16 +96,46 @@ export class LMStudioSpeechService extends BaseSpeechService {
 
     try {
       // Use Web Speech API for STT
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      const recognition = new SpeechRecognition();
+      const SpeechRecognitionConstructor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
       
-      recognition.continuous = this.continuousMode;
-      recognition.interimResults = options?.interimResults ?? true;
-      recognition.maxAlternatives = options?.maxAlternatives ?? 1;
-      recognition.lang = options?.language ?? 'en-US';
+      if (!SpeechRecognitionConstructor) {
+        console.warn('SpeechRecognition API is not available in this browser');
+        this.isRecording = false;
+        throw new Error('SpeechRecognition API is not available in this browser');
+      }
+      
+      // Additional validation to ensure the constructor is callable
+      if (typeof SpeechRecognitionConstructor !== 'function') {
+        console.warn('SpeechRecognition constructor is not a function');
+        this.isRecording = false;
+        throw new Error('SpeechRecognition constructor is not a function');
+      }
+      
+      // Ensure we're using the 'new' operator correctly
+      try {
+        this.recognition = new SpeechRecognitionConstructor();
+        console.log('✅ LMStudio SpeechRecognition initialized successfully');
+      } catch (error) {
+        console.error('Failed to create SpeechRecognition instance:', error);
+        this.recognition = null;
+        this.isRecording = false;
+        throw new Error(`Speech recognition initialization failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+      
+      this.recognition.continuous = this.continuousMode;
+      this.recognition.interimResults = options?.interimResults ?? true;
+      this.recognition.maxAlternatives = options?.maxAlternatives ?? 1;
+      this.recognition.lang = options?.language ?? 'en-US';
 
-      recognition.onresult = (event: any) => {
+      this.recognition.onstart = () => {
+        console.log('[LMStudio] 🎤 Speech Recognition started');
+      };
+
+      this.recognition.onresult = (event: any) => {
+        console.log(`[LMStudio] 🎤 onresult EVENT FIRED!`, event);
         const results = event.results;
+        console.log(`[LMStudio] 🎤 onresult: ${results.length} results, resultIndex: ${event.resultIndex}`);
+        
         let fullTranscript = '';
         let interimTranscript = '';
         
@@ -104,14 +143,18 @@ export class LMStudioSpeechService extends BaseSpeechService {
         for (let i = 0; i < results.length; i++) {
           const r = results[i];
           const text = r[0]?.transcript || '';
+          console.log(`[LMStudio] 🔍 Processing result[${i}]: text="${text}", isFinal=${r.isFinal}`);
           if (r.isFinal) {
             fullTranscript += text + ' ';
+            console.log(`[LMStudio] ✅ Final result[${i}]: "${text}"`);
           } else {
             interimTranscript = text;
+            console.log(`[LMStudio] ⏳ Interim result[${i}]: "${text}"`);
           }
         }
         
         this.currentTranscript = (fullTranscript + (interimTranscript ? ' ' + interimTranscript : '')).trim();
+        console.log(`[LMStudio] 📝 Current transcript: "${this.currentTranscript}"`);
         
         // Get the last result for alternatives and confidence
         const lastResult = results[results.length - 1];
@@ -127,10 +170,11 @@ export class LMStudioSpeechService extends BaseSpeechService {
           alternatives: alternatives.length > 1 ? alternatives : undefined
         };
 
+        console.log(`[LMStudio] 📤 Notifying result:`, result);
         this.notifyRecognitionResult(result);
       };
 
-      recognition.onerror = (event: any) => {
+      this.recognition.onerror = (event: any) => {
         console.error('LM Studio Speech Recognition error:', event.error);
         this.isRecording = false;
         
@@ -143,9 +187,14 @@ export class LMStudioSpeechService extends BaseSpeechService {
         if (this.recognitionResolve) {
           this.recognitionResolve(result);
         }
+        
+        if (this.recognitionReject) {
+          this.recognitionReject(new Error(`Speech recognition error: ${event.error}`));
+        }
       };
 
-      recognition.onend = () => {
+      this.recognition.onend = () => {
+        console.log('LM Studio Speech Recognition ended');
         this.isRecording = false;
         
         const result: SpeechRecognitionResult = {
@@ -159,16 +208,17 @@ export class LMStudioSpeechService extends BaseSpeechService {
         }
       };
 
-      recognition.start();
+      this.recognition.start();
       
     } catch (error) {
       this.isRecording = false;
+      this.cleanupRecognition();
       throw new Error(`Failed to start speech recognition: ${(error as Error).message}`);
     }
   }
 
   async stopRecognition(): Promise<SpeechRecognitionResult> {
-    if (!this.isRecording) {
+    if (!this.isRecording || !this.recognition) {
       return {
         transcript: this.currentTranscript,
         confidence: 1,
@@ -176,13 +226,22 @@ export class LMStudioSpeechService extends BaseSpeechService {
       };
     }
 
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       this.recognitionResolve = resolve;
-      this.isRecording = false;
+      this.recognitionReject = reject;
       
-      // Stop any active recognition
-      if (typeof window !== 'undefined' && window.SpeechRecognition) {
-        // The recognition will stop automatically and trigger onend
+      try {
+        // Stop the recognition instance
+        this.recognition.stop();
+        this.isRecording = false;
+      } catch (error) {
+        console.error('Error stopping recognition:', error);
+        this.cleanupRecognition();
+        resolve({
+          transcript: this.currentTranscript,
+          confidence: 1,
+          isFinal: true
+        });
       }
     });
   }
@@ -206,11 +265,37 @@ export class LMStudioSpeechService extends BaseSpeechService {
   }
 
   private isSTTAvailable(): boolean {
-    return typeof window !== 'undefined' && 
-           (window.SpeechRecognition || window.webkitSpeechRecognition);
+    if (typeof window === 'undefined') return false;
+    
+    try {
+      const SpeechRecognitionConstructor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      return !!(SpeechRecognitionConstructor && typeof SpeechRecognitionConstructor === 'function');
+    } catch (error) {
+      console.warn('Error checking SpeechRecognition availability:', error);
+      return false;
+    }
   }
 
   private isTTSAvailable(): boolean {
     return typeof window !== 'undefined' && window.speechSynthesis;
+  }
+
+  private cleanupRecognition(): void {
+    if (this.recognition) {
+      try {
+        this.recognition.stop();
+      } catch (error) {
+        console.warn('Error stopping recognition during cleanup:', error);
+      }
+      this.recognition = null;
+    }
+    this.isRecording = false;
+    this.recognitionResolve = undefined;
+    this.recognitionReject = undefined;
+  }
+
+  dispose(): void {
+    this.cleanupRecognition();
+    super.dispose();
   }
 }

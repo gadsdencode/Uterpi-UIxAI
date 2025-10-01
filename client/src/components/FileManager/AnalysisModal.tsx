@@ -90,19 +90,6 @@ const HolographicBubble: React.FC<{
     <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-white/5 to-transparent" />
     <div className="relative z-10">{children}</div>
     
-    {/* Holographic shimmer effect */}
-    <motion.div
-      className="absolute inset-0 rounded-xl bg-gradient-to-r from-transparent via-white/5 to-transparent"
-      animate={{
-        x: ["-100%", "100%"],
-      }}
-      transition={{
-        duration: 8,
-        repeat: Infinity,
-        repeatType: "loop",
-        ease: "linear",
-      }}
-    />
   </motion.div>
 );
 

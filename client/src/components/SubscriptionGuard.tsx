@@ -310,12 +310,6 @@ export const SubscriptionGuard: React.FC<SubscriptionGuardProps> = ({
         <div className="relative p-8 rounded-2xl backdrop-blur-xl border overflow-hidden bg-gradient-to-br from-slate-800/40 to-slate-900/40 border-slate-600/30">
           <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-white/5 to-transparent" />
           
-          {/* Holographic shimmer effect */}
-          <motion.div
-            className="absolute inset-0 rounded-2xl bg-gradient-to-r from-transparent via-white/10 to-transparent"
-            animate={{ x: ["-100%", "100%"] }}
-            transition={{ duration: 3, repeat: Infinity, repeatType: "loop", ease: "linear" }}
-          />
           
           <div className="relative z-10">
             <div className="text-center mb-8">

@@ -121,19 +121,6 @@ const HolographicBubble: React.FC<{
     <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-white/5 to-transparent" />
     <div className="relative z-10">{children}</div>
     
-    {/* Holographic shimmer effect */}
-    <motion.div
-      className="absolute inset-0 rounded-xl bg-gradient-to-r from-transparent via-white/5 to-transparent"
-      animate={{
-        x: ["-100%", "100%"],
-      }}
-      transition={{
-        duration: 8,
-        repeat: Infinity,
-        repeatType: "loop",
-        ease: "linear",
-      }}
-    />
   </motion.div>
 );
 
@@ -228,18 +215,9 @@ export const AnalysisStatusCard: React.FC<AnalysisStatusCardProps> = ({
 
       {/* Progress Indicator for Analyzing State */}
       {status === 'analyzing' && (
-        <motion.div
-          initial={{ width: 0 }}
-          animate={{ width: '100%' }}
-          transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-          className="mt-3 h-1 bg-slate-700/50 rounded-full overflow-hidden"
-        >
-          <motion.div
-            className="h-full bg-violet-400"
-            animate={{ x: ['-100%', '100%'] }}
-            transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
-          />
-        </motion.div>
+        <div className="mt-3 h-1 bg-slate-700/50 rounded-full overflow-hidden">
+          <div className="h-full bg-violet-400 w-full" />
+        </div>
       )}
     </HolographicBubble>
   );

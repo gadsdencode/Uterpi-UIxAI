@@ -31,6 +31,7 @@ export class ValidationError extends Error implements AppError {
   isOperational = true;
   code = 'VALIDATION_ERROR';
   details: any;
+  userMessage: string;
 
   constructor(message: string, details?: any) {
     super(message);
@@ -44,6 +45,7 @@ export class AuthenticationError extends Error implements AppError {
   statusCode = 401;
   isOperational = true;
   code = 'AUTHENTICATION_ERROR';
+  userMessage: string;
 
   constructor(message: string = 'Authentication required') {
     super(message);
@@ -56,6 +58,7 @@ export class AuthorizationError extends Error implements AppError {
   statusCode = 403;
   isOperational = true;
   code = 'AUTHORIZATION_ERROR';
+  userMessage: string;
 
   constructor(message: string = 'Access denied') {
     super(message);
@@ -68,6 +71,7 @@ export class NotFoundError extends Error implements AppError {
   statusCode = 404;
   isOperational = true;
   code = 'NOT_FOUND';
+  userMessage: string;
 
   constructor(resource: string = 'Resource') {
     super(`${resource} not found`);
@@ -80,6 +84,7 @@ export class ConflictError extends Error implements AppError {
   statusCode = 409;
   isOperational = true;
   code = 'CONFLICT';
+  userMessage: string;
 
   constructor(message: string) {
     super(message);
@@ -93,6 +98,7 @@ export class RateLimitError extends Error implements AppError {
   isOperational = true;
   code = 'RATE_LIMIT_EXCEEDED';
   retryable = true;
+  userMessage: string;
 
   constructor(message: string = 'Rate limit exceeded') {
     super(message);
@@ -106,6 +112,7 @@ export class SubscriptionError extends Error implements AppError {
   isOperational = true;
   code: string;
   details: any;
+  userMessage: string;
 
   constructor(code: string, message: string, details?: any) {
     super(message);
@@ -137,6 +144,7 @@ export class ExternalServiceError extends Error implements AppError {
   code = 'EXTERNAL_SERVICE_ERROR';
   retryable = true;
   service: string;
+  userMessage: string;
 
   constructor(service: string, message: string) {
     super(`External service error (${service}): ${message}`);
@@ -150,6 +158,7 @@ export class DatabaseError extends Error implements AppError {
   statusCode = 500;
   isOperational = false;
   code = 'DATABASE_ERROR';
+  userMessage: string;
 
   constructor(message: string, originalError?: Error) {
     super(`Database error: ${message}`);

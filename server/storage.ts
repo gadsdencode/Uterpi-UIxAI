@@ -1,4 +1,20 @@
-import { users, type User, type InsertUser, type RegisterUser, type OAuthUser, type UpdateProfile } from "@shared/schema";
+import { 
+  users, 
+  type User, 
+  type InsertUser, 
+  type RegisterUser, 
+  type OAuthUser, 
+  type UpdateProfile,
+  smsNotifications,
+  smsPreferences,
+  smsTemplates,
+  type SmsNotification,
+  type InsertSmsNotification,
+  type SmsPreferences,
+  type UpdateSmsPreferences,
+  type SmsTemplate,
+  type InsertSmsTemplate
+} from "@shared/schema";
 import { eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { db } from "./db";
@@ -29,6 +45,24 @@ export interface IStorage {
   validatePasswordResetToken(token: string): Promise<User | null>;
   resetPassword(token: string, newPassword: string): Promise<boolean>;
   clearPasswordResetToken(userId: number): Promise<void>;
+  
+  // SMS notification methods
+  getSmsNotification(id: number): Promise<SmsNotification | undefined>;
+  getSmsNotificationsByUser(userId: number, limit?: number): Promise<SmsNotification[]>;
+  createSmsNotification(notification: InsertSmsNotification): Promise<SmsNotification>;
+  updateSmsNotification(id: number, updates: Partial<SmsNotification>): Promise<SmsNotification | undefined>;
+  
+  // SMS preferences methods
+  getSmsPreferences(userId: number): Promise<SmsPreferences | undefined>;
+  createSmsPreferences(prefs: Partial<SmsPreferences>): Promise<SmsPreferences>;
+  updateSmsPreferences(userId: number, updates: UpdateSmsPreferences): Promise<SmsPreferences | undefined>;
+  
+  // SMS template methods
+  getSmsTemplate(id: number): Promise<SmsTemplate | undefined>;
+  getSmsTemplateByName(name: string): Promise<SmsTemplate | undefined>;
+  getAllSmsTemplates(): Promise<SmsTemplate[]>;
+  createSmsTemplate(template: InsertSmsTemplate): Promise<SmsTemplate>;
+  updateSmsTemplate(id: number, updates: Partial<SmsTemplate>): Promise<SmsTemplate | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -361,6 +395,168 @@ export class DatabaseStorage implements IStorage {
       // Don't throw, as this is a cleanup operation
     }
   }
+
+  // SMS notification methods
+  async getSmsNotification(id: number): Promise<SmsNotification | undefined> {
+    try {
+      const result = await db.select().from(smsNotifications).where(eq(smsNotifications.id, id));
+      return result[0];
+    } catch (error) {
+      console.error("Error getting SMS notification:", error);
+      return undefined;
+    }
+  }
+
+  async getSmsNotificationsByUser(userId: number, limit = 50): Promise<SmsNotification[]> {
+    try {
+      const result = await db.select()
+        .from(smsNotifications)
+        .where(eq(smsNotifications.userId, userId))
+        .orderBy(smsNotifications.createdAt)
+        .limit(limit);
+      return result;
+    } catch (error) {
+      console.error("Error getting SMS notifications by user:", error);
+      return [];
+    }
+  }
+
+  async createSmsNotification(notification: InsertSmsNotification): Promise<SmsNotification> {
+    try {
+      const result = await db.insert(smsNotifications).values(notification).returning();
+      return result[0];
+    } catch (error) {
+      console.error("Error creating SMS notification:", error);
+      throw error;
+    }
+  }
+
+  async updateSmsNotification(id: number, updates: Partial<SmsNotification>): Promise<SmsNotification | undefined> {
+    try {
+      const result = await db.update(smsNotifications)
+        .set({
+          ...updates,
+          updatedAt: new Date()
+        })
+        .where(eq(smsNotifications.id, id))
+        .returning();
+      return result[0];
+    } catch (error) {
+      console.error("Error updating SMS notification:", error);
+      return undefined;
+    }
+  }
+
+  // SMS preferences methods
+  async getSmsPreferences(userId: number): Promise<SmsPreferences | undefined> {
+    try {
+      const result = await db.select().from(smsPreferences).where(eq(smsPreferences.userId, userId));
+      return result[0];
+    } catch (error) {
+      console.error("Error getting SMS preferences:", error);
+      return undefined;
+    }
+  }
+
+  async createSmsPreferences(prefs: Partial<SmsPreferences>): Promise<SmsPreferences> {
+    try {
+      const { id, createdAt, updatedAt, ...insertableData } = prefs as any;
+      const result = await db.insert(smsPreferences).values(insertableData).returning();
+      return result[0];
+    } catch (error) {
+      console.error("Error creating SMS preferences:", error);
+      throw error;
+    }
+  }
+
+  async updateSmsPreferences(userId: number, updates: UpdateSmsPreferences): Promise<SmsPreferences | undefined> {
+    try {
+      const existing = await this.getSmsPreferences(userId);
+      
+      if (existing) {
+        const result = await db.update(smsPreferences)
+          .set({
+            ...updates,
+            updatedAt: new Date()
+          })
+          .where(eq(smsPreferences.userId, userId))
+          .returning();
+        return result[0];
+      } else {
+        // Create preferences if they don't exist
+        const result = await db.insert(smsPreferences)
+          .values({
+            userId,
+            ...updates
+          })
+          .returning();
+        return result[0];
+      }
+    } catch (error) {
+      console.error("Error updating SMS preferences:", error);
+      return undefined;
+    }
+  }
+
+  // SMS template methods
+  async getSmsTemplate(id: number): Promise<SmsTemplate | undefined> {
+    try {
+      const result = await db.select().from(smsTemplates).where(eq(smsTemplates.id, id));
+      return result[0];
+    } catch (error) {
+      console.error("Error getting SMS template:", error);
+      return undefined;
+    }
+  }
+
+  async getSmsTemplateByName(name: string): Promise<SmsTemplate | undefined> {
+    try {
+      const result = await db.select().from(smsTemplates).where(eq(smsTemplates.name, name));
+      return result[0];
+    } catch (error) {
+      console.error("Error getting SMS template by name:", error);
+      return undefined;
+    }
+  }
+
+  async getAllSmsTemplates(): Promise<SmsTemplate[]> {
+    try {
+      const result = await db.select()
+        .from(smsTemplates)
+        .where(eq(smsTemplates.isActive, true))
+        .orderBy(smsTemplates.name);
+      return result;
+    } catch (error) {
+      console.error("Error getting all SMS templates:", error);
+      return [];
+    }
+  }
+
+  async createSmsTemplate(template: InsertSmsTemplate): Promise<SmsTemplate> {
+    try {
+      const result = await db.insert(smsTemplates).values(template).returning();
+      return result[0];
+    } catch (error) {
+      console.error("Error creating SMS template:", error);
+      throw error;
+    }
+  }
+
+  async updateSmsTemplate(id: number, updates: Partial<SmsTemplate>): Promise<SmsTemplate | undefined> {
+    try {
+      const result = await db.update(smsTemplates)
+        .set({
+          ...updates,
+          updatedAt: new Date()
+        })
+        .where(eq(smsTemplates.id, id))
+        .returning();
+      return result[0];
+    } catch (error) {
+      console.error("Error updating SMS template:", error);
+      return undefined;
+    }
+  }
 }
 
 // Keep memory storage for development/testing purposes (fallback)
@@ -599,6 +795,69 @@ export class MemStorage implements IStorage {
       };
       this.users.set(userId, updatedUser);
     }
+  }
+
+  // SMS notification methods - stub implementations for MemStorage
+  async getSmsNotification(id: number): Promise<SmsNotification | undefined> {
+    // MemStorage doesn't support SMS notifications
+    return undefined;
+  }
+
+  async getSmsNotificationsByUser(userId: number, limit?: number): Promise<SmsNotification[]> {
+    // MemStorage doesn't support SMS notifications
+    return [];
+  }
+
+  async createSmsNotification(notification: InsertSmsNotification): Promise<SmsNotification> {
+    // MemStorage doesn't support SMS notifications - throw error
+    throw new Error("SMS notifications not supported in memory storage");
+  }
+
+  async updateSmsNotification(id: number, updates: Partial<SmsNotification>): Promise<SmsNotification | undefined> {
+    // MemStorage doesn't support SMS notifications
+    return undefined;
+  }
+
+  // SMS preferences methods - stub implementations for MemStorage
+  async getSmsPreferences(userId: number): Promise<SmsPreferences | undefined> {
+    // MemStorage doesn't support SMS preferences
+    return undefined;
+  }
+
+  async createSmsPreferences(prefs: Partial<SmsPreferences>): Promise<SmsPreferences> {
+    // MemStorage doesn't support SMS preferences - throw error
+    throw new Error("SMS preferences not supported in memory storage");
+  }
+
+  async updateSmsPreferences(userId: number, updates: UpdateSmsPreferences): Promise<SmsPreferences | undefined> {
+    // MemStorage doesn't support SMS preferences
+    return undefined;
+  }
+
+  // SMS template methods - stub implementations for MemStorage
+  async getSmsTemplate(id: number): Promise<SmsTemplate | undefined> {
+    // MemStorage doesn't support SMS templates
+    return undefined;
+  }
+
+  async getSmsTemplateByName(name: string): Promise<SmsTemplate | undefined> {
+    // MemStorage doesn't support SMS templates
+    return undefined;
+  }
+
+  async getAllSmsTemplates(): Promise<SmsTemplate[]> {
+    // MemStorage doesn't support SMS templates
+    return [];
+  }
+
+  async createSmsTemplate(template: InsertSmsTemplate): Promise<SmsTemplate> {
+    // MemStorage doesn't support SMS templates - throw error
+    throw new Error("SMS templates not supported in memory storage");
+  }
+
+  async updateSmsTemplate(id: number, updates: Partial<SmsTemplate>): Promise<SmsTemplate | undefined> {
+    // MemStorage doesn't support SMS templates
+    return undefined;
   }
 }
 

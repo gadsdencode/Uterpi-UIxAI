@@ -82,7 +82,9 @@ export class SmsService {
         }
         
         // Check daily limit
-        if (preferences.messagesReceivedToday >= preferences.dailyLimit) {
+        const messagesReceivedToday = preferences.messagesReceivedToday ?? 0;
+        const dailyLimit = preferences.dailyLimit ?? 10;
+        if (messagesReceivedToday >= dailyLimit) {
           throw new Error('Daily SMS limit reached');
         }
         
@@ -357,7 +359,7 @@ export class SmsService {
     const now = new Date();
     const resetAt = preferences.dailyLimitResetAt;
     
-    let newCount = preferences.messagesReceivedToday + 1;
+    let newCount = (preferences.messagesReceivedToday ?? 0) + 1;
     let newResetAt = resetAt;
     
     if (!resetAt || resetAt < now) {

@@ -146,17 +146,30 @@ export class SmsService {
       return updated;
       
     } catch (error: any) {
-      // Log error to notification record
-      if (data.userId) {
-        await db.insert(smsNotifications).values({
-          userId: data.userId,
-          recipientPhone: data.recipientPhone,
-          message: data.message,
-          notificationType: data.notificationType,
-          twilioStatus: 'failed',
-          twilioErrorMessage: error.message,
-          failedAt: new Date(),
-        });
+      // Update the existing notification record with failure status
+      // Note: we need to handle the case where the notification was created but Twilio failed
+      if (notification?.id) {
+        await db.update(smsNotifications)
+          .set({
+            twilioStatus: 'failed',
+            twilioErrorMessage: error.message,
+            failedAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .where(eq(smsNotifications.id, notification.id));
+      } else {
+        // Only create a failure record if we couldn't create the initial notification
+        if (data.userId) {
+          await db.insert(smsNotifications).values({
+            userId: data.userId,
+            recipientPhone: data.recipientPhone,
+            message: data.message,
+            notificationType: data.notificationType,
+            twilioStatus: 'failed',
+            twilioErrorMessage: error.message,
+            failedAt: new Date(),
+          });
+        }
       }
       
       throw error;

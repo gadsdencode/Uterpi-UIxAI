@@ -3,7 +3,27 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { requireAuth, requireGuest } from "./auth";
 import passport from "./auth";
-import { registerUserSchema, loginUserSchema, forgotPasswordSchema, resetPasswordSchema, publicUserSchema, updateProfileSchema, updateEmailPreferencesSchema, unsubscribeSchema, subscriptionPlans, subscriptions, users, files, subscriptionFeatures, aiCreditsTransactions } from "@shared/schema";
+import { 
+  registerUserSchema, 
+  loginUserSchema, 
+  forgotPasswordSchema, 
+  resetPasswordSchema, 
+  publicUserSchema, 
+  updateProfileSchema, 
+  updateEmailPreferencesSchema, 
+  unsubscribeSchema, 
+  subscriptionPlans, 
+  subscriptions, 
+  users, 
+  files, 
+  subscriptionFeatures, 
+  aiCreditsTransactions,
+  sendSmsSchema,
+  verifyPhoneSchema,
+  confirmPhoneVerificationSchema,
+  updateSmsPreferencesSchema
+} from "@shared/schema";
+import { smsService } from "./services/smsService";
 import { engagementService } from "./engagement";
 import { aiCoachService } from "./ai-coach";
 import { db } from "./db";
@@ -2617,10 +2637,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // SMS NOTIFICATION ROUTES
   // =============================================================================
   
-  // Import SMS service
-  const { smsService } = require("./services/smsService");
-  const { sendSmsSchema, verifyPhoneSchema, confirmPhoneVerificationSchema, updateSmsPreferencesSchema } = require("@shared/schema");
-  
   // Get SMS preferences
   app.get("/api/sms/preferences", requireAuth, async (req, res) => {
     try {
@@ -2697,7 +2713,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error.issues) {
         throw createError.validation("Invalid phone number", error.issues);
       } else if (error.message?.includes('Twilio')) {
-        throw createError.serviceUnavailable("SMS service temporarily unavailable", error);
+        res.status(503).json({ error: "SMS service temporarily unavailable" });
+        return;
       } else {
         throw createError.database("Failed to send verification code", error);
       }
@@ -2756,13 +2773,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       
       // Track SMS usage in AI credits
-      if (req.user.creditsPending) {
+      const authReq = req as AuthenticatedRequest;
+      if (authReq.user?.creditsPending) {
         await trackAIUsage(
-          req.user.id,
-          req.user.creditsPending.amount,
-          'sms_notification',
-          null,
-          { smsNotificationId: notification.id }
+          authReq.user.id,
+          'sms_notification'
         );
       }
       
@@ -2781,11 +2796,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error.issues) {
         throw createError.validation("Invalid SMS data", error.issues);
       } else if (error.message?.includes('disabled')) {
-        throw createError.forbidden(error.message);
+        res.status(403).json({ error: error.message });
+        return;
       } else if (error.message?.includes('limit')) {
-        throw createError.tooManyRequests(error.message);
+        res.status(429).json({ error: error.message });
+        return;
       } else if (error.message?.includes('Twilio')) {
-        throw createError.serviceUnavailable("SMS service temporarily unavailable", error);
+        res.status(503).json({ error: "SMS service temporarily unavailable" });
+        return;
       } else {
         throw createError.database("Failed to send SMS", error);
       }

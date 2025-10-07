@@ -6,10 +6,11 @@ import { Textarea } from './ui/textarea';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
-import { User, Mail } from 'lucide-react';
+import { User, Mail, Phone } from 'lucide-react';
 import { useAuth, type UpdateProfileData } from '../hooks/useAuth';
 import { toast } from 'sonner';
 import { EmailPreferences } from './EmailPreferences';
+import { SmsNotificationSettings } from './SmsNotificationSettings';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -129,19 +130,23 @@ export const UserProfile: React.FC = () => {
         </div>
         <CardTitle>Account Settings</CardTitle>
         <CardDescription>
-          Manage your personal information and email preferences
+          Manage your personal information, email and SMS preferences
         </CardDescription>
       </CardHeader>
       <CardContent>
         <Tabs defaultValue="profile" className="w-full">
-          <TabsList className="grid w-full grid-cols-2">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="profile" className="flex items-center gap-2">
               <User className="w-4 h-4" />
               Profile
             </TabsTrigger>
             <TabsTrigger value="email" className="flex items-center gap-2">
               <Mail className="w-4 h-4" />
-              Email Preferences
+              Email
+            </TabsTrigger>
+            <TabsTrigger value="sms" className="flex items-center gap-2">
+              <Phone className="w-4 h-4" />
+              SMS
             </TabsTrigger>
           </TabsList>
 
@@ -282,6 +287,10 @@ export const UserProfile: React.FC = () => {
 
           <TabsContent value="email" className="space-y-6 mt-6">
             <EmailPreferences />
+          </TabsContent>
+          
+          <TabsContent value="sms" className="space-y-6 mt-6">
+            <SmsNotificationSettings />
           </TabsContent>
         </Tabs>
       </CardContent>

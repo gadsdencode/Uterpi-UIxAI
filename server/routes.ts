@@ -2614,6 +2614,265 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // =============================================================================
+  // SMS NOTIFICATION ROUTES
+  // =============================================================================
+  
+  // Import SMS service
+  const { smsService } = require("./services/smsService");
+  const { sendSmsSchema, verifyPhoneSchema, confirmPhoneVerificationSchema, updateSmsPreferencesSchema } = require("@shared/schema");
+  
+  // Get SMS preferences
+  app.get("/api/sms/preferences", requireAuth, async (req, res) => {
+    try {
+      if (!req.user?.id) {
+        throw createError.authentication('User authentication required');
+      }
+      
+      const preferences = await smsService.getUserSmsPreferences(req.user.id);
+      
+      res.json({
+        success: true,
+        preferences: preferences || {
+          enableSms: false,
+          phoneNumber: null,
+          phoneVerified: false,
+          alertNotifications: true,
+          reminderNotifications: true,
+          promotionalNotifications: false,
+          quietHoursStart: null,
+          quietHoursEnd: null,
+          timezone: 'UTC',
+          dailyLimit: 10,
+        }
+      });
+    } catch (error: any) {
+      console.error("Get SMS preferences error:", error);
+      throw createError.database("Failed to get SMS preferences", error);
+    }
+  });
+  
+  // Update SMS preferences
+  app.post("/api/sms/preferences", requireAuth, async (req, res) => {
+    try {
+      if (!req.user?.id) {
+        throw createError.authentication('User authentication required');
+      }
+      
+      const validatedData = updateSmsPreferencesSchema.parse(req.body);
+      const preferences = await smsService.updateUserSmsPreferences(req.user.id, validatedData);
+      
+      res.json({
+        success: true,
+        message: "SMS preferences updated successfully",
+        preferences
+      });
+    } catch (error: any) {
+      console.error("Update SMS preferences error:", error);
+      
+      if (error.issues) {
+        throw createError.validation("Invalid preferences data", error.issues);
+      } else {
+        throw createError.database("Failed to update SMS preferences", error);
+      }
+    }
+  });
+  
+  // Send verification code
+  app.post("/api/sms/verify-phone", requireAuth, async (req, res) => {
+    try {
+      if (!req.user?.id) {
+        throw createError.authentication('User authentication required');
+      }
+      
+      const validatedData = verifyPhoneSchema.parse(req.body);
+      await smsService.sendVerificationCode(validatedData.phoneNumber, req.user.id);
+      
+      res.json({
+        success: true,
+        message: "Verification code sent successfully"
+      });
+    } catch (error: any) {
+      console.error("Send verification code error:", error);
+      
+      if (error.issues) {
+        throw createError.validation("Invalid phone number", error.issues);
+      } else if (error.message?.includes('Twilio')) {
+        throw createError.serviceUnavailable("SMS service temporarily unavailable", error);
+      } else {
+        throw createError.database("Failed to send verification code", error);
+      }
+    }
+  });
+  
+  // Confirm phone verification
+  app.post("/api/sms/confirm-verification", requireAuth, async (req, res) => {
+    try {
+      if (!req.user?.id) {
+        throw createError.authentication('User authentication required');
+      }
+      
+      const validatedData = confirmPhoneVerificationSchema.parse(req.body);
+      const verified = await smsService.verifyPhoneNumber(
+        req.user.id,
+        validatedData.phoneNumber,
+        validatedData.verificationCode
+      );
+      
+      if (verified) {
+        res.json({
+          success: true,
+          message: "Phone number verified successfully"
+        });
+      } else {
+        throw createError.validation("Invalid verification code");
+      }
+    } catch (error: any) {
+      console.error("Confirm verification error:", error);
+      
+      if (error.issues) {
+        throw createError.validation("Invalid verification data", error.issues);
+      } else if (error.message?.includes('expired')) {
+        throw createError.validation("Verification code has expired");
+      } else if (error.message?.includes('Invalid')) {
+        throw createError.validation(error.message);
+      } else {
+        throw createError.database("Failed to verify phone number", error);
+      }
+    }
+  });
+  
+  // Send SMS notification
+  app.post("/api/sms/send", requireAuth, requireMinimumCredits(10), async (req, res) => {
+    try {
+      if (!req.user?.id) {
+        throw createError.authentication('User authentication required');
+      }
+      
+      const validatedData = sendSmsSchema.parse(req.body);
+      
+      const notification = await smsService.sendSms({
+        ...validatedData,
+        userId: req.user.id,
+      });
+      
+      // Track SMS usage in AI credits
+      if (req.user.creditsPending) {
+        await trackAIUsage(
+          req.user.id,
+          req.user.creditsPending.amount,
+          'sms_notification',
+          null,
+          { smsNotificationId: notification.id }
+        );
+      }
+      
+      res.json({
+        success: true,
+        message: "SMS sent successfully",
+        notification: {
+          id: notification.id,
+          status: notification.twilioStatus,
+          sentAt: notification.sentAt,
+        }
+      });
+    } catch (error: any) {
+      console.error("Send SMS error:", error);
+      
+      if (error.issues) {
+        throw createError.validation("Invalid SMS data", error.issues);
+      } else if (error.message?.includes('disabled')) {
+        throw createError.forbidden(error.message);
+      } else if (error.message?.includes('limit')) {
+        throw createError.tooManyRequests(error.message);
+      } else if (error.message?.includes('Twilio')) {
+        throw createError.serviceUnavailable("SMS service temporarily unavailable", error);
+      } else {
+        throw createError.database("Failed to send SMS", error);
+      }
+    }
+  });
+  
+  // Get SMS notification history
+  app.get("/api/sms/history", requireAuth, async (req, res) => {
+    try {
+      if (!req.user?.id) {
+        throw createError.authentication('User authentication required');
+      }
+      
+      const limit = parseInt(req.query.limit as string) || 50;
+      const notifications = await smsService.getNotificationHistory(req.user.id, limit);
+      
+      res.json({
+        success: true,
+        notifications
+      });
+    } catch (error: any) {
+      console.error("Get SMS history error:", error);
+      throw createError.database("Failed to get SMS history", error);
+    }
+  });
+  
+  // Get SMS templates
+  app.get("/api/sms/templates", requireAuth, async (req, res) => {
+    try {
+      const templates = await smsService.getTemplates();
+      
+      res.json({
+        success: true,
+        templates
+      });
+    } catch (error: any) {
+      console.error("Get SMS templates error:", error);
+      throw createError.database("Failed to get SMS templates", error);
+    }
+  });
+  
+  // Create SMS template (admin only)
+  app.post("/api/sms/templates", requireAuth, requireTeamRole(['owner', 'admin']), async (req, res) => {
+    try {
+      if (!req.user?.id) {
+        throw createError.authentication('User authentication required');
+      }
+      
+      const template = await smsService.createTemplate({
+        ...req.body,
+        createdBy: req.user.id,
+      });
+      
+      res.json({
+        success: true,
+        message: "Template created successfully",
+        template
+      });
+    } catch (error: any) {
+      console.error("Create SMS template error:", error);
+      
+      if (error.issues) {
+        throw createError.validation("Invalid template data", error.issues);
+      } else {
+        throw createError.database("Failed to create template", error);
+      }
+    }
+  });
+  
+  // Twilio webhook for status updates
+  app.post("/api/sms/webhook/status", rawBodyParser, async (req, res) => {
+    try {
+      // Verify webhook signature (optional but recommended)
+      // const twilioSignature = req.headers['x-twilio-signature'];
+      // You can implement signature verification here
+      
+      await smsService.handleTwilioWebhook(req.body);
+      
+      res.status(200).send('OK');
+    } catch (error: any) {
+      console.error("Twilio webhook error:", error);
+      // Always return 200 to Twilio to prevent retries
+      res.status(200).send('OK');
+    }
+  });
+
+  // =============================================================================
   // SUBSCRIPTION ROUTES
   // =============================================================================
   

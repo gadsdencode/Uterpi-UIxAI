@@ -34,8 +34,16 @@ async function getCredentials() {
     }
   ).then(res => res.json()).then(data => data.items?.[0]);
 
-  if (!connectionSettings || (!connectionSettings.settings.account_sid || !connectionSettings.settings.api_key || !connectionSettings.settings.api_key_secret)) {
-    throw new Error('Twilio not connected');
+  if (!connectionSettings) {
+    throw new Error('Twilio connection not found. Please connect your Twilio account through Replit\'s Connections panel.');
+  }
+  
+  if (!connectionSettings.settings || !connectionSettings.settings.account_sid || !connectionSettings.settings.api_key || !connectionSettings.settings.api_key_secret) {
+    throw new Error('Twilio credentials are incomplete. Please reconnect your Twilio account with all required credentials (Account SID, API Key, and API Key Secret).');
+  }
+  
+  if (!connectionSettings.settings.phone_number) {
+    throw new Error('Twilio phone number is not configured. Please add your Twilio phone number in the connection settings.');
   }
   
   return {
@@ -47,10 +55,15 @@ async function getCredentials() {
 }
 
 export async function getTwilioClient() {
-  const { accountSid, apiKey, apiKeySecret } = await getCredentials();
-  return twilio(apiKey, apiKeySecret, {
-    accountSid: accountSid
-  });
+  try {
+    const { accountSid, apiKey, apiKeySecret } = await getCredentials();
+    return twilio(apiKey, apiKeySecret, {
+      accountSid: accountSid
+    });
+  } catch (error) {
+    console.error('Twilio connection error:', error);
+    throw new Error('Twilio is not connected. Please connect your Twilio account through Replit\'s Connections panel.');
+  }
 }
 
 export async function getTwilioFromPhoneNumber() {
@@ -72,6 +85,8 @@ export class SmsService {
     scheduledFor?: Date;
     metadata?: any;
   }): Promise<SmsNotification> {
+    let notification: SmsNotification | undefined;
+    
     try {
       // Check if user has SMS enabled and not opted out
       if (data.userId) {
@@ -103,7 +118,7 @@ export class SmsService {
       }
       
       // Insert notification record
-      const [notification] = await db.insert(smsNotifications).values({
+      const [createdNotification] = await db.insert(smsNotifications).values({
         userId: data.userId || null,
         recipientPhone: data.recipientPhone,
         recipientName: data.metadata?.recipientName,
@@ -116,6 +131,8 @@ export class SmsService {
         metadata: data.metadata,
         twilioStatus: 'pending',
       }).returning();
+      
+      notification = createdNotification;
       
       // If scheduled for later, don't send now
       if (data.scheduledFor && data.scheduledFor > new Date()) {

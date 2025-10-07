@@ -2767,18 +2767,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const validatedData = sendSmsSchema.parse(req.body);
       
-      const notification = await smsService.sendSms({
+      // Convert scheduledFor string to Date if provided
+      const smsData = {
         ...validatedData,
         userId: req.user.id,
-      });
+        scheduledFor: validatedData.scheduledFor ? new Date(validatedData.scheduledFor) : undefined,
+      };
+      
+      const notification = await smsService.sendSms(smsData);
       
       // Track SMS usage in AI credits
       const authReq = req as AuthenticatedRequest;
       if (authReq.user?.creditsPending) {
-        await trackAIUsage(
-          authReq.user.id,
-          'sms_notification'
-        );
+        await trackAIUsage({
+          userId: authReq.user.id,
+          operationType: 'chat', // SMS notifications use chat operation type
+          modelUsed: 'sms_service',
+          tokensConsumed: 10, // Fixed cost for SMS notifications
+        });
       }
       
       res.json({

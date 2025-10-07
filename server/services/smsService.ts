@@ -89,21 +89,22 @@ export class SmsService {
     
     try {
       // Check if user has SMS enabled and not opted out
-      if (data.userId) {
+      // Exception: Allow verification SMS even if SMS is disabled
+      if (data.userId && data.notificationType !== 'verification') {
         const preferences = await this.getUserSmsPreferences(data.userId);
         
         if (!preferences?.enableSms || preferences.isOptedOut) {
           throw new Error('SMS notifications are disabled for this user');
         }
         
-        // Check daily limit
+        // Check daily limit (skip for verification SMS)
         const messagesReceivedToday = preferences.messagesReceivedToday ?? 0;
         const dailyLimit = preferences.dailyLimit ?? 10;
         if (messagesReceivedToday >= dailyLimit) {
           throw new Error('Daily SMS limit reached');
         }
         
-        // Check quiet hours
+        // Check quiet hours (skip for verification SMS)
         if (this.isQuietHours(preferences)) {
           // Schedule for later if in quiet hours
           const endTime = this.getQuietHoursEnd(preferences);
@@ -285,11 +286,14 @@ export class SmsService {
     // Store code with expiry (10 minutes)
     const expiry = new Date(Date.now() + 10 * 60 * 1000);
     
+    // Initialize or update SMS preferences for verification
+    // Enable SMS temporarily for verification process
     await this.updateUserSmsPreferences(userId, {
       phoneNumber,
       verificationCode: code,
       verificationCodeExpiry: expiry,
       phoneVerified: false,
+      enableSms: true, // Enable SMS for verification
     });
     
     // Send verification SMS
@@ -326,12 +330,12 @@ export class SmsService {
       throw new Error('Invalid verification code');
     }
     
-    // Update preferences to mark as verified
+    // Update preferences to mark as verified and keep SMS enabled
     await this.updateUserSmsPreferences(userId, {
       phoneVerified: true,
       verificationCode: null,
       verificationCodeExpiry: null,
-      enableSms: true,
+      enableSms: true, // Keep SMS enabled after successful verification
     });
     
     return true;

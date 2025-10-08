@@ -3399,6 +3399,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get user's credit balance and recent transactions
+  app.get("/api/credits/balance", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      
+      // Get current balance
+      const [user] = await db.select().from(users).where(eq(users.id, userId));
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      // Get recent transactions (last 10)
+      const recentTransactions = await db.select()
+        .from(aiCreditsTransactions)
+        .where(eq(aiCreditsTransactions.userId, userId))
+        .orderBy(desc(aiCreditsTransactions.createdAt))
+        .limit(10);
+
+      res.json({
+        success: true,
+        balance: user.ai_credits_balance || 0,
+        recentTransactions: recentTransactions.map(tx => ({
+          id: tx.id,
+          transactionType: tx.transactionType,
+          amount: tx.amount,
+          balanceAfter: tx.balanceAfter,
+          description: tx.description,
+          createdAt: tx.createdAt,
+          metadata: tx.metadata
+        }))
+      });
+    } catch (error) {
+      console.error("Get credit balance error:", error);
+      res.status(500).json({ 
+        error: error instanceof Error ? error.message : "Failed to retrieve credit balance" 
+      });
+    }
+  });
+
   // =============================================================================
   // STRIPE WEBHOOK ROUTES
   // =============================================================================

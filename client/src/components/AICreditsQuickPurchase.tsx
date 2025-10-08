@@ -59,6 +59,30 @@ export const AICreditsQuickPurchase: React.FC<AICreditsQuickPurchaseProps> = ({
     }
   }, [user]);
 
+  // Listen for balance updates from checkout success page
+  useEffect(() => {
+    const handleCreditsUpdate = (event: CustomEvent) => {
+      const { balance } = event.detail;
+      setBalance(balance);
+      
+      // Call the onPurchaseComplete callback if provided
+      if (onPurchaseComplete) {
+        onPurchaseComplete(balance);
+      }
+      
+      // Show success toast
+      toast.success('Credits added to your account!', {
+        description: `Your new balance is ${balance} credits.`
+      });
+    };
+
+    window.addEventListener('creditsUpdated', handleCreditsUpdate as EventListener);
+    
+    return () => {
+      window.removeEventListener('creditsUpdated', handleCreditsUpdate as EventListener);
+    };
+  }, [onPurchaseComplete]);
+
   const fetchBalance = async () => {
     if (!user) {
       return; // Don't fetch if user is not authenticated
@@ -102,6 +126,11 @@ export const AICreditsQuickPurchase: React.FC<AICreditsQuickPurchaseProps> = ({
       
       const packageId = packageMap[pkg.priceId] || 'credits_500';
       
+      // Show loading toast
+      toast.loading(`Creating checkout session for ${pkg.credits} credits...`, {
+        id: 'checkout-loading'
+      });
+      
       // Create Stripe Checkout Session
       const response = await fetch('/api/checkout/credits', {
         method: 'POST',
@@ -121,6 +150,12 @@ export const AICreditsQuickPurchase: React.FC<AICreditsQuickPurchaseProps> = ({
 
       const data = await response.json();
       
+      // Dismiss loading toast
+      toast.dismiss('checkout-loading');
+      
+      // Show success toast
+      toast.success(`Redirecting to secure checkout for ${pkg.credits} credits...`);
+      
       // Redirect to Stripe Checkout
       if (data.url) {
         window.location.href = data.url;
@@ -129,7 +164,19 @@ export const AICreditsQuickPurchase: React.FC<AICreditsQuickPurchaseProps> = ({
       }
     } catch (error) {
       console.error('Error initiating purchase:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to start purchase. Please try again.');
+      
+      // Dismiss loading toast if it exists
+      toast.dismiss('checkout-loading');
+      
+      // Show detailed error message
+      const errorMessage = error instanceof Error ? error.message : 'Failed to start purchase. Please try again.';
+      toast.error(errorMessage, {
+        description: 'If this problem persists, please contact support.',
+        action: {
+          label: 'Retry',
+          onClick: () => handlePurchase(pkg)
+        }
+      });
     } finally {
       setIsLoading(false);
       setPurchasingPackage(null);

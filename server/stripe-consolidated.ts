@@ -634,17 +634,39 @@ export async function handleCreditsCheckoutSuccess(session: Stripe.Checkout.Sess
   const packageId = session.metadata?.packageId;
   
   if (!userId || !credits || !amount) {
-    console.error('Missing required metadata in checkout session:', session.id);
-    return;
+    console.error('Missing required metadata in checkout session:', session.id, {
+      userId,
+      credits,
+      amount,
+      packageId,
+      metadata: session.metadata
+    });
+    throw new Error(`Invalid checkout session metadata for session ${session.id}`);
   }
 
   try {
+    // Check if this transaction has already been processed
+    const existingTransaction = await db.select()
+      .from(aiCreditsTransactions)
+      .where(
+        and(
+          eq(aiCreditsTransactions.userId, userId),
+          eq(aiCreditsTransactions.stripePaymentIntentId, session.payment_intent as string)
+        )
+      )
+      .limit(1);
+
+    if (existingTransaction.length > 0) {
+      console.log(`Credits checkout already processed for session ${session.id}, skipping duplicate processing`);
+      return;
+    }
+
     // Execute both operations atomically within a transaction
     await db.transaction(async (tx) => {
       // Get user and calculate new balance
       const [user] = await tx.select().from(users).where(eq(users.id, userId)).limit(1);
       if (!user) {
-        throw new Error('User not found');
+        throw new Error(`User ${userId} not found for checkout session ${session.id}`);
       }
 
       const newBalance = (user.ai_credits_balance || 0) + credits;
@@ -666,14 +688,28 @@ export async function handleCreditsCheckoutSuccess(session: Stripe.Checkout.Sess
           checkoutSessionId: session.id,
           packageId,
           priceUsd: amount,
+          processedAt: new Date().toISOString(),
         }
       });
     });
 
-    console.log(`${credits} AI credits added to user ${userId}, new balance: ${(await db.select().from(users).where(eq(users.id, userId)).limit(1))[0]?.ai_credits_balance || 0}`);
+    const finalBalance = (await db.select().from(users).where(eq(users.id, userId)).limit(1))[0]?.ai_credits_balance || 0;
+    console.log(`✅ Successfully added ${credits} AI credits to user ${userId}, new balance: ${finalBalance}`);
     
   } catch (error) {
-    console.error('Error handling credits checkout success:', error);
+    console.error(`❌ Error handling credits checkout success for session ${session.id}:`, error);
+    
+    // Log detailed error information for debugging
+    console.error('Checkout session details:', {
+      sessionId: session.id,
+      userId,
+      credits,
+      amount,
+      packageId,
+      paymentIntent: session.payment_intent,
+      metadata: session.metadata
+    });
+    
     throw error;
   }
 }

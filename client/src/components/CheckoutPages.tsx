@@ -10,6 +10,7 @@ import { CheckCircle2, XCircle, Loader2, Home, CreditCard, Clock } from 'lucide-
 import { navigateTo } from './Router';
 import { useAuth } from '@/hooks/useAuth';
 import { handleError, createError } from '@/lib/error-handler';
+import { toast } from 'sonner';
 
 interface CheckoutSession {
   id: string;
@@ -127,6 +128,12 @@ export const CheckoutSuccessPage: React.FC = () => {
           if (pollingIntervalRef.current) {
             clearInterval(pollingIntervalRef.current);
           }
+          
+          // Show success toast
+          toast.success('Credits confirmed!', {
+            description: `${expectedCredits} AI credits have been added to your account.`
+          });
+          
           return;
         }
 
@@ -169,6 +176,32 @@ export const CheckoutSuccessPage: React.FC = () => {
     pollCredits();
     pollingIntervalRef.current = setInterval(pollCredits, 6000);
   };
+
+  // Auto-refresh balance after successful credit confirmation
+  const refreshBalance = async () => {
+    try {
+      const response = await fetch('/api/credits/balance', {
+        credentials: 'include',
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        // Trigger a custom event to notify other components of balance update
+        window.dispatchEvent(new CustomEvent('creditsUpdated', { 
+          detail: { balance: data.balance } 
+        }));
+      }
+    } catch (error) {
+      console.error('Error refreshing balance:', error);
+    }
+  };
+
+  // Refresh balance when credits are confirmed
+  useEffect(() => {
+    if (creditsConfirmed) {
+      refreshBalance();
+    }
+  }, [creditsConfirmed]);
 
   const formatAmount = (amount: number, currency: string) => {
     return new Intl.NumberFormat('en-US', {

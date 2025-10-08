@@ -29,6 +29,7 @@ import { toast } from 'sonner';
 import { EnhancedFileCard } from './EnhancedFileCard';
 import { InlineUploadArea } from './InlineUploadArea';
 import { SkeletonLoader, EmptyStateSkeleton } from './SkeletonLoader';
+import { FileEmptyStates } from '../EmptyStates';
 import { AnalysisStatusCard } from './AnalysisStatusCard';
 import { AnalysisModal } from './AnalysisModal';
 import { TestModal } from './TestModal';
@@ -555,7 +556,42 @@ export const EnhancedFileManager: React.FC<EnhancedFileManagerProps> = ({
               </HolographicBubble>
             </div>
           ) : !sortedFiles.length ? (
-            <EmptyStateSkeleton />
+            <div className="h-64">
+              {searchQuery || currentFolder !== '/' ? (
+                <FileEmptyStates.NoFilesInFolder 
+                  currentFolder={currentFolder}
+                  onUpload={() => {
+                    // Trigger file upload
+                    const input = document.createElement('input');
+                    input.type = 'file';
+                    input.multiple = true;
+                    input.onchange = (e) => {
+                      const files = (e.target as HTMLInputElement).files;
+                      if (files) {
+                        handleFileUpload(Array.from(files));
+                      }
+                    };
+                    input.click();
+                  }}
+                />
+              ) : (
+                <FileEmptyStates.NoFiles 
+                  onUpload={() => {
+                    // Trigger file upload
+                    const input = document.createElement('input');
+                    input.type = 'file';
+                    input.multiple = true;
+                    input.onchange = (e) => {
+                      const files = (e.target as HTMLInputElement).files;
+                      if (files) {
+                        handleFileUpload(Array.from(files));
+                      }
+                    };
+                    input.click();
+                  }}
+                />
+              )}
+            </div>
           ) : (
             <div className={viewMode === 'grid' 
               ? "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4"

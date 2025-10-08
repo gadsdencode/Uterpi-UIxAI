@@ -50,6 +50,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Checkbox } from "./ui/checkbox";
 import { cn } from "../lib/utils";
+import { ChatEmptyStates } from "./EmptyStates";
 
 // Types
 interface Conversation {
@@ -1009,9 +1010,29 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                       </Button>
                     </div>
                   ) : sortedConversations.length === 0 ? (
-                    <div className="text-center py-8">
-                      <MessageSquare className="w-12 h-12 text-slate-600 mx-auto mb-4" />
-                      <p className="text-slate-400">No conversations found</p>
+                    <div className="p-4">
+                      {filters.search || filters.provider !== 'all' || filters.starred || filters.archived || filters.dateRange !== 'all' ? (
+                        <ChatEmptyStates.NoSearchResults 
+                          searchTerm={filters.search}
+                          hasFilters={filters.provider !== 'all' || filters.starred || filters.archived || filters.dateRange !== 'all'}
+                          onClearFilters={() => {
+                            setFilters({
+                              search: "",
+                              provider: "all",
+                              dateRange: "all",
+                              starred: false,
+                              archived: false
+                            });
+                          }}
+                        />
+                      ) : (
+                        <ChatEmptyStates.NoConversations 
+                          onStartNewConversation={() => {
+                            window.dispatchEvent(new CustomEvent('startNewConversation'));
+                          }}
+                          onRefresh={fetchConversations}
+                        />
+                      )}
                     </div>
                   ) : (
                     sortedConversations.map((conversation) => (
@@ -1268,10 +1289,7 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                           <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
                         </div>
                       ) : messages.length === 0 ? (
-                        <div className="text-center py-8">
-                          <MessageSquare className="w-12 h-12 text-slate-600 mx-auto mb-4" />
-                          <p className="text-slate-400">No messages in this conversation</p>
-                        </div>
+                        <ChatEmptyStates.NoMessages />
                       ) : (
                         messages.map((message) => (
                           <motion.div

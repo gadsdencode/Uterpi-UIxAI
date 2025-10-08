@@ -60,6 +60,7 @@ import {
 } from '../lib/transcriptUtils';
 import { CreditLimitMessage } from './CreditLimitMessage';
 import { AICreditsQuickPurchase } from './AICreditsQuickPurchase';
+import { ChatEmptyStates } from './EmptyStates';
 import { navigateTo } from './Router';
 import { useCreditUpdates } from '../hooks/useCreditUpdates';
 import ChatHistory from './ChatHistory';

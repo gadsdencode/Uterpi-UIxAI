@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { useFileManager, type FileItem } from '../hooks/useFileManager';
 import { toast } from 'sonner';
+import { FileEmptyStates } from './EmptyStates';
 
 interface ImproveModalProps {
   isOpen: boolean;
@@ -99,11 +100,23 @@ const FileManagerModal: React.FC<FileManagerModalProps> = ({ onFileSelect, selec
             <p className="text-slate-400">Loading files...</p>
           </div>
         ) : filteredFiles.length === 0 ? (
-          <div className="p-8 text-center text-slate-400">
-            <FileText className="w-12 h-12 mx-auto mb-4 opacity-50" />
-            <p>No code files found</p>
-            <p className="text-sm">Upload some .ts, .tsx, .js, or .jsx files first</p>
-          </div>
+          <FileEmptyStates.NoFiles 
+            onUpload={() => {
+              // Trigger file upload
+              const input = document.createElement('input');
+              input.type = 'file';
+              input.multiple = true;
+              input.accept = '.ts,.tsx,.js,.jsx,.jsx,.css,.html,.json';
+              input.onchange = (e) => {
+                const files = (e.target as HTMLInputElement).files;
+                if (files) {
+                  // Handle file upload
+                  console.log('Files selected for upload:', files);
+                }
+              };
+              input.click();
+            }}
+          />
         ) : (
           <div className="divide-y divide-slate-700">
             {filteredFiles.map((file) => (

@@ -17,6 +17,7 @@ import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Separator } from '../ui/separator';
 import { type FileItem } from '../../hooks/useFileManager';
+import { FileEmptyStates } from '../EmptyStates';
 
 interface AnalysisModalProps {
   isOpen: boolean;
@@ -151,17 +152,14 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({
 
           {/* Analysis Status */}
           {!analysis && (
-            <HolographicBubble>
-              <div className="flex items-center space-x-2">
-                <AlertTriangle className="w-5 h-5 text-yellow-400" />
-                <span className="font-medium text-yellow-300">
-                  No Analysis Data Available
-                </span>
-              </div>
-              <p className="text-slate-300 text-sm mt-2">
-                This file hasn't been analyzed yet or the analysis data is not available.
-              </p>
-            </HolographicBubble>
+            <FileEmptyStates.NoAnalysis 
+              onRunAnalysis={() => {
+                // This would trigger the analysis
+                window.dispatchEvent(new CustomEvent('runFileAnalysis', { 
+                  detail: { fileId: file.id } 
+                }));
+              }}
+            />
           )}
 
           {/* Analysis Summary */}

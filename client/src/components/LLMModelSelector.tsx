@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { LLMModel } from "@/types";
 import { AzureAIService } from "@/lib/azureAI";
+import { SearchEmptyStates } from "./EmptyStates";
 
 // Get models from current provider
 const getModelsForProvider = (getAvailableModels?: () => LLMModel[]): LLMModel[] => {
@@ -509,17 +510,18 @@ const LLMModalSelector: React.FC<LLMModalSelectorProps> = ({
 
             {/* Empty State */}
             {filteredAndSortedModels.length === 0 && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="text-center py-12"
-              >
-                <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-slate-800/50 flex items-center justify-center">
-                  <Search className="w-10 h-10 text-slate-400" />
-                </div>
-                <h3 className="text-lg font-semibold mb-2 text-white">No models found</h3>
-                <p className="text-slate-400">Try adjusting your search criteria or filters.</p>
-              </motion.div>
+              <SearchEmptyStates.NoResults 
+                searchTerm={searchQuery}
+                hasFilters={categoryFilter !== 'all' || tierFilter !== 'all' || sortBy !== 'name'}
+                searchType="models"
+                onClearSearch={() => setSearchQuery('')}
+                onClearFilters={() => {
+                  setCategoryFilter('all');
+                  setTierFilter('all');
+                  setSortBy('name');
+                }}
+                suggestions={['GPT-4', 'Claude', 'Gemini', 'Llama']}
+              />
             )}
           </div>
 

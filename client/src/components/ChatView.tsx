@@ -405,11 +405,16 @@ const HolographicBubble: React.FC<{
   children: React.ReactNode;
   isUser?: boolean;
   className?: string;
-}> = ({ children, isUser = false, className }) => (
+  isNewMessage?: boolean;
+}> = ({ children, isUser = false, className, isNewMessage = false }) => (
   <motion.div
-    initial={{ opacity: 0, scale: 0.8, y: 20 }}
+    initial={isNewMessage ? { opacity: 0, scale: 0.95, y: 15 } : { opacity: 0, scale: 0.8, y: 20 }}
     animate={{ opacity: 1, scale: 1, y: 0 }}
-    transition={{ type: "spring", damping: 20, stiffness: 300 }}
+    transition={
+      isNewMessage 
+        ? { duration: 0.4, ease: [0.16, 1, 0.3, 1] } // Smooth easing for new messages
+        : { type: "spring", damping: 20, stiffness: 300 }
+    }
     className={`
       relative p-4 rounded-2xl backdrop-blur-xl border overflow-hidden
       ${isUser 
@@ -425,29 +430,42 @@ const HolographicBubble: React.FC<{
   </motion.div>
 );
 
-const TypingIndicator: React.FC = () => (
-  <HolographicBubble>
-    <div className="flex items-center gap-2">
-      <div className="flex items-center gap-1">
-        {[0, 1, 2].map((i) => (
-          <motion.div
-            key={i}
-            className="w-2 h-2 bg-violet-400 rounded-full"
-            animate={{
-              scale: [1, 1.2, 1],
-              opacity: [0.5, 1, 0.5],
-            }}
-            transition={{
-              duration: 1.5,
-              repeat: Infinity,
-              delay: i * 0.2,
-            }}
-          />
-        ))}
+const TypingIndicator: React.FC<{ variant?: 'thinking' | 'typing' }> = ({ variant = 'thinking' }) => (
+  <motion.div
+    initial={{ opacity: 0, y: 10 }}
+    animate={{ opacity: 1, y: 0 }}
+    exit={{ opacity: 0, y: -10 }}
+    transition={{ duration: 0.3 }}
+  >
+    <HolographicBubble>
+      <div className="flex items-center gap-3">
+        <div className="flex items-center gap-1">
+          {[0, 1, 2].map((i) => (
+            <motion.div
+              key={i}
+              className="w-2 h-2 bg-violet-400 rounded-full"
+              animate={{
+                scale: [1, 1.3, 1],
+                opacity: [0.4, 1, 0.4],
+              }}
+              transition={{
+                duration: 1.2,
+                repeat: Infinity,
+                delay: i * 0.15,
+                ease: "easeInOut"
+              }}
+            />
+          ))}
+        </div>
+        <div className="flex items-center gap-2">
+          <Brain className="w-4 h-4 text-violet-400 animate-pulse" />
+          <span className="text-sm text-slate-300">
+            {variant === 'thinking' ? 'Thinking...' : 'AI is typing...'}
+          </span>
+        </div>
       </div>
-      <span className="text-sm text-slate-300">AI is thinking...</span>
-    </div>
-  </HolographicBubble>
+    </HolographicBubble>
+  </motion.div>
 );
 
 const NeuralNetworkPulse: React.FC<{ isActive?: boolean }> = ({ isActive = false }) => (
@@ -886,6 +904,7 @@ const FuturisticAIChat: React.FC = () => {
   }, [greeting, greetingLoading, messages.length]);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const [isGeneratingResponse, setIsGeneratingResponse] = useState(false); // Track AI thinking/generating phase
   const [showCommands, setShowCommands] = useState(false);
   const [attachments, setAttachments] = useState<string[]>([]);
   const [attachedFileIds, setAttachedFileIds] = useState<number[]>([]);
@@ -894,6 +913,7 @@ const FuturisticAIChat: React.FC = () => {
   const [showEditModal, setShowEditModal] = useState(false);
   const [enableStreaming, setEnableStreaming] = useState(true);
   const [streamingResponse, setStreamingResponse] = useState("");
+  const [responseBuffer, setResponseBuffer] = useState(""); // Buffer for accumulating streamed response
   const [showSystemMessageModal, setShowSystemMessageModal] = useState(false);
   const [selectedSystemPreset, setSelectedSystemPreset] = useState<keyof typeof SYSTEM_MESSAGE_PRESETS | "custom">("DEFAULT");
   const [customSystemMessage, setCustomSystemMessage] = useState<string>("");
@@ -1581,53 +1601,56 @@ const FuturisticAIChat: React.FC = () => {
 
     try {
       if (enableStreaming) {
-        // Handle streaming response
+        // Handle streaming response with ChatGPT-style "thinking" phase
         console.log('📤 Using STREAMING mode with provider:', currentProvider);
         const aiMessageId = (Date.now() + 1).toString();
+        
+        // Show thinking indicator
+        setIsGeneratingResponse(true);
+        setResponseBuffer("");
+
+        // Accumulate response in buffer without displaying
+        let accumulatedResponse = "";
+        await sendStreamingMessage(updatedMessages, (chunk: string) => {
+          accumulatedResponse += chunk;
+          setResponseBuffer(accumulatedResponse);
+        });
+
+        // Once streaming is complete, hide thinking indicator and display full response
+        setIsGeneratingResponse(false);
+        
+        // Create the AI message with the complete response
         const aiMessage: Message = {
           id: aiMessageId,
-          content: "",
+          content: accumulatedResponse,
           role: "assistant",
           timestamp: new Date(),
         };
         
+        // Display the complete response at once
         setMessages(prev => [...prev, aiMessage]);
-        setStreamingResponse("");
-
-        await sendStreamingMessage(updatedMessages, (chunk: string) => {
-          setStreamingResponse(prev => {
-            const newContent = prev + chunk;
-            setMessages(prevMessages => 
-              prevMessages.map(msg => 
-                msg.id === aiMessageId 
-                  ? { ...msg, content: newContent }
-                  : msg
-              )
-            );
-            return newContent;
-          });
-        });
-
-        // After streaming completes, attempt to fetch sources from last backend response if available via a side channel in future
-
-        setStreamingResponse("");
+        setResponseBuffer("");
         
         // Auto-speak AI response if TTS is available and enabled (for streaming)
-        if (speechAvailable && !isSpeaking) {
+        if (speechAvailable && !isSpeaking && accumulatedResponse) {
           const autoSpeak = localStorage.getItem('auto-speak-responses');
           if (autoSpeak === 'true') {
-            // Get the final message content
-            const finalMessage = messages.find(m => m.id === aiMessageId);
-            if (finalMessage && finalMessage.content) {
-              handleSpeak(aiMessageId, finalMessage.content);
-            }
+            handleSpeak(aiMessageId, accumulatedResponse);
           }
         }
       } else {
-        // Handle non-streaming response
+        // Handle non-streaming response with thinking indicator
         console.log('📤 Sending message to AI provider:', currentProvider);
+        
+        // Show thinking indicator during request
+        setIsGeneratingResponse(true);
+        
         const response = await sendMessage(updatedMessages);
         console.log('📥 Received response:', response ? `${response.substring(0, 100)}...` : 'EMPTY/UNDEFINED');
+        
+        // Hide thinking indicator
+        setIsGeneratingResponse(false);
+        
         // If backend attaches sources, it must come with structured data. Current hooks return string only.
         
         if (!response) {
@@ -1751,6 +1774,8 @@ const FuturisticAIChat: React.FC = () => {
       setMessages(prev => [...prev, errorMessage]);
     } finally {
       setIsTyping(false);
+      setIsGeneratingResponse(false); // Always reset generating state
+      setResponseBuffer(""); // Clear response buffer
       setActiveMessage(null);
       setIsSubmittingMessage(false); // Reset flag to allow speech results again
       // Clear chat active flag after a short delay to ensure response is complete
@@ -2364,7 +2389,12 @@ const FuturisticAIChat: React.FC = () => {
               ))}
             </AnimatePresence>
             
-            {isTyping && <TypingIndicator />}
+            {/* Show thinking indicator during AI generation */}
+            <AnimatePresence>
+              {(isTyping || isGeneratingResponse) && (
+                <TypingIndicator variant={isGeneratingResponse ? 'thinking' : 'typing'} />
+              )}
+            </AnimatePresence>
             <div ref={messagesEndRef} />
           </div>
         </div>

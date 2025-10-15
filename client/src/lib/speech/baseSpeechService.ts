@@ -31,6 +31,15 @@ export abstract class BaseSpeechService implements ISpeechService {
   abstract getCapabilities(): SpeechServiceCapabilities;
   abstract isListening(): boolean;
 
+  // Default implementation for audio data processing
+  async processAudioData?(audioData: Blob | ArrayBuffer | string, options?: STTOptions): Promise<SpeechRecognitionResult> {
+    throw new Error(`Audio data processing not implemented for ${this.provider} provider`);
+  }
+
+  supportsAudioProcessing?(): boolean {
+    return false;
+  }
+
   async initialize(config?: SpeechConfig): Promise<void> {
     this.config = { ...this.config, ...config };
     this.isInitialized = true;

@@ -7,8 +7,12 @@ import {
   STTOptions,
   SpeechRecognitionResult,
   VoiceInfo,
-  SpeechServiceCapabilities
+  SpeechServiceCapabilities,
+  VADConfig,
+  VADEvent,
+  VADStats
 } from '../types/speech';
+import { AudioRecorderConfig } from '../lib/speech/audioRecorder';
 import { useAIProvider } from './useAIProvider';
 
 interface UseSpeechOptions extends SpeechConfig {
@@ -17,6 +21,20 @@ interface UseSpeechOptions extends SpeechConfig {
   onRecognitionError?: (error: Error) => void;
   onSynthesisComplete?: () => void;
   onSynthesisError?: (error: Error) => void;
+  // Audio recording options
+  useAudioRecording?: boolean;
+  audioConfig?: AudioRecorderConfig;
+  audioProcessing?: {
+    format?: 'wav' | 'mp3' | 'webm' | 'ogg';
+    quality?: 'low' | 'medium' | 'high';
+    compression?: boolean;
+    noiseReduction?: boolean;
+    normalize?: boolean;
+  };
+  // VAD options
+  enableVAD?: boolean;
+  vadConfig?: VADConfig;
+  onVADEvent?: (event: VADEvent) => void;
 }
 
 interface UseSpeechReturn {
@@ -32,6 +50,18 @@ interface UseSpeechReturn {
   transcript: string;
   interimTranscript: string;
   clearTranscript: () => void;
+  
+  // Audio Recording Methods (new)
+  startAudioRecording: () => Promise<void>;
+  stopAudioRecording: () => Promise<string>;
+  isAudioRecording: boolean;
+  audioRecordingDuration: number;
+  
+  // VAD Methods (new)
+  enableVAD: boolean;
+  vadState: 'silence' | 'speech' | 'noise' | null;
+  vadStats: VADStats | null;
+  updateVADConfig: (config: Partial<VADConfig>) => void;
   
   // Voice Management
   voices: VoiceInfo[];
@@ -84,6 +114,18 @@ export const useSpeech = (options: UseSpeechOptions = {}): UseSpeechReturn => {
       interimTranscript: '',
       clearTranscript: () => {},
       
+      // Audio Recording Methods
+      startAudioRecording: async () => { throw new Error('Speech APIs not available'); },
+      stopAudioRecording: async () => { return ''; },
+      isAudioRecording: false,
+      audioRecordingDuration: 0,
+      
+      // VAD Methods
+      enableVAD: false,
+      vadState: null,
+      vadStats: null,
+      updateVADConfig: () => {},
+      
       // Voice Management
       voices: [],
       selectedVoice: null,
@@ -121,6 +163,15 @@ export const useSpeech = (options: UseSpeechOptions = {}): UseSpeechReturn => {
   const [error, setError] = useState<string | null>(null);
   const [microphonePermission, setMicrophonePermission] = useState<PermissionState | 'unsupported'>('prompt');
   const [isHTTPS, setIsHTTPS] = useState<boolean>(false);
+  
+  // Audio recording state
+  const [isAudioRecording, setIsAudioRecording] = useState(false);
+  const [audioRecordingDuration, setAudioRecordingDuration] = useState(0);
+  const audioRecordingTimerRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // VAD state
+  const [vadState, setVadState] = useState<'silence' | 'speech' | 'noise' | null>(null);
+  const [vadStats, setVadStats] = useState<VADStats | null>(null);
   
   const abortController = useRef<AbortController | null>(null);
 
@@ -195,7 +246,7 @@ export const useSpeech = (options: UseSpeechOptions = {}): UseSpeechReturn => {
       
       // Set up recognition callbacks with error handling
       try {
-        // Initialize orchestrator for resilient STT
+        // Initialize orchestrator for resilient STT with audio recording and VAD support
         orchestratorRef.current = new SpeechOrchestrator({
           aiProvider: currentProvider,
           onResult: (result) => {
@@ -213,7 +264,30 @@ export const useSpeech = (options: UseSpeechOptions = {}): UseSpeechReturn => {
             }
           },
           progressTimeoutMs: 30000, // 30 seconds timeout for natural speech pauses
-          maxRestartsPerMinute: 10
+          maxRestartsPerMinute: 10,
+          useAudioRecording: options.useAudioRecording || false,
+          audioConfig: options.audioConfig,
+          audioProcessing: options.audioProcessing,
+          enableVAD: options.enableVAD || false,
+          vadConfig: options.vadConfig,
+          onVADEvent: (event) => {
+            console.log('🎤 VAD Event received:', event);
+            setVadState(event.type === 'speech_start' ? 'speech' : 
+                       event.type === 'speech_end' ? 'silence' : 
+                       event.type === 'noise_detected' ? 'noise' : 'silence');
+            
+            // Update VAD stats periodically
+            if (orchestratorRef.current) {
+              const stats = orchestratorRef.current.getVADStats();
+              if (stats) {
+                setVadStats(stats);
+              }
+            }
+            
+            if (options.onVADEvent) {
+              options.onVADEvent(event);
+            }
+          }
         });
         await orchestratorRef.current.initialize(options);
         console.log('🎤 Speech orchestrator initialized successfully');
@@ -236,6 +310,7 @@ export const useSpeech = (options: UseSpeechOptions = {}): UseSpeechReturn => {
         supportsVoiceCloning: ttsCaps.supportsVoiceCloning || sttCaps.supportsVoiceCloning,
         supportsEmotions: ttsCaps.supportsEmotions || sttCaps.supportsEmotions,
         supportsMultiLanguage: ttsCaps.supportsMultiLanguage || sttCaps.supportsMultiLanguage,
+        supportsVAD: options.enableVAD || false, // VAD support is based on configuration
         availableVoices: ttsCaps.availableVoices?.length ? ttsCaps.availableVoices : sttCaps.availableVoices,
         availableLanguages: Array.from(new Set([...(ttsCaps.availableLanguages||[]), ...(sttCaps.availableLanguages||[])]))
       });
@@ -444,6 +519,85 @@ export const useSpeech = (options: UseSpeechOptions = {}): UseSpeechReturn => {
     setInterimTranscript('');
   }, []);
 
+  // Audio recording methods
+  const startAudioRecording = useCallback(async (): Promise<void> => {
+    if (!orchestratorRef.current) {
+      throw new Error('Speech service not initialized');
+    }
+
+    if (isAudioRecording) {
+      console.warn('Audio recording already in progress');
+      return;
+    }
+
+    try {
+      setIsAudioRecording(true);
+      setAudioRecordingDuration(0);
+      setTranscript('');
+      setInterimTranscript('');
+      setError(null);
+
+      // Start audio recording through orchestrator
+      await orchestratorRef.current.start({
+        continuous: true,
+        interimResults: true,
+        language: options.language || 'en-US'
+      });
+
+      // Start duration timer
+      const startTime = Date.now();
+      audioRecordingTimerRef.current = setInterval(() => {
+        setAudioRecordingDuration(Math.floor((Date.now() - startTime) / 1000));
+      }, 1000);
+
+      console.log('🎤 Audio recording started');
+    } catch (error) {
+      console.error('Failed to start audio recording:', error);
+      setIsAudioRecording(false);
+      setError((error as Error).message);
+      if (options.onRecognitionError) {
+        options.onRecognitionError(error as Error);
+      }
+      throw error;
+    }
+  }, [isAudioRecording, options]);
+
+  const stopAudioRecording = useCallback(async (): Promise<string> => {
+    if (!orchestratorRef.current) {
+      return transcript;
+    }
+
+    if (!isAudioRecording) {
+      console.warn('No audio recording in progress');
+      return transcript;
+    }
+
+    try {
+      const result = await orchestratorRef.current.stop();
+      setTranscript(result.transcript);
+      setInterimTranscript('');
+      setIsAudioRecording(false);
+      setAudioRecordingDuration(0);
+      
+      // Clear duration timer
+      if (audioRecordingTimerRef.current) {
+        clearInterval(audioRecordingTimerRef.current);
+        audioRecordingTimerRef.current = null;
+      }
+      
+      console.log('🎤 Audio recording stopped');
+      return result.transcript;
+    } catch (error) {
+      console.error('Failed to stop audio recording:', error);
+      setIsAudioRecording(false);
+      setAudioRecordingDuration(0);
+      if (options.onRecognitionError) {
+        options.onRecognitionError(error as Error);
+      }
+      return transcript;
+    }
+  }, [isAudioRecording, transcript, options]);
+
   // Set voice by VoiceInfo or voice ID
   const setVoice = useCallback((voice: VoiceInfo | string) => {
     if (typeof voice === 'string') {
@@ -456,6 +610,13 @@ export const useSpeech = (options: UseSpeechOptions = {}): UseSpeechReturn => {
     }
   }, [voices]);
 
+  // Update VAD configuration
+  const updateVADConfig = useCallback((config: Partial<VADConfig>) => {
+    if (orchestratorRef.current) {
+      orchestratorRef.current.updateVADConfig(config);
+    }
+  }, []);
+
   // Dispose of resources
   const dispose = useCallback(() => {
     if (ttsService) { ttsService.dispose(); }
@@ -464,10 +625,18 @@ export const useSpeech = (options: UseSpeechOptions = {}): UseSpeechReturn => {
     if (isListening) {
       stopListening();
     }
+    if (isAudioRecording) {
+      stopAudioRecording();
+    }
+    // Clear audio recording timer
+    if (audioRecordingTimerRef.current) {
+      clearInterval(audioRecordingTimerRef.current);
+      audioRecordingTimerRef.current = null;
+    }
     setTtsService(null);
     setSttService(null);
     setIsInitialized(false);
-  }, [ttsService, sttService, isListening, stopSpeaking, stopListening]);
+  }, [ttsService, sttService, isListening, isAudioRecording, stopSpeaking, stopListening, stopAudioRecording]);
 
   // Get current speech provider name
   const getCurrentProviderName = useCallback(async (): Promise<string> => {
@@ -493,6 +662,18 @@ export const useSpeech = (options: UseSpeechOptions = {}): UseSpeechReturn => {
     transcript,
     interimTranscript,
     clearTranscript,
+    
+    // Audio Recording Methods (new)
+    startAudioRecording,
+    stopAudioRecording,
+    isAudioRecording,
+    audioRecordingDuration,
+    
+    // VAD Methods (new)
+    enableVAD: options.enableVAD || false,
+    vadState,
+    vadStats,
+    updateVADConfig,
     
     // Voice Management
     voices,

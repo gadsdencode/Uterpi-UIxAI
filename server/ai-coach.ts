@@ -9,6 +9,18 @@ import {
   users,
   type User
 } from "@shared/schema";
+import { 
+  DatabaseError, 
+  ValidationError, 
+  NotFoundError,
+  createError,
+  retryOperation 
+} from "./error-handler";
+import { 
+  modelRecommendationService, 
+  type TaskCharacteristics,
+  type ModelRecommendation 
+} from "./model-recommendation-service";
 
 // =============================================================================
 // AI COACH SERVICE
@@ -76,6 +88,33 @@ export class AICoachService {
   }
 
   /**
+   * Update model recommendation configuration
+   * This allows runtime updates to model recommendations without code changes
+   */
+  updateModelRecommendationConfig(config: any): void {
+    try {
+      modelRecommendationService.updateConfig(config);
+      console.log('Model recommendation configuration updated successfully');
+    } catch (error) {
+      console.error('Error updating model recommendation configuration:', error);
+    }
+  }
+
+  /**
+   * Get current model recommendation configuration
+   */
+  getModelRecommendationConfig(): any {
+    return modelRecommendationService.getConfig();
+  }
+
+  /**
+   * Get model recommendations for a specific workflow type
+   */
+  getModelRecommendationsForWorkflowType(workflowType: string): ModelRecommendation[] {
+    return modelRecommendationService.getWorkflowTypeRecommendations(workflowType);
+  }
+
+  /**
    * Track workflow activity
    */
   async trackWorkflowActivity(
@@ -85,6 +124,11 @@ export class AICoachService {
     activityData: any
   ): Promise<void> {
     try {
+      // Validate input parameters
+      if (!userId || !sessionId || !activityType) {
+        throw createError.validation('Missing required parameters for workflow tracking');
+      }
+
       // Get or create active workflow
       let workflow = await this.getActiveWorkflow(userId, sessionId);
       
@@ -101,7 +145,22 @@ export class AICoachService {
       }
 
     } catch (error) {
-      console.error('Error tracking workflow activity:', error);
+      console.error('Error tracking workflow activity:', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        userId,
+        sessionId,
+        activityType,
+        timestamp: new Date().toISOString()
+      });
+      
+      // Re-throw operational errors, but don't crash the service for tracking failures
+      if (error instanceof ValidationError) {
+        throw error;
+      }
+      
+      // For other errors, log but don't throw to prevent service disruption
+      console.warn('Workflow tracking failed, continuing without tracking');
     }
   }
 
@@ -238,27 +297,45 @@ export class AICoachService {
    */
   async analyzeWorkflow(workflowId: number): Promise<WorkflowAnalysis | null> {
     try {
-      const workflow = await db
-        .select()
-        .from(workflowTracking)
-        .where(eq(workflowTracking.id, workflowId))
-        .limit(1);
+      // Validate input
+      if (!workflowId || workflowId <= 0) {
+        throw createError.validation('Invalid workflow ID provided');
+      }
 
-      if (!workflow[0]) return null;
+      const workflow = await retryOperation(
+        () => db
+          .select()
+          .from(workflowTracking)
+          .where(eq(workflowTracking.id, workflowId))
+          .limit(1),
+        3,
+        1000,
+        `fetching workflow ${workflowId}`
+      );
+
+      if (!workflow[0]) {
+        console.warn(`Workflow not found: ${workflowId}`);
+        return null;
+      }
 
       const wf = workflow[0];
       const analysis = await this.performWorkflowAnalysis(wf);
 
-      // Store analysis
-      await db
-        .update(workflowTracking)
-        .set({
-          coachAnalysis: analysis,
-          lastAnalyzedAt: new Date(),
-          efficiencyScore: analysis.efficiencyScore,
-          complexityLevel: analysis.complexityAssessment.level,
-        })
-        .where(eq(workflowTracking.id, workflowId));
+      // Store analysis with retry logic
+      await retryOperation(
+        () => db
+          .update(workflowTracking)
+          .set({
+            coachAnalysis: analysis,
+            lastAnalyzedAt: new Date(),
+            efficiencyScore: analysis.efficiencyScore,
+            complexityLevel: analysis.complexityAssessment.level,
+          })
+          .where(eq(workflowTracking.id, workflowId)),
+        3,
+        1000,
+        `updating workflow analysis ${workflowId}`
+      );
 
       // Generate and store insights
       const insights = await this.generateInsights(wf.userId, analysis, wf);
@@ -266,7 +343,19 @@ export class AICoachService {
 
       return analysis;
     } catch (error) {
-      console.error('Error analyzing workflow:', error);
+      console.error('Error analyzing workflow:', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        workflowId,
+        timestamp: new Date().toISOString()
+      });
+      
+      // Re-throw validation errors
+      if (error instanceof ValidationError) {
+        throw error;
+      }
+      
+      // For other errors, return null to indicate analysis failed
       return null;
     }
   }
@@ -422,28 +511,82 @@ export class AICoachService {
     });
 
     // Analyze model effectiveness
-    const modelPerformance: Record<string, { success: number; total: number }> = {};
+    const modelPerformance: Record<string, { success: number; total: number; avgDuration: number }> = {};
     commands.forEach(c => {
       if (c.modelUsed) {
         if (!modelPerformance[c.modelUsed]) {
-          modelPerformance[c.modelUsed] = { success: 0, total: 0 };
+          modelPerformance[c.modelUsed] = { success: 0, total: 0, avgDuration: 0 };
         }
         modelPerformance[c.modelUsed].total++;
         if (c.success !== false) {
           modelPerformance[c.modelUsed].success++;
         }
+        modelPerformance[c.modelUsed].avgDuration += c.duration || 0;
       }
     });
 
-    // Generate recommendations based on performance
+    // Calculate average durations
+    Object.keys(modelPerformance).forEach(model => {
+      const perf = modelPerformance[model];
+      perf.avgDuration = perf.avgDuration / perf.total;
+    });
+
+    // Generate recommendations based on performance and task characteristics
     Object.entries(modelPerformance).forEach(([model, perf]) => {
       const successRate = perf.success / perf.total;
-      if (successRate < 0.7) {
+      
+      // Update model performance metrics in the recommendation service
+      modelRecommendationService.updateModelPerformance(
+        model,
+        successRate >= 0.7,
+        perf.avgDuration,
+        successRate // Use success rate as user satisfaction proxy
+      );
+
+      // Generate recommendation if performance is suboptimal
+      if (successRate < 0.7 || perf.avgDuration > 5000) {
+        const taskCharacteristics: TaskCharacteristics = {
+          hasCode: commands.some(c => 
+            c.command.includes('code') || 
+            c.command.includes('debug') || 
+            c.command.includes('refactor')
+          ),
+          hasAnalysis: commands.some(c => 
+            c.command.includes('analyze') || 
+            c.command.includes('review')
+          ),
+          hasWriting: commands.some(c => 
+            c.command.includes('write') || 
+            c.command.includes('document')
+          ),
+          hasResearch: commands.some(c => 
+            c.command.includes('research') || 
+            c.command.includes('search')
+          ),
+          hasDebugging: commands.some(c => 
+            c.command.includes('debug') || 
+            c.command.includes('fix')
+          ),
+          hasRefactoring: commands.some(c => 
+            c.command.includes('refactor') || 
+            c.command.includes('optimize')
+          ),
+          complexity: this.assessTaskComplexity(commands),
+          timeSensitivity: this.assessTimeSensitivity(commands),
+          accuracyRequirement: this.assessAccuracyRequirement(commands)
+        };
+
+        const recommendation = modelRecommendationService.getRecommendedModel(
+          model,
+          taskCharacteristics,
+          this.determineWorkflowType(commands[0]?.command || 'general')
+        );
+
         recommendations.push({
           currentModel: model,
-          recommendedModel: this.getRecommendedModel(model, commands),
-          reason: `Low success rate (${Math.round(successRate * 100)}%) with current model`,
-          expectedImprovement: 30,
+          recommendedModel: recommendation.modelId,
+          reason: recommendation.reasoning,
+          expectedImprovement: recommendation.expectedImprovement,
         });
       }
     });
@@ -557,24 +700,113 @@ export class AICoachService {
   }
 
   /**
-   * Helper: Get recommended model based on task
+   * Helper: Get recommended model based on task characteristics
    */
   private getRecommendedModel(currentModel: string, commands: WorkflowCommand[]): string {
-    // Analyze command types to recommend best model
-    const hasCode = commands.some(c => 
-      c.command.includes('code') || 
-      c.command.includes('debug') || 
-      c.command.includes('refactor')
-    );
-    
-    const hasAnalysis = commands.some(c => 
-      c.command.includes('analyze') || 
-      c.command.includes('review')
+    // Analyze command types to determine task characteristics
+    const taskCharacteristics: TaskCharacteristics = {
+      hasCode: commands.some(c => 
+        c.command.includes('code') || 
+        c.command.includes('debug') || 
+        c.command.includes('refactor')
+      ),
+      hasAnalysis: commands.some(c => 
+        c.command.includes('analyze') || 
+        c.command.includes('review')
+      ),
+      hasWriting: commands.some(c => 
+        c.command.includes('write') || 
+        c.command.includes('document')
+      ),
+      hasResearch: commands.some(c => 
+        c.command.includes('research') || 
+        c.command.includes('search')
+      ),
+      hasDebugging: commands.some(c => 
+        c.command.includes('debug') || 
+        c.command.includes('fix')
+      ),
+      hasRefactoring: commands.some(c => 
+        c.command.includes('refactor') || 
+        c.command.includes('optimize')
+      ),
+      complexity: this.assessTaskComplexity(commands),
+      timeSensitivity: this.assessTimeSensitivity(commands),
+      accuracyRequirement: this.assessAccuracyRequirement(commands)
+    };
+
+    // Get recommendation from the model recommendation service
+    const recommendation = modelRecommendationService.getRecommendedModel(
+      currentModel,
+      taskCharacteristics,
+      this.determineWorkflowType(commands[0]?.command || 'general')
     );
 
-    if (hasCode) return 'gpt-4o'; // Best for coding
-    if (hasAnalysis) return 'claude-3-opus'; // Best for analysis
-    return 'gpt-4o-mini'; // Good general purpose
+    return recommendation.modelId;
+  }
+
+  /**
+   * Helper: Assess task complexity from commands
+   */
+  private assessTaskComplexity(commands: WorkflowCommand[]): 'simple' | 'moderate' | 'complex' | 'expert' {
+    const uniqueCommands = new Set(commands.map(c => c.command)).size;
+    const hasComplexOperations = commands.some(c => 
+      c.command.includes('refactor') || 
+      c.command.includes('optimize') || 
+      c.command.includes('debug')
+    );
+
+    if (commands.length > 15 || uniqueCommands > 10 || hasComplexOperations) {
+      return 'expert';
+    } else if (commands.length > 8 || uniqueCommands > 5) {
+      return 'complex';
+    } else if (commands.length > 3 || uniqueCommands > 2) {
+      return 'moderate';
+    }
+    return 'simple';
+  }
+
+  /**
+   * Helper: Assess time sensitivity from commands
+   */
+  private assessTimeSensitivity(commands: WorkflowCommand[]): 'low' | 'medium' | 'high' {
+    const hasUrgentKeywords = commands.some(c => 
+      c.command.includes('urgent') || 
+      c.command.includes('asap') || 
+      c.command.includes('quick')
+    );
+    
+    const hasTimeConstraints = commands.some(c => 
+      c.command.includes('deadline') || 
+      c.command.includes('time') || 
+      c.command.includes('fast')
+    );
+
+    if (hasUrgentKeywords) return 'high';
+    if (hasTimeConstraints) return 'medium';
+    return 'low';
+  }
+
+  /**
+   * Helper: Assess accuracy requirement from commands
+   */
+  private assessAccuracyRequirement(commands: WorkflowCommand[]): 'low' | 'medium' | 'high' {
+    const hasHighAccuracyKeywords = commands.some(c => 
+      c.command.includes('precise') || 
+      c.command.includes('accurate') || 
+      c.command.includes('critical') ||
+      c.command.includes('production')
+    );
+    
+    const hasAnalysisTasks = commands.some(c => 
+      c.command.includes('analyze') || 
+      c.command.includes('review') || 
+      c.command.includes('audit')
+    );
+
+    if (hasHighAccuracyKeywords) return 'high';
+    if (hasAnalysisTasks) return 'medium';
+    return 'low';
   }
 
   /**
@@ -823,36 +1055,95 @@ export class AICoachService {
    * Get pending insights for user
    */
   async getPendingInsights(userId: number, limit: number = 5): Promise<any[]> {
-    const insights = await db
-      .select()
-      .from(aiCoachInsights)
-      .where(
-        and(
-          eq(aiCoachInsights.userId, userId),
-          eq(aiCoachInsights.wasShown, false),
-          gte(aiCoachInsights.expiresAt, new Date())
-        )
-      )
-      .orderBy(
-        desc(aiCoachInsights.expectedImpact),
-        desc(aiCoachInsights.generatedAt)
-      )
-      .limit(limit);
+    try {
+      // Validate input parameters
+      if (!userId || userId <= 0) {
+        throw createError.validation('Invalid user ID provided');
+      }
+      
+      if (limit < 1 || limit > 50) {
+        throw createError.validation('Limit must be between 1 and 50');
+      }
 
-    return insights;
+      const insights = await retryOperation(
+        () => db
+          .select()
+          .from(aiCoachInsights)
+          .where(
+            and(
+              eq(aiCoachInsights.userId, userId),
+              eq(aiCoachInsights.wasShown, false),
+              gte(aiCoachInsights.expiresAt, new Date())
+            )
+          )
+          .orderBy(
+            desc(aiCoachInsights.expectedImpact),
+            desc(aiCoachInsights.generatedAt)
+          )
+          .limit(limit),
+        3,
+        1000,
+        `fetching pending insights for user ${userId}`
+      );
+
+      return insights;
+    } catch (error) {
+      console.error('Error getting pending insights:', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        userId,
+        limit,
+        timestamp: new Date().toISOString()
+      });
+      
+      // Re-throw validation errors
+      if (error instanceof ValidationError) {
+        throw error;
+      }
+      
+      // For database errors, return empty array to prevent service disruption
+      return [];
+    }
   }
 
   /**
    * Mark insight as shown
    */
   async markInsightShown(insightId: number): Promise<void> {
-    await db
-      .update(aiCoachInsights)
-      .set({
-        wasShown: true,
-        shownAt: new Date(),
-      })
-      .where(eq(aiCoachInsights.id, insightId));
+    try {
+      // Validate input
+      if (!insightId || insightId <= 0) {
+        throw createError.validation('Invalid insight ID provided');
+      }
+
+      await retryOperation(
+        () => db
+          .update(aiCoachInsights)
+          .set({
+            wasShown: true,
+            shownAt: new Date(),
+          })
+          .where(eq(aiCoachInsights.id, insightId)),
+        3,
+        1000,
+        `marking insight ${insightId} as shown`
+      );
+    } catch (error) {
+      console.error('Error marking insight as shown:', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        insightId,
+        timestamp: new Date().toISOString()
+      });
+      
+      // Re-throw validation errors
+      if (error instanceof ValidationError) {
+        throw error;
+      }
+      
+      // For other errors, don't throw to prevent service disruption
+      console.warn(`Failed to mark insight ${insightId} as shown, continuing`);
+    }
   }
 
   /**
@@ -863,56 +1154,151 @@ export class AICoachService {
     feedback: 'positive' | 'negative' | 'neutral',
     details?: string
   ): Promise<void> {
-    await db
-      .update(aiCoachInsights)
-      .set({
-        userFeedback: feedback,
-        feedbackDetails: details,
-        wasActedUpon: feedback === 'positive',
-        actedAt: feedback === 'positive' ? new Date() : undefined,
-      })
-      .where(eq(aiCoachInsights.id, insightId));
+    try {
+      // Validate input parameters
+      if (!insightId || insightId <= 0) {
+        throw createError.validation('Invalid insight ID provided');
+      }
+      
+      if (!['positive', 'negative', 'neutral'].includes(feedback)) {
+        throw createError.validation('Invalid feedback type provided');
+      }
+
+      await retryOperation(
+        () => db
+          .update(aiCoachInsights)
+          .set({
+            userFeedback: feedback,
+            feedbackDetails: details,
+            wasActedUpon: feedback === 'positive',
+            actedAt: feedback === 'positive' ? new Date() : undefined,
+          })
+          .where(eq(aiCoachInsights.id, insightId)),
+        3,
+        1000,
+        `recording feedback for insight ${insightId}`
+      );
+    } catch (error) {
+      console.error('Error recording insight feedback:', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        insightId,
+        feedback,
+        timestamp: new Date().toISOString()
+      });
+      
+      // Re-throw validation errors
+      if (error instanceof ValidationError) {
+        throw error;
+      }
+      
+      // For other errors, don't throw to prevent service disruption
+      console.warn(`Failed to record feedback for insight ${insightId}, continuing`);
+    }
   }
 
   /**
    * Complete workflow
    */
   async completeWorkflow(workflowId: number): Promise<void> {
-    const now = new Date();
-    
-    await db
-      .update(workflowTracking)
-      .set({
-        status: 'completed',
-        completedAt: now,
-        updatedAt: now,
-      })
-      .where(eq(workflowTracking.id, workflowId));
+    try {
+      // Validate input
+      if (!workflowId || workflowId <= 0) {
+        throw createError.validation('Invalid workflow ID provided');
+      }
+
+      const now = new Date();
+      
+      await retryOperation(
+        () => db
+          .update(workflowTracking)
+          .set({
+            status: 'completed',
+            completedAt: now,
+            updatedAt: now,
+          })
+          .where(eq(workflowTracking.id, workflowId)),
+        3,
+        1000,
+        `completing workflow ${workflowId}`
+      );
+    } catch (error) {
+      console.error('Error completing workflow:', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        workflowId,
+        timestamp: new Date().toISOString()
+      });
+      
+      // Re-throw validation errors
+      if (error instanceof ValidationError) {
+        throw error;
+      }
+      
+      // For other errors, don't throw to prevent service disruption
+      console.warn(`Failed to complete workflow ${workflowId}, continuing`);
+    }
   }
 
   /**
    * Get workflow statistics for user
    */
   async getUserWorkflowStats(userId: number): Promise<any> {
-    const workflows = await db
-      .select()
-      .from(workflowTracking)
-      .where(eq(workflowTracking.userId, userId))
-      .orderBy(desc(workflowTracking.createdAt))
-      .limit(50);
+    try {
+      // Validate input
+      if (!userId || userId <= 0) {
+        throw createError.validation('Invalid user ID provided');
+      }
 
-    const stats = {
-      totalWorkflows: workflows.length,
-      completedWorkflows: workflows.filter(w => w.status === 'completed').length,
-      averageEfficiency: Math.round(
-        workflows.reduce((sum, w) => sum + (w.efficiencyScore || 0), 0) / workflows.length
-      ),
-      mostCommonType: this.getMostCommonWorkflowType(workflows),
-      totalTimeSpent: workflows.reduce((sum, w) => sum + (w.totalDuration || 0), 0),
-      improvementTrend: this.calculateImprovementTrend(workflows),
-    };
+      const workflows = await retryOperation(
+        () => db
+          .select()
+          .from(workflowTracking)
+          .where(eq(workflowTracking.userId, userId))
+          .orderBy(desc(workflowTracking.createdAt))
+          .limit(50),
+        3,
+        1000,
+        `fetching workflow stats for user ${userId}`
+      );
 
-    return stats;
+      const stats = {
+        totalWorkflows: workflows.length,
+        completedWorkflows: workflows.filter(w => w.status === 'completed').length,
+        averageEfficiency: workflows.length > 0 
+          ? Math.round(
+              workflows.reduce((sum, w) => sum + (w.efficiencyScore || 0), 0) / workflows.length
+            )
+          : 0,
+        mostCommonType: this.getMostCommonWorkflowType(workflows),
+        totalTimeSpent: workflows.reduce((sum, w) => sum + (w.totalDuration || 0), 0),
+        improvementTrend: this.calculateImprovementTrend(workflows),
+      };
+
+      return stats;
+    } catch (error) {
+      console.error('Error getting user workflow stats:', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        userId,
+        timestamp: new Date().toISOString()
+      });
+      
+      // Re-throw validation errors
+      if (error instanceof ValidationError) {
+        throw error;
+      }
+      
+      // For other errors, return default stats to prevent service disruption
+      return {
+        totalWorkflows: 0,
+        completedWorkflows: 0,
+        averageEfficiency: 0,
+        mostCommonType: 'general',
+        totalTimeSpent: 0,
+        improvementTrend: 'stable' as const,
+      };
+    }
   }
 
   /**

@@ -245,6 +245,7 @@ export class AzureSpeechService extends BaseSpeechService {
       supportsVoiceCloning: false,
       supportsEmotions: true,
       supportsMultiLanguage: true,
+      supportsVAD: true,
       availableVoices: [],
       availableLanguages: this.getAvailableLanguages()
     };
@@ -351,5 +352,76 @@ export class AzureSpeechService extends BaseSpeechService {
       'zh-CN', 'zh-TW', 'ja-JP', 'ko-KR', 'ar-SA',
       'hi-IN', 'nl-NL', 'pl-PL', 'sv-SE', 'da-DK'
     ];
+  }
+
+  // Azure Speech Service supports audio data processing
+  supportsAudioProcessing(): boolean {
+    return true;
+  }
+
+  async processAudioData(audioData: Blob | ArrayBuffer | string, options?: STTOptions): Promise<SpeechRecognitionResult> {
+    if (!this.subscriptionKey) {
+      throw new Error('Azure Speech Service not configured. Please provide subscription key and region.');
+    }
+
+    try {
+      // Convert audio data to the format expected by Azure
+      let audioBlob: Blob;
+      
+      if (typeof audioData === 'string') {
+        // Base64 encoded audio
+        const binaryString = atob(audioData);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        audioBlob = new Blob([bytes], { type: options?.audioFormat || 'audio/wav' });
+      } else if (audioData instanceof ArrayBuffer) {
+        audioBlob = new Blob([audioData], { type: options?.audioFormat || 'audio/wav' });
+      } else {
+        audioBlob = audioData;
+      }
+
+      // Use Azure Speech-to-Text REST API for audio file processing
+      const formData = new FormData();
+      formData.append('file', audioBlob, 'audio.wav');
+      
+      const params = new URLSearchParams({
+        language: options?.language || 'en-US',
+        format: 'detailed',
+        profanity: options?.profanityFilter ? 'masked' : 'raw'
+      });
+
+      const response = await fetch(
+        `${this.endpoint}speech/recognition/conversation/cognitiveservices/v1?${params}`,
+        {
+          method: 'POST',
+          headers: {
+            'Ocp-Apim-Subscription-Key': this.subscriptionKey,
+            'Content-Type': 'audio/wav'
+          },
+          body: audioBlob
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`Azure Speech API error: ${response.status} ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      
+      return {
+        transcript: result.DisplayText || result.NBest?.[0]?.Display || '',
+        confidence: result.NBest?.[0]?.Confidence || 0,
+        isFinal: true,
+        alternatives: result.NBest?.map((alt: any) => ({
+          transcript: alt.Display,
+          confidence: alt.Confidence
+        }))
+      };
+    } catch (error) {
+      console.error('[AzureSpeech] Audio processing failed:', error);
+      throw new Error(`Azure audio processing failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   }
 }

@@ -20,6 +20,7 @@ import {
 import { useSpeech } from '../hooks/useSpeech';
 import { useAIProvider } from '../hooks/useAIProvider';
 import { SpeechTestUtils, SpeechTestResult } from '../lib/speech/speechTestUtils';
+import { AudioRecordingTest } from './AudioRecordingTest';
 import { toast } from 'sonner';
 
 interface SpeechSettingsProps {
@@ -35,6 +36,7 @@ export const SpeechSettings: React.FC<SpeechSettingsProps> = ({ isOpen, onClose 
   const [isTestSpeaking, setIsTestSpeaking] = useState(false);
   const [testTranscript, setTestTranscript] = useState('');
   const [isTestListening, setIsTestListening] = useState(false);
+  const [showAudioRecordingTest, setShowAudioRecordingTest] = useState(false);
 
   const {
     speak,
@@ -300,6 +302,24 @@ export const SpeechSettings: React.FC<SpeechSettingsProps> = ({ isOpen, onClose 
               </div>
             </div>
 
+            {/* Audio Recording Test */}
+            <div className="bg-slate-800/50 rounded-lg p-4">
+              <h3 className="text-lg font-medium text-white mb-3 flex items-center gap-2">
+                <Mic className="w-4 h-4" />
+                Audio Recording Test (MRecordRTC)
+              </h3>
+              <p className="text-slate-400 text-sm mb-4">
+                Test the new MRecordRTC audio recording and processing pipeline
+              </p>
+              <button
+                onClick={() => setShowAudioRecordingTest(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-purple-500/20 text-purple-300 rounded hover:bg-purple-500/30"
+              >
+                <Mic className="w-4 h-4" />
+                Test Audio Recording
+              </button>
+            </div>
+
             {/* Comprehensive Test */}
             <div className="bg-slate-800/50 rounded-lg p-4">
               <h3 className="text-lg font-medium text-white mb-3 flex items-center gap-2">
@@ -389,6 +409,12 @@ export const SpeechSettings: React.FC<SpeechSettingsProps> = ({ isOpen, onClose 
           </div>
         </motion.div>
       </motion.div>
+      
+      {/* Audio Recording Test Modal */}
+      <AudioRecordingTest
+        isOpen={showAudioRecordingTest}
+        onClose={() => setShowAudioRecordingTest(false)}
+      />
     </AnimatePresence>
   );
 };

@@ -856,6 +856,7 @@ export class WebSpeechService extends BaseSpeechService {
       supportsVoiceCloning: false,
       supportsEmotions: false,
       supportsMultiLanguage: true,
+      supportsVAD: true,
       availableVoices: [],
       availableLanguages: this.getAvailableLanguages()
     };
@@ -920,5 +921,15 @@ export class WebSpeechService extends BaseSpeechService {
       'it-IT', 'pt-BR', 'pt-PT', 'ru-RU', 'zh-CN', 'zh-TW',
       'ja-JP', 'ko-KR', 'ar-SA', 'hi-IN', 'nl-NL', 'pl-PL'
     ];
+  }
+
+  // Web Speech API doesn't support direct audio data processing
+  // This is a limitation of the browser's native API
+  supportsAudioProcessing(): boolean {
+    return false;
+  }
+
+  async processAudioData(audioData: Blob | ArrayBuffer | string, options?: STTOptions): Promise<SpeechRecognitionResult> {
+    throw new Error('Web Speech API does not support direct audio data processing. Use startRecognition() for microphone-based recognition.');
   }
 }

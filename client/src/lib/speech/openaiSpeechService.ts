@@ -281,6 +281,7 @@ export class OpenAISpeechService extends BaseSpeechService {
       supportsVoiceCloning: false,
       supportsEmotions: false,
       supportsMultiLanguage: true,
+      supportsVAD: true,
       availableVoices: [],
       availableLanguages: this.getAvailableLanguages()
     };
@@ -300,7 +301,7 @@ export class OpenAISpeechService extends BaseSpeechService {
     super.dispose();
   }
 
-  private async processWhisperRecognition(audioBlob: Blob, options?: STTOptions, isFinal: boolean = true): Promise<void> {
+  private async processWhisperRecognition(audioBlob: Blob, options?: STTOptions, isFinal: boolean = true): Promise<SpeechRecognitionResult | void> {
     const language = options?.language || 'en';
     
     try {
@@ -354,11 +355,19 @@ export class OpenAISpeechService extends BaseSpeechService {
       };
 
       this.notifyRecognitionResult(recognitionResult);
+      
+      // Return the result for direct processing (like in processAudioData)
+      return recognitionResult;
     } catch (error) {
       console.error('Whisper API error:', error);
       // Don't clear transcript on error in continuous mode
       if (!this.continuousMode) {
         this.currentTranscript = '';
+      }
+      
+      // For direct processing, throw the error; for intermediate processing, return void
+      if (isFinal) {
+        throw error;
       }
     }
   }
@@ -437,5 +446,45 @@ export class OpenAISpeechService extends BaseSpeechService {
       'ar', 'hi', 'nl', 'pl', 'tr', 'sv', 'da', 'no', 'fi', 'el',
       'he', 'id', 'ms', 'th', 'vi', 'cs', 'hu', 'ro', 'uk', 'bg'
     ];
+  }
+
+  // OpenAI Whisper supports audio data processing
+  supportsAudioProcessing(): boolean {
+    return true;
+  }
+
+  async processAudioData(audioData: Blob | ArrayBuffer | string, options?: STTOptions): Promise<SpeechRecognitionResult> {
+    if (!this.apiKey) {
+      throw new Error('OpenAI API key not configured. Please provide an API key.');
+    }
+
+    try {
+      // Convert audio data to the format expected by Whisper
+      let audioBlob: Blob;
+      
+      if (typeof audioData === 'string') {
+        // Base64 encoded audio
+        const binaryString = atob(audioData);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        audioBlob = new Blob([bytes], { type: options?.audioFormat || 'audio/wav' });
+      } else if (audioData instanceof ArrayBuffer) {
+        audioBlob = new Blob([audioData], { type: options?.audioFormat || 'audio/wav' });
+      } else {
+        audioBlob = audioData;
+      }
+
+      // Use the existing Whisper processing method
+      const result = await this.processWhisperRecognition(audioBlob, options, true);
+      if (!result) {
+        throw new Error('Failed to process audio data');
+      }
+      return result;
+    } catch (error) {
+      console.error('[OpenAI] Audio processing failed:', error);
+      throw new Error(`OpenAI audio processing failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   }
 }

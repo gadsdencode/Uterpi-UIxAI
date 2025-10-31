@@ -628,13 +628,25 @@ export async function grantMonthlyCreditsForTier(params: {
  * Handle successful AI credits checkout completion
  */
 export async function handleCreditsCheckoutSuccess(session: Stripe.Checkout.Session): Promise<void> {
+  console.log(`🔵 [handleCreditsCheckoutSuccess] Starting for session ${session.id}`);
+  
   const userId = parseInt(session.metadata?.userId || '0');
   const credits = parseInt(session.metadata?.credits || '0');
   const amount = parseFloat(session.metadata?.amount || '0');
   const packageId = session.metadata?.packageId;
+  const paymentIntentId = session.payment_intent as string | null;
+  
+  console.log(`🔵 [handleCreditsCheckoutSuccess] Parsed metadata:`, {
+    userId,
+    credits,
+    amount,
+    packageId,
+    paymentIntentId,
+    sessionId: session.id
+  });
   
   if (!userId || !credits || !amount) {
-    console.error('Missing required metadata in checkout session:', session.id, {
+    console.error('❌ [handleCreditsCheckoutSuccess] Missing required metadata in checkout session:', session.id, {
       userId,
       credits,
       amount,
@@ -646,43 +658,57 @@ export async function handleCreditsCheckoutSuccess(session: Stripe.Checkout.Sess
 
   try {
     // Check if this transaction has already been processed
+    // Use session.id if payment_intent is null (can happen with some payment methods)
+    const transactionKey = paymentIntentId || session.id;
+    console.log(`🔵 [handleCreditsCheckoutSuccess] Checking for duplicate with key: ${transactionKey}`);
+    
     const existingTransaction = await db.select()
       .from(aiCreditsTransactions)
       .where(
         and(
           eq(aiCreditsTransactions.userId, userId),
-          eq(aiCreditsTransactions.stripePaymentIntentId, session.payment_intent as string)
+          eq(aiCreditsTransactions.stripePaymentIntentId, transactionKey)
         )
       )
       .limit(1);
 
     if (existingTransaction.length > 0) {
-      console.log(`Credits checkout already processed for session ${session.id}, skipping duplicate processing`);
+      console.log(`⚠️ [handleCreditsCheckoutSuccess] Credits checkout already processed for session ${session.id}, skipping duplicate processing`);
       return;
     }
+    
+    console.log(`🔵 [handleCreditsCheckoutSuccess] No duplicate found, proceeding with credit assignment`);
+
 
     // Execute both operations atomically within a transaction
+    console.log(`🔵 [handleCreditsCheckoutSuccess] Starting database transaction`);
     await db.transaction(async (tx) => {
       // Get user and calculate new balance
+      console.log(`🔵 [handleCreditsCheckoutSuccess] Fetching user ${userId}`);
       const [user] = await tx.select().from(users).where(eq(users.id, userId)).limit(1);
       if (!user) {
+        console.error(`❌ [handleCreditsCheckoutSuccess] User ${userId} not found for checkout session ${session.id}`);
         throw new Error(`User ${userId} not found for checkout session ${session.id}`);
       }
 
-      const newBalance = (user.ai_credits_balance || 0) + credits;
+      const oldBalance = user.ai_credits_balance || 0;
+      const newBalance = oldBalance + credits;
+      console.log(`🔵 [handleCreditsCheckoutSuccess] User found. Old balance: ${oldBalance}, Adding: ${credits}, New balance: ${newBalance}`);
       
       // Update user balance
+      console.log(`🔵 [handleCreditsCheckoutSuccess] Updating user balance`);
       await tx.update(users)
         .set({ ai_credits_balance: newBalance, updatedAt: new Date() })
         .where(eq(users.id, userId));
 
       // Create transaction record
+      console.log(`🔵 [handleCreditsCheckoutSuccess] Creating transaction record`);
       await tx.insert(aiCreditsTransactions).values({
         userId,
         transactionType: 'purchase',
         amount: credits,
         balanceAfter: newBalance,
-        stripePaymentIntentId: session.payment_intent as string,
+        stripePaymentIntentId: transactionKey,
         description: `Purchased ${credits} AI credits`,
         metadata: {
           checkoutSessionId: session.id,
@@ -691,10 +717,12 @@ export async function handleCreditsCheckoutSuccess(session: Stripe.Checkout.Sess
           processedAt: new Date().toISOString(),
         }
       });
+      
+      console.log(`✅ [handleCreditsCheckoutSuccess] Transaction record created successfully`);
     });
 
     const finalBalance = (await db.select().from(users).where(eq(users.id, userId)).limit(1))[0]?.ai_credits_balance || 0;
-    console.log(`✅ Successfully added ${credits} AI credits to user ${userId}, new balance: ${finalBalance}`);
+    console.log(`✅ [handleCreditsCheckoutSuccess] Successfully added ${credits} AI credits to user ${userId}, new balance: ${finalBalance}`);
     
   } catch (error) {
     console.error(`❌ Error handling credits checkout success for session ${session.id}:`, error);

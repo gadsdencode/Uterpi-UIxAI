@@ -625,7 +625,7 @@ export class DatabaseFileStorage implements FileStorageService {
         .where(eq(files.id, fileId));
       
       // Import Azure AI service dynamically to avoid circular dependencies
-      const { createAzureAIClient, extractAzureAIError, parseAzureAIJSON } = await import('./routes');
+      const { createAzureAIClient, extractAzureAIError, parseAzureAIJSON } = await import('./services/aiService');
       const { client, config } = createAzureAIClient();
       
       // Determine analysis type based on file type and content size

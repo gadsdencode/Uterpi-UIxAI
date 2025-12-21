@@ -12,7 +12,7 @@ if (fs.existsSync(".env.local")) {
 dotenv.config(); // Also load from .env if it exists
 
 // Now import modules that depend on environment variables
-import { registerRoutes } from "./routes";
+import { registerRoutes } from "./routes-refactored";
 import passport from "./auth";
 import { handleStripeWebhook } from "./webhooks";
 import { errorHandler, handleUnhandledErrors } from "./error-handler";

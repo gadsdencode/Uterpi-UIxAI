@@ -18,6 +18,7 @@ import { contextEnhancer } from "../context-enhancer";
 import { isVectorizationEnabled } from "../vector-flags";
 import { trackAIUsage } from "../stripe-consolidated";
 import type { AuthenticatedRequest } from "../types/ai";
+import { sanitizeAIResponseForStorage, detectConversationEchoPatterns } from "../utils/ai-response-sanitizer";
 
 // Rate limiting for health checks
 const healthCheckRateLimit = new Map<string, { count: number; resetTime: number }>();
@@ -348,11 +349,19 @@ export class AIController {
         res.write('data: [DONE]\n\n');
         res.end();
 
-        // Store AI response
+        // Sanitize and store AI response
         if (conversation && fullContent) {
+          const sanitizedContent = sanitizeAIResponseForStorage(fullContent, { logChanges: true });
+          
+          // Log if we detected problematic patterns (for monitoring)
+          const { hasEchoedHistory } = detectConversationEchoPatterns(fullContent);
+          if (hasEchoedHistory) {
+            console.warn(`⚠️ [LMStudio] Detected echoed history in AI response for conversation ${conversation.id}`);
+          }
+          
           await conversationService.addMessage({
             conversationId: conversation.id,
-            content: fullContent,
+            content: sanitizedContent,
             role: 'assistant',
             metadata: { model: modelName, provider: 'lmstudio' }
           });
@@ -375,10 +384,18 @@ export class AIController {
 
         const content = response.choices[0]?.message?.content || '';
         
+        // Sanitize and store AI response
         if (conversation && content) {
+          const sanitizedContent = sanitizeAIResponseForStorage(content, { logChanges: true });
+          
+          const { hasEchoedHistory } = detectConversationEchoPatterns(content);
+          if (hasEchoedHistory) {
+            console.warn(`⚠️ [LMStudio] Detected echoed history in AI response for conversation ${conversation.id}`);
+          }
+          
           await conversationService.addMessage({
             conversationId: conversation.id,
-            content,
+            content: sanitizedContent,
             role: 'assistant',
             metadata: { model: modelName, provider: 'lmstudio' }
           });
@@ -470,10 +487,18 @@ export class AIController {
         res.write('data: [DONE]\n\n');
         res.end();
 
+        // Sanitize and store AI response
         if (conversation && fullContent) {
+          const sanitizedContent = sanitizeAIResponseForStorage(fullContent, { logChanges: true });
+          
+          const { hasEchoedHistory } = detectConversationEchoPatterns(fullContent);
+          if (hasEchoedHistory) {
+            console.warn(`⚠️ [Gemini] Detected echoed history in AI response for conversation ${conversation.id}`);
+          }
+          
           await conversationService.addMessage({
             conversationId: conversation.id,
-            content: fullContent,
+            content: sanitizedContent,
             role: 'assistant',
             metadata: { model: modelName, provider: 'gemini' }
           });
@@ -487,10 +512,18 @@ export class AIController {
         const response = await result.response;
         const content = response.text();
 
+        // Sanitize and store AI response
         if (conversation && content) {
+          const sanitizedContent = sanitizeAIResponseForStorage(content, { logChanges: true });
+          
+          const { hasEchoedHistory } = detectConversationEchoPatterns(content);
+          if (hasEchoedHistory) {
+            console.warn(`⚠️ [Gemini] Detected echoed history in AI response for conversation ${conversation.id}`);
+          }
+          
           await conversationService.addMessage({
             conversationId: conversation.id,
-            content,
+            content: sanitizedContent,
             role: 'assistant',
             metadata: { model: modelName, provider: 'gemini' }
           });
@@ -569,10 +602,18 @@ export class AIController {
         res.write('data: [DONE]\n\n');
         res.end();
 
+        // Sanitize and store AI response
         if (conversation && fullContent) {
+          const sanitizedContent = sanitizeAIResponseForStorage(fullContent, { logChanges: true });
+          
+          const { hasEchoedHistory } = detectConversationEchoPatterns(fullContent);
+          if (hasEchoedHistory) {
+            console.warn(`⚠️ [OpenAI] Detected echoed history in AI response for conversation ${conversation.id}`);
+          }
+          
           await conversationService.addMessage({
             conversationId: conversation.id,
-            content: fullContent,
+            content: sanitizedContent,
             role: 'assistant',
             metadata: { model: modelName, provider: 'openai' }
           });
@@ -593,10 +634,18 @@ export class AIController {
 
         const content = response.choices[0]?.message?.content || '';
         
+        // Sanitize and store AI response
         if (conversation && content) {
+          const sanitizedContent = sanitizeAIResponseForStorage(content, { logChanges: true });
+          
+          const { hasEchoedHistory } = detectConversationEchoPatterns(content);
+          if (hasEchoedHistory) {
+            console.warn(`⚠️ [OpenAI] Detected echoed history in AI response for conversation ${conversation.id}`);
+          }
+          
           await conversationService.addMessage({
             conversationId: conversation.id,
-            content,
+            content: sanitizedContent,
             role: 'assistant',
             metadata: { model: modelName, provider: 'openai' }
           });
@@ -657,10 +706,18 @@ export class AIController {
 
       const content = response.body.choices[0]?.message?.content || '';
 
+      // Sanitize and store AI response
       if (conversation && content) {
+        const sanitizedContent = sanitizeAIResponseForStorage(content, { logChanges: true });
+        
+        const { hasEchoedHistory } = detectConversationEchoPatterns(content);
+        if (hasEchoedHistory) {
+          console.warn(`⚠️ [Azure] Detected echoed history in AI response for conversation ${conversation.id}`);
+        }
+        
         await conversationService.addMessage({
           conversationId: conversation.id,
-          content,
+          content: sanitizedContent,
           role: 'assistant',
           metadata: { model: modelName, provider: 'azure' }
         });

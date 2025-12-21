@@ -132,126 +132,30 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const conversationsScrollRef = useRef<HTMLDivElement>(null);
 
-  // Function to extract actual conversation content from analysis prompts
+  // Note: AI responses are now sanitized at the source (backend) before database storage.
+  // These simplified functions provide minimal backward compatibility for legacy data.
+  
+  // Simplified content sanitization for display (legacy data compatibility)
   const extractConversationContent = useCallback((content: string): string => {
-    // Check if this looks like an analysis prompt
-    const analysisIndicators = [
-      'ANALYSIS TASK:',
-      'ANALYSIS CRITERIA:',
-      'CONVERSATION:',
-      'analyze this conversation',
-      'user interaction patterns',
-      'hidden insights',
-      'interaction style analysis',
-      'conversation dynamics',
-      'behavioral insights',
-      'return only a json object',
-      'json object with this structure',
-      'provide deep insights',
-      'conversation to understand'
-    ];
-
-    const hasAnalysisIndicators = analysisIndicators.some(indicator => 
-      content.toLowerCase().includes(indicator.toLowerCase())
-    );
-
-    if (!hasAnalysisIndicators) {
-      return content; // Not an analysis prompt, return as-is
-    }
-
-    // Try multiple extraction patterns
-    const patterns = [
-      /CONVERSATION:\s*([\s\S]*?)(?=ANALYSIS TASK:|$)/i,
-      /conversation:\s*([\s\S]*?)(?=analysis task:|$)/i,
-      /analyze this conversation[:\s]*([\s\S]*?)(?=analysis task:|$)/i
-    ];
-
-    for (const pattern of patterns) {
-      const match = content.match(pattern);
-      if (match) {
-        const conversationContent = match[1].trim();
-        
-        // Clean up the conversation content
-        let cleanedContent = conversationContent
-          .replace(/^assistant:\s*/gim, 'Assistant: ')
-          .replace(/^user:\s*/gim, 'User: ')
-          .replace(/\n\s*\n/g, '\n\n') // Normalize line breaks
-          .trim();
-
-        // If we have a clean conversation, return it
-        if (cleanedContent.length > 0 && cleanedContent !== conversationContent) {
-          return cleanedContent;
-        }
-      }
-    }
-
-    // If we can't extract clean conversation content, return a summary
-    const firstLine = content.split('\n')[0];
-    if (firstLine.length < 100) {
-      return firstLine;
-    }
-
-    // Return truncated version if it's too long
-    return content.substring(0, 200) + (content.length > 200 ? '...' : '');
+    if (!content) return content;
+    
+    // For new data, content should already be clean from backend sanitization
+    // This provides lightweight fallback for any legacy data
+    let cleaned = content;
+    
+    // Remove any lingering role prefixes at line starts (legacy data cleanup)
+    cleaned = cleaned.replace(/^User:\s*/gim, '');
+    cleaned = cleaned.replace(/^Assistant:\s*/gim, '');
+    cleaned = cleaned.replace(/^Human:\s*/gim, '');
+    cleaned = cleaned.replace(/^AI:\s*/gim, '');
+    
+    return cleaned.trim();
   }, []);
 
-  // Function to parse conversation content into separate messages for display
+  // Simplified message parsing for display (returns single message since data is now clean)
   const parseConversationForDisplay = useCallback((content: string): { messages: Array<{role: string, content: string}>, isParsed: boolean } => {
-    // Check if this looks like a conversation with multiple speakers
-    const hasMultipleSpeakers = content.includes('Assistant:') && content.includes('User:');
-    
-    if (!hasMultipleSpeakers) {
-      return { messages: [{ role: 'single', content }], isParsed: false };
-    }
-
-    const messages: Array<{role: string, content: string}> = [];
-    const lines = content.split('\n');
-    let currentSpeaker = '';
-    let currentContent = '';
-
-    for (const line of lines) {
-      const trimmedLine = line.trim();
-      
-      // Check if this line starts a new speaker
-      if (trimmedLine.match(/^(Assistant|assistant):\s*/)) {
-        // Save previous message if exists
-        if (currentSpeaker && currentContent.trim()) {
-          messages.push({
-            role: currentSpeaker.toLowerCase(),
-            content: currentContent.trim()
-          });
-        }
-        
-        // Start new assistant message
-        currentSpeaker = 'assistant';
-        currentContent = trimmedLine.replace(/^(Assistant|assistant):\s*/, '');
-      } else if (trimmedLine.match(/^(User|user):\s*/)) {
-        // Save previous message if exists
-        if (currentSpeaker && currentContent.trim()) {
-          messages.push({
-            role: currentSpeaker.toLowerCase(),
-            content: currentContent.trim()
-          });
-        }
-        
-        // Start new user message
-        currentSpeaker = 'user';
-        currentContent = trimmedLine.replace(/^(User|user):\s*/, '');
-      } else if (currentSpeaker && trimmedLine) {
-        // Continue current message
-        currentContent += '\n' + trimmedLine;
-      }
-    }
-
-    // Add the last message
-    if (currentSpeaker && currentContent.trim()) {
-      messages.push({
-        role: currentSpeaker.toLowerCase(),
-        content: currentContent.trim()
-      });
-    }
-
-    return { messages, isParsed: true };
+    // Data is now clean from backend - no multi-message parsing needed
+    return { messages: [{ role: 'single', content }], isParsed: false };
   }, []);
 
   // Scroll to bottom of messages with smooth scrolling

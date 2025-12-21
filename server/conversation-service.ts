@@ -561,17 +561,16 @@ export class ConversationService {
           name: user?.firstName && user?.lastName ? `${user.firstName} ${user.lastName}` : undefined
         },
         messages: messages.flatMap(msg => {
-          const filteredContent = this.extractConversationContent(msg.content);
-          const parsedMessages = this.parseConversationIntoMessages(filteredContent, msg);
+          const exportedMessages = this.mapMessageForExport(msg);
           
-          return parsedMessages.map((parsedMsg, index) => ({
+          return exportedMessages.map((exportedMsg, index) => ({
             id: `${msg.id}-${index}`,
-            role: parsedMsg.role,
-            content: parsedMsg.content,
+            role: exportedMsg.role,
+            content: exportedMsg.content,
             messageIndex: msg.messageIndex + index,
             attachments: msg.attachments,
             metadata: msg.metadata,
-            createdAt: parsedMsg.timestamp
+            createdAt: exportedMsg.timestamp
           }));
         }),
         exportInfo: {
@@ -653,17 +652,16 @@ export class ConversationService {
               archivedAt: conversation.archivedAt
             },
             messages: messages.flatMap(msg => {
-              const filteredContent = this.extractConversationContent(msg.content);
-              const parsedMessages = this.parseConversationIntoMessages(filteredContent, msg);
+              const exportedMessages = this.mapMessageForExport(msg);
               
-              return parsedMessages.map((parsedMsg, index) => ({
+              return exportedMessages.map((exportedMsg, index) => ({
                 id: `${msg.id}-${index}`,
-                role: parsedMsg.role,
-                content: parsedMsg.content,
+                role: exportedMsg.role,
+                content: exportedMsg.content,
                 messageIndex: msg.messageIndex + index,
                 attachments: msg.attachments,
                 metadata: msg.metadata,
-                createdAt: parsedMsg.timestamp
+                createdAt: exportedMsg.timestamp
               }));
             })
           });
@@ -931,136 +929,42 @@ export class ConversationService {
   }
 
   /**
-   * Extract actual conversation content from analysis prompts
+   * Sanitize message content for export
+   * Note: AI responses are now sanitized at the source (aiController.ts) before DB storage.
+   * This method provides minimal backward compatibility for any legacy data that may still
+   * contain dirty patterns, while keeping exports clean.
    */
-  private extractConversationContent(content: string): string {
-    // Check if this looks like an analysis prompt
-    const analysisIndicators = [
-      'ANALYSIS TASK:',
-      'ANALYSIS CRITERIA:',
-      'CONVERSATION:',
-      'analyze this conversation',
-      'user interaction patterns',
-      'hidden insights',
-      'interaction style analysis',
-      'conversation dynamics',
-      'behavioral insights',
-      'return only a json object',
-      'json object with this structure',
-      'provide deep insights',
-      'conversation to understand'
-    ];
-
-    const hasAnalysisIndicators = analysisIndicators.some(indicator => 
-      content.toLowerCase().includes(indicator.toLowerCase())
-    );
-
-    if (!hasAnalysisIndicators) {
-      return content; // Not an analysis prompt, return as-is
-    }
-
-    // Try multiple extraction patterns
-    const patterns = [
-      /CONVERSATION:\s*([\s\S]*?)(?=ANALYSIS TASK:|$)/i,
-      /conversation:\s*([\s\S]*?)(?=analysis task:|$)/i,
-      /analyze this conversation[:\s]*([\s\S]*?)(?=analysis task:|$)/i
-    ];
-
-    for (const pattern of patterns) {
-      const match = content.match(pattern);
-      if (match) {
-        const conversationContent = match[1].trim();
-        
-        // Clean up the conversation content
-        let cleanedContent = conversationContent
-          .replace(/^assistant:\s*/gim, 'Assistant: ')
-          .replace(/^user:\s*/gim, 'User: ')
-          .replace(/\n\s*\n/g, '\n\n') // Normalize line breaks
-          .trim();
-
-        // If we have a clean conversation, return it
-        if (cleanedContent.length > 0 && cleanedContent !== conversationContent) {
-          return cleanedContent;
-        }
-      }
-    }
-
-    // If we can't extract clean conversation content, return a summary
-    const firstLine = content.split('\n')[0];
-    if (firstLine.length < 100) {
-      return firstLine;
-    }
-
-    // Return truncated version if it's too long
-    return content.substring(0, 200) + (content.length > 200 ? '...' : '');
+  private sanitizeContentForExport(content: string): string {
+    if (!content) return content;
+    
+    // For new data, content should already be clean from backend sanitization
+    // This is a lightweight fallback for any legacy data compatibility
+    let cleaned = content;
+    
+    // Remove any lingering role prefixes at line starts (legacy data cleanup)
+    cleaned = cleaned.replace(/^User:\s*/gim, '');
+    cleaned = cleaned.replace(/^Assistant:\s*/gim, '');
+    cleaned = cleaned.replace(/^Human:\s*/gim, '');
+    cleaned = cleaned.replace(/^AI:\s*/gim, '');
+    
+    // Normalize multiple newlines
+    cleaned = cleaned.replace(/\n{3,}/g, '\n\n');
+    
+    return cleaned.trim();
   }
 
   /**
-   * Parse conversation content into separate messages for export
+   * Map message to export format
+   * Note: Previous complex parsing logic has been removed since AI responses 
+   * are now sanitized at the source before database storage.
    */
-  private parseConversationIntoMessages(content: string, originalMessage: any): Array<{role: string, content: string, timestamp: Date}> {
-    // Check if this looks like a conversation with multiple speakers
-    const hasMultipleSpeakers = content.includes('Assistant:') && content.includes('User:');
-    
-    if (!hasMultipleSpeakers) {
-      return [{
-        role: originalMessage.role,
-        content,
-        timestamp: new Date(originalMessage.createdAt)
-      }];
-    }
-
-    const messages: Array<{role: string, content: string, timestamp: Date}> = [];
-    const lines = content.split('\n');
-    let currentSpeaker = '';
-    let currentContent = '';
-
-    for (const line of lines) {
-      const trimmedLine = line.trim();
-      
-      // Check if this line starts a new speaker
-      if (trimmedLine.match(/^(Assistant|assistant):\s*/)) {
-        // Save previous message if exists
-        if (currentSpeaker && currentContent.trim()) {
-          messages.push({
-            role: currentSpeaker.toLowerCase(),
-            content: currentContent.trim(),
-            timestamp: new Date(originalMessage.createdAt)
-          });
-        }
-        
-        // Start new assistant message
-        currentSpeaker = 'assistant';
-        currentContent = trimmedLine.replace(/^(Assistant|assistant):\s*/, '');
-      } else if (trimmedLine.match(/^(User|user):\s*/)) {
-        // Save previous message if exists
-        if (currentSpeaker && currentContent.trim()) {
-          messages.push({
-            role: currentSpeaker.toLowerCase(),
-            content: currentContent.trim(),
-            timestamp: new Date(originalMessage.createdAt)
-          });
-        }
-        
-        // Start new user message
-        currentSpeaker = 'user';
-        currentContent = trimmedLine.replace(/^(User|user):\s*/, '');
-      } else if (currentSpeaker && trimmedLine) {
-        // Continue current message
-        currentContent += '\n' + trimmedLine;
-      }
-    }
-
-    // Add the last message
-    if (currentSpeaker && currentContent.trim()) {
-      messages.push({
-        role: currentSpeaker.toLowerCase(),
-        content: currentContent.trim(),
-        timestamp: new Date(originalMessage.createdAt)
-      });
-    }
-
-    return messages;
+  private mapMessageForExport(msg: MessageData): Array<{role: string, content: string, timestamp: Date}> {
+    // Return single message with sanitized content (no multi-message parsing needed)
+    return [{
+      role: msg.role,
+      content: this.sanitizeContentForExport(msg.content),
+      timestamp: new Date(msg.createdAt)
+    }];
   }
 
   /**
@@ -1086,7 +990,7 @@ export class ConversationService {
       }
 
       // Extract clean content and create a title from the first user message
-      const cleanContent = this.extractConversationContent(firstUserMessage.content);
+      const cleanContent = this.sanitizeContentForExport(firstUserMessage.content);
       let title = cleanContent.trim();
       if (title.length > 50) {
         title = title.substring(0, 47) + "...";

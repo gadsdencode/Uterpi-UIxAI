@@ -401,125 +401,12 @@ export const useChat = (options: UseChatOptions): UseChatReturn => {
     }
   }, [user, fetchCreditStatus]);
   
-  // Extract conversation content helper
-  const extractConversationContent = useCallback((content: string): string => {
-    const analysisIndicators = [
-      'ANALYSIS TASK:',
-      'ANALYSIS CRITERIA:',
-      'CONVERSATION:',
-      'analyze this conversation',
-      'user interaction patterns',
-      'hidden insights',
-      'interaction style analysis',
-      'conversation dynamics',
-      'behavioral insights',
-      'return only a json object',
-      'json object with this structure',
-      'provide deep insights',
-      'conversation to understand'
-    ];
-
-    const hasAnalysisIndicators = analysisIndicators.some(indicator => 
-      content.toLowerCase().includes(indicator.toLowerCase())
-    );
-
-    if (!hasAnalysisIndicators) {
-      return content;
-    }
-
-    const patterns = [
-      /CONVERSATION:\s*([\s\S]*?)(?=ANALYSIS TASK:|$)/i,
-      /conversation:\s*([\s\S]*?)(?=analysis task:|$)/i,
-      /analyze this conversation[:\s]*([\s\S]*?)(?=analysis task:|$)/i
-    ];
-
-    for (const pattern of patterns) {
-      const match = content.match(pattern);
-      if (match) {
-        const conversationContent = match[1].trim();
-        
-        let cleanedContent = conversationContent
-          .replace(/^assistant:\s*/gim, 'Assistant: ')
-          .replace(/^user:\s*/gim, 'User: ')
-          .replace(/\n\s*\n/g, '\n\n')
-          .trim();
-
-        if (cleanedContent.length > 0 && cleanedContent !== conversationContent) {
-          return cleanedContent;
-        }
-      }
-    }
-
-    const firstLine = content.split('\n')[0];
-    if (firstLine.length < 100) {
-      return firstLine;
-    }
-
-    return content.substring(0, 200) + (content.length > 200 ? '...' : '');
-  }, []);
-  
-  // Parse conversation into messages helper
-  const parseConversationIntoMessages = useCallback((content: string, originalMessage: any): Message[] => {
-    const messages: Message[] = [];
-    let messageIndex = 0;
-
-    const lines = content.split('\n');
-    let currentSpeaker = '';
-    let currentContent = '';
-
-    for (const line of lines) {
-      const trimmedLine = line.trim();
-      
-      if (trimmedLine.match(/^(Assistant|assistant):\s*/)) {
-        if (currentSpeaker && currentContent.trim()) {
-          messages.push({
-            id: `${originalMessage.id}-${messageIndex}`,
-            content: currentContent.trim(),
-            role: currentSpeaker.toLowerCase() === 'assistant' ? 'assistant' : 'user',
-            timestamp: new Date(originalMessage.createdAt),
-            attachments: originalMessage.attachments,
-            metadata: originalMessage.metadata
-          });
-          messageIndex++;
-        }
-        
-        currentSpeaker = 'assistant';
-        currentContent = trimmedLine.replace(/^(Assistant|assistant):\s*/, '');
-      } else if (trimmedLine.match(/^(User|user):\s*/)) {
-        if (currentSpeaker && currentContent.trim()) {
-          messages.push({
-            id: `${originalMessage.id}-${messageIndex}`,
-            content: currentContent.trim(),
-            role: currentSpeaker.toLowerCase() === 'assistant' ? 'assistant' : 'user',
-            timestamp: new Date(originalMessage.createdAt),
-            attachments: originalMessage.attachments,
-            metadata: originalMessage.metadata
-          });
-          messageIndex++;
-        }
-        
-        currentSpeaker = 'user';
-        currentContent = trimmedLine.replace(/^(User|user):\s*/, '');
-      } else if (currentSpeaker && trimmedLine) {
-        currentContent += '\n' + trimmedLine;
-      }
-    }
-
-    if (currentSpeaker && currentContent.trim()) {
-      messages.push({
-        id: `${originalMessage.id}-${messageIndex}`,
-        content: currentContent.trim(),
-        role: currentSpeaker.toLowerCase() === 'assistant' ? 'assistant' : 'user',
-        timestamp: new Date(originalMessage.createdAt),
-        attachments: originalMessage.attachments,
-        metadata: originalMessage.metadata
-      });
-    }
-
-    return messages;
-  }, []);
+  // Note: Previous regex parsing helpers (extractConversationContent, parseConversationIntoMessages) 
+  // have been removed. AI responses are now sanitized at the source (backend) before database storage.
+  // This ensures clean data throughout the system without frontend parsing workarounds.
   
   // Load conversation
+  // Note: Backend now sanitizes AI responses before storage, so frontend receives clean data
   const loadConversation = useCallback(async (conversationId: number, conversationTitle?: string): Promise<Message[]> => {
     setIsLoadingConversation(true);
     try {
@@ -534,38 +421,15 @@ export const useChat = (options: UseChatOptions): UseChatReturn => {
       const data = await response.json();
       const apiMessages = data.messages || [];
 
-      const localMessages: Message[] = [];
-      
-      for (const apiMsg of apiMessages) {
-        const filteredContent = extractConversationContent(apiMsg.content);
-        
-        const isConversationContent = filteredContent.includes('Assistant:') && filteredContent.includes('User:');
-        
-        if (isConversationContent && filteredContent !== apiMsg.content) {
-          const parsedMessages = parseConversationIntoMessages(filteredContent, apiMsg);
-          if (parsedMessages.length > 0) {
-            localMessages.push(...parsedMessages);
-          } else {
-            localMessages.push({
-              id: apiMsg.id.toString(),
-              content: filteredContent,
-              role: apiMsg.role === 'system' ? 'assistant' : apiMsg.role,
-              timestamp: new Date(apiMsg.createdAt),
-              attachments: apiMsg.attachments || undefined,
-              metadata: apiMsg.metadata || undefined
-            });
-          }
-        } else {
-          localMessages.push({
-            id: apiMsg.id.toString(),
-            content: filteredContent,
-            role: apiMsg.role === 'system' ? 'assistant' : apiMsg.role,
-            timestamp: new Date(apiMsg.createdAt),
-            attachments: apiMsg.attachments || undefined,
-            metadata: apiMsg.metadata || undefined
-          });
-        }
-      }
+      // Map API messages directly to local messages (no parsing needed - data is clean from backend)
+      const localMessages: Message[] = apiMessages.map((apiMsg: any) => ({
+        id: apiMsg.id.toString(),
+        content: apiMsg.content,
+        role: apiMsg.role === 'system' ? 'assistant' : apiMsg.role,
+        timestamp: new Date(apiMsg.createdAt),
+        attachments: apiMsg.attachments || undefined,
+        metadata: apiMsg.metadata || undefined
+      }));
 
       setMessages(localMessages);
       setCurrentConversationId(conversationId);
@@ -581,7 +445,7 @@ export const useChat = (options: UseChatOptions): UseChatReturn => {
     } finally {
       setIsLoadingConversation(false);
     }
-  }, [extractConversationContent, parseConversationIntoMessages]);
+  }, []);
   
   // Start new conversation
   const startNewConversation = useCallback(() => {

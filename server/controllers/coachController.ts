@@ -47,9 +47,15 @@ export class CoachController {
   async submitFeedback(req: Request, res: Response): Promise<void> {
     try {
       const insightId = parseInt(req.params.id);
-      const { isHelpful, action } = req.body;
+      const { feedback, details } = req.body;
       
-      await aiCoachService.recordInsightFeedback(insightId, isHelpful, action);
+      // Validate feedback parameter
+      if (!feedback || !['positive', 'negative', 'neutral'].includes(feedback)) {
+        res.status(400).json({ error: "Invalid feedback value. Must be 'positive', 'negative', or 'neutral'" });
+        return;
+      }
+      
+      await aiCoachService.recordInsightFeedback(insightId, feedback, details);
       
       res.json({ success: true });
     } catch (error) {

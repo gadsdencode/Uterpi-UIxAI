@@ -10,6 +10,7 @@ import { useSpeech } from './useSpeech';
 import { useServiceStatus } from './useServiceStatus';
 import { useDynamicGreeting } from './useDynamicGreeting';
 import { useCreditUpdates } from './useCreditUpdates';
+import { useAICoach } from './useAICoach';
 import { User } from './useAuth';
 import { toast } from 'sonner';
 import { handleError } from '../lib/error-handler';
@@ -227,6 +228,33 @@ export const useChat = (options: UseChatOptions): UseChatReturn => {
       stopMonitoring();
     };
   }, [startMonitoring, stopMonitoring]);
+  
+  // AI Coach integration - workflow tracking and insights
+  const {
+    trackCommand: coachTrackCommand,
+    trackModelSwitch: coachTrackModelSwitch,
+    analyzeConversation: coachAnalyzeConversation,
+  } = useAICoach({ 
+    enabled: true, 
+    autoFetch: true,
+    pollingInterval: 60000 
+  });
+  
+  // Track previous model for detecting model switches
+  const previousModelRef = useRef<string | null>(null);
+  
+  // Track model switches for AI Coach
+  useEffect(() => {
+    if (selectedLLMModel?.id && previousModelRef.current && previousModelRef.current !== selectedLLMModel.id) {
+      console.log('🔄 Model switch detected:', previousModelRef.current, '->', selectedLLMModel.id);
+      coachTrackModelSwitch(
+        previousModelRef.current,
+        selectedLLMModel.id,
+        'User initiated model switch'
+      );
+    }
+    previousModelRef.current = selectedLLMModel?.id || null;
+  }, [selectedLLMModel?.id, coachTrackModelSwitch]);
   
   // Dynamic greeting
   const { greeting, isLoading: greetingLoading, isAIGenerated } = useDynamicGreeting(user, {
@@ -739,6 +767,28 @@ export const useChat = (options: UseChatOptions): UseChatReturn => {
       
       console.log(`📊 Message sent. Total messages: ${updatedMessages.length}, Response time: ${responseTime}ms`);
       
+      // Track command with AI Coach for workflow analysis
+      try {
+        coachTrackCommand(
+          'chat_message',
+          selectedLLMModel?.id,
+          true // success
+        );
+        
+        // Also analyze conversation for patterns
+        if (selectedLLMModel) {
+          coachAnalyzeConversation(
+            updatedMessages,
+            selectedLLMModel,
+            responseTime,
+            estimatedTokens
+          );
+        }
+      } catch (coachError) {
+        // Non-critical - don't let coach tracking break the chat
+        console.warn('⚠️ AI Coach tracking failed (non-critical):', coachError);
+      }
+      
       if (updatedMessages.length >= 2 && selectedLLMModel) {
         setTimeout(() => {
           try {
@@ -754,6 +804,17 @@ export const useChat = (options: UseChatOptions): UseChatReturn => {
 
     } catch (err) {
       trackAction('error_occurred');
+      
+      // Track failed command with AI Coach
+      try {
+        coachTrackCommand(
+          'chat_message',
+          selectedLLMModel?.id,
+          false // failure
+        );
+      } catch (coachError) {
+        console.warn('⚠️ AI Coach error tracking failed (non-critical):', coachError);
+      }
       
       handleError(err as Error, {
         operation: 'send_message',
@@ -805,7 +866,8 @@ export const useChat = (options: UseChatOptions): UseChatReturn => {
     input, attachments, attachedFileIds, isLoading, messages, enableStreaming,
     currentProvider, sendMessage, sendStreamingMessage, clearError, clearTranscript,
     isListening, stopListening, speechAvailable, isSpeaking, handleSpeak,
-    selectedLLMModel, analyzeConversation, trackAction, user, isChatActive
+    selectedLLMModel, analyzeConversation, trackAction, user, isChatActive,
+    coachTrackCommand, coachAnalyzeConversation
   ]);
   
   // Cleanup on unmount

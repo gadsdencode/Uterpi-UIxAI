@@ -48,6 +48,9 @@ import ChatHistory from './ChatHistory';
 import { SpeechSettings } from './SpeechSettings';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 
+// Import AI Coach panel
+import { AICoachPanel } from './AICoachPanel';
+
 const FuturisticAIChat: React.FC = () => {
   const { user } = useAuth();
   const snackbar = useSnackbar();
@@ -598,6 +601,12 @@ const FuturisticAIChat: React.FC = () => {
         <SpeechSettings
           isOpen={showSpeechSettings}
           onClose={() => setShowSpeechSettings(false)}
+        />
+
+        {/* AI Coach Panel - provides workflow insights and optimization tips */}
+        <AICoachPanel 
+          position="bottom-right" 
+          autoExpand={false}
         />
 
       </div>

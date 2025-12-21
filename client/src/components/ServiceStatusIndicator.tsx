@@ -98,14 +98,26 @@ export const ServiceStatusIndicator: React.FC<ServiceStatusIndicatorProps> = Rea
           label: 'Auth Required'
         };
       
-      case 'rate_limited':
+      case 'rate_limited': {
+        // Calculate remaining time if available
+        let label = 'Rate Limited';
+        if (status.rateLimitResetTime) {
+          const remainingMs = status.rateLimitResetTime - Date.now();
+          if (remainingMs > 0) {
+            const remainingSec = Math.ceil(remainingMs / 1000);
+            label = remainingSec > 60 
+              ? `Rate Limited (${Math.ceil(remainingSec / 60)}m)`
+              : `Rate Limited (${remainingSec}s)`;
+          }
+        }
         return {
-          icon: <AlertCircle className="w-3 h-3" />,
+          icon: <Clock className="w-3 h-3" />,
           color: 'text-purple-400',
           bgColor: 'bg-purple-500/20',
           borderColor: 'border-purple-500/50',
-          label: 'Rate Limited'
+          label
         };
+      }
       
       default:
         return {
@@ -137,6 +149,16 @@ export const ServiceStatusIndicator: React.FC<ServiceStatusIndicatorProps> = Rea
       
       return date.toLocaleDateString();
     };
+    
+    const formatRateLimitReset = () => {
+      if (!status.rateLimitResetTime) return null;
+      const remainingMs = status.rateLimitResetTime - Date.now();
+      if (remainingMs <= 0) return null;
+      const remainingSec = Math.ceil(remainingMs / 1000);
+      return remainingSec > 60 
+        ? `Retry in ${Math.ceil(remainingSec / 60)} minute(s)`
+        : `Retry in ${remainingSec} second(s)`;
+    };
 
     return (
       <div className="space-y-1">
@@ -150,7 +172,17 @@ export const ServiceStatusIndicator: React.FC<ServiceStatusIndicatorProps> = Rea
             Last checked: {formatLastChecked(status.lastChecked)}
           </div>
         )}
-        {status.lastError && (
+        {status.serviceStatus === 'rate_limited' && (
+          <div className="text-xs text-purple-400">
+            {formatRateLimitReset() || 'Rate limit will reset soon'}
+          </div>
+        )}
+        {status.serviceStatus === 'rate_limited' && (
+          <div className="text-xs text-muted-foreground italic">
+            Service is online, just temporarily rate limited
+          </div>
+        )}
+        {status.lastError && status.serviceStatus !== 'rate_limited' && (
           <div className="text-xs text-red-400 max-w-xs">
             {status.lastError}
           </div>
@@ -164,8 +196,9 @@ export const ServiceStatusIndicator: React.FC<ServiceStatusIndicatorProps> = Rea
     statusDisplay.label, 
     status.lastChecked, 
     status.lastError,
-    status.serviceStatus, // Add serviceStatus to dependencies for stability
-    status.isChecking // Add isChecking to dependencies
+    status.serviceStatus,
+    status.isChecking,
+    status.rateLimitResetTime
   ]);
 
   // Get error type display
@@ -178,7 +211,9 @@ export const ServiceStatusIndicator: React.FC<ServiceStatusIndicatorProps> = Rea
       case 'auth':
         return { icon: <AlertCircle className="w-3 h-3" />, label: 'Auth Error' };
       case 'rate_limit':
-        return { icon: <AlertCircle className="w-3 h-3" />, label: 'Rate Limited' };
+        return { icon: <Clock className="w-3 h-3" />, label: 'Rate Limited (temporary)' };
+      case 'credit_required':
+        return { icon: <AlertCircle className="w-3 h-3" />, label: 'Credits Required' };
       case 'server_error':
         return { icon: <XCircle className="w-3 h-3" />, label: 'Server Error' };
       default:

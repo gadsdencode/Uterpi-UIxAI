@@ -24,6 +24,10 @@ export interface ServiceStatus {
   responseTime?: number;
   errorType?: 'network' | 'timeout' | 'auth' | 'rate_limit' | 'server_error' | 'credit_required' | 'unknown';
   serviceStatus: 'online' | 'offline' | 'auth_required' | 'credit_required' | 'rate_limited' | 'checking';
+  /** Seconds until rate limit resets (from server 429 response) */
+  rateLimitRetryAfter?: number;
+  /** Timestamp when rate limit will reset */
+  rateLimitResetTime?: number;
 }
 
 export interface ServiceStatusMap {
@@ -56,6 +60,10 @@ export const useServiceStatus = (options: ServiceStatusOptions = {}) => {
   
   // Global rate limiter to prevent ANY health checks from exceeding limits
   const globalRateLimitRef = useRef<{ count: number; resetTime: number }>({ count: 0, resetTime: 0 });
+  
+  // Server-side rate limit backoff tracking (from 429 responses)
+  // This tracks when the server told us to back off
+  const serverRateLimitBackoffRef = useRef<Map<string, number>>(new Map());
 
   // Initialize service status for all providers
   const initializeServiceStatus = useCallback((providers: AIProvider[]) => {
@@ -99,7 +107,9 @@ export const useServiceStatus = (options: ServiceStatusOptions = {}) => {
         isChecking: false,
         responseTime,
         errorType: undefined,
-        serviceStatus: 'online'
+        serviceStatus: 'online',
+        rateLimitRetryAfter: undefined,
+        rateLimitResetTime: undefined
       };
     } catch (error) {
       const responseTime = Date.now() - startTime;
@@ -108,20 +118,75 @@ export const useServiceStatus = (options: ServiceStatusOptions = {}) => {
       const serviceStatus = determineServiceStatus(errorMessage, errorType);
       
       // Only count infrastructure failures as consecutive failures
+      // Rate limits, auth issues, and credit issues should NOT count as consecutive failures
       const isInfrastructureFailure = serviceStatus === 'offline';
       
+      // Extract retryAfter from error if available (for 429 responses)
+      const retryAfter = (error as any)?.retryAfter as number | undefined;
+      const rateLimitResetTime = retryAfter ? Date.now() + (retryAfter * 1000) : undefined;
+      
+      // Log rate limit info for debugging
+      if (serviceStatus === 'rate_limited') {
+        console.log(`[ServiceStatus] ${provider} is rate limited${retryAfter ? ` - retry after ${retryAfter}s` : ''}`);
+      }
+      
       return {
-        isOnline: serviceStatus !== 'offline', // Service is "online" unless it's a true infrastructure failure
+        // Service is "online" unless it's a true infrastructure failure
+        // Rate limited services are still "online" - just temporarily unavailable
+        isOnline: serviceStatus !== 'offline',
         lastChecked: new Date(),
         lastError: errorMessage,
+        // Don't increment consecutive failures for rate limits - this is expected behavior
         consecutiveFailures: isInfrastructureFailure ? 1 : 0,
         isChecking: false,
         responseTime,
         errorType,
-        serviceStatus
+        serviceStatus,
+        rateLimitRetryAfter: retryAfter,
+        rateLimitResetTime
       };
     }
   }, [opts.timeoutMs]);
+
+  /**
+   * Parse error response from server to extract detailed error info
+   * Especially important for 429 rate limit responses which include retryAfter
+   */
+  const parseErrorResponse = async (response: Response, providerName: string): Promise<never> => {
+    let errorMessage = `${providerName} endpoint returned ${response.status}`;
+    let retryAfterSeconds: number | undefined;
+    
+    try {
+      const errorData = await response.json();
+      
+      // Extract error message from response body if available
+      if (errorData.error) {
+        errorMessage = typeof errorData.error === 'string' 
+          ? errorData.error 
+          : errorData.error.message || errorMessage;
+      }
+      if (errorData.message) {
+        errorMessage = errorData.message;
+      }
+      
+      // Extract retryAfter for rate limit responses
+      if (response.status === 429 && errorData.retryAfter) {
+        retryAfterSeconds = Number(errorData.retryAfter);
+        errorMessage = `Rate limit exceeded. Retry after ${retryAfterSeconds}s`;
+      }
+    } catch {
+      // Response body wasn't JSON, use status-based message
+      if (response.status === 429) {
+        errorMessage = 'Rate limit exceeded (429). Please wait before checking again.';
+      }
+    }
+    
+    // Create error with additional metadata
+    const error = new Error(errorMessage);
+    (error as any).status = response.status;
+    (error as any).retryAfter = retryAfterSeconds;
+    throw error;
+  };
 
   // Perform actual health check for each provider
   const performProviderHealthCheck = async (provider: AIProvider): Promise<void> => {
@@ -181,7 +246,7 @@ export const useServiceStatus = (options: ServiceStatusOptions = {}) => {
         });
         
         if (!response.ok) {
-          throw new Error(`Azure AI endpoint returned ${response.status}`);
+          await parseErrorResponse(response, 'Azure AI');
         }
         break;
       }
@@ -218,7 +283,7 @@ export const useServiceStatus = (options: ServiceStatusOptions = {}) => {
         });
         
         if (!response.ok) {
-          throw new Error(`Uterpi endpoint returned ${response.status}`);
+          await parseErrorResponse(response, 'Uterpi');
         }
         break;
       }
@@ -238,10 +303,11 @@ export const useServiceStatus = (options: ServiceStatusOptions = {}) => {
     if (message.includes('timeout') || message.includes('aborted')) {
       return 'timeout';
     }
-    if (message.includes('api key') || message.includes('authentication') || message.includes('unauthorized')) {
+    if (message.includes('api key') || message.includes('authentication') || message.includes('unauthorized') || message.includes(' 401')) {
       return 'auth';
     }
-    if (message.includes('rate limit') || message.includes('quota')) {
+    // Properly detect 429 responses and rate limit errors
+    if (message.includes('rate limit') || message.includes('quota') || message.includes(' 429') || message.includes('too many requests')) {
       return 'rate_limit';
     }
     if (message.includes('subscription error') || message.includes('402') || message.includes('credit') || message.includes('insufficient')) {
@@ -342,11 +408,18 @@ export const useServiceStatus = (options: ServiceStatusOptions = {}) => {
         return;
       }
       
+      // Check for server-side rate limit backoff (from previous 429 responses)
+      const serverBackoffUntil = serverRateLimitBackoffRef.current.get(provider) || 0;
+      if (now < serverBackoffUntil) {
+        const waitTime = Math.ceil((serverBackoffUntil - now) / 1000);
+        console.log(`[ServiceStatus] ${provider} server-side rate limit backoff active - ${waitTime}s remaining (skipping)`);
+        return;
+      }
+      
       // Increment global counter
       globalRateLimitRef.current.count++;
 
       // Client-side rate limiting for automatic checks - VERY RESTRICTIVE
-      const now = Date.now();
       const clientRateLimit = clientRateLimitRef.current.get(provider);
       const CLIENT_RATE_LIMIT = 1; // Only 1 automatic check per window
       const CLIENT_RATE_WINDOW = 600000; // 10 minutes - much longer window
@@ -379,18 +452,56 @@ export const useServiceStatus = (options: ServiceStatusOptions = {}) => {
 
       try {
         const status = await checkServiceHealth(provider);
+        
+        // Track rate limit backoff from server response
+        if (status.serviceStatus === 'rate_limited' && status.rateLimitResetTime) {
+          serverRateLimitBackoffRef.current.set(provider, status.rateLimitResetTime);
+        } else if (status.serviceStatus === 'online') {
+          serverRateLimitBackoffRef.current.delete(provider);
+        }
+        
         updateServiceStatus(provider, status);
       } catch (error) {
         console.error(`Health check failed for ${provider}:`, error);
-        updateServiceStatus(provider, {
-          isOnline: false,
-          lastChecked: new Date(),
-          lastError: error instanceof Error ? error.message : 'Unknown error',
-          consecutiveFailures: (serviceStatus[provider]?.consecutiveFailures || 0) + 1,
-          isChecking: false,
-          errorType: 'unknown',
-          serviceStatus: 'offline'
-        });
+        
+        // Check if this is a rate limit error
+        const retryAfter = (error as any)?.retryAfter as number | undefined;
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        const errorType = categorizeError(errorMessage);
+        const derivedServiceStatus = determineServiceStatus(errorMessage, errorType);
+        
+        // Handle rate limit errors gracefully - don't mark as offline
+        if (derivedServiceStatus === 'rate_limited' || retryAfter) {
+          const backoffTime = retryAfter 
+            ? Date.now() + (retryAfter * 1000) 
+            : Date.now() + 60000;
+          serverRateLimitBackoffRef.current.set(provider, backoffTime);
+          
+          updateServiceStatus(provider, {
+            isOnline: true,
+            lastChecked: new Date(),
+            lastError: errorMessage,
+            consecutiveFailures: 0,
+            isChecking: false,
+            errorType: 'rate_limit',
+            serviceStatus: 'rate_limited',
+            rateLimitRetryAfter: retryAfter || 60,
+            rateLimitResetTime: backoffTime
+          });
+        } else {
+          // Non-rate-limit error
+          updateServiceStatus(provider, {
+            isOnline: derivedServiceStatus !== 'offline',
+            lastChecked: new Date(),
+            lastError: errorMessage,
+            consecutiveFailures: derivedServiceStatus === 'offline' 
+              ? (serviceStatus[provider]?.consecutiveFailures || 0) + 1 
+              : 0,
+            isChecking: false,
+            errorType,
+            serviceStatus: derivedServiceStatus
+          });
+        }
       } finally {
         checkPromisesRef.current.delete(provider);
       }
@@ -439,6 +550,37 @@ export const useServiceStatus = (options: ServiceStatusOptions = {}) => {
   // Manual health check for specific provider with aggressive cooldown and client-side rate limiting
   const checkProvider = useCallback(async (provider: AIProvider) => {
     const now = Date.now();
+    
+    // Check if server told us to back off (from a previous 429 response)
+    const serverBackoffUntil = serverRateLimitBackoffRef.current.get(provider) || 0;
+    if (now < serverBackoffUntil) {
+      const waitTime = Math.ceil((serverBackoffUntil - now) / 1000);
+      console.log(`[ServiceStatus] ${provider} server-side rate limit backoff active - ${waitTime}s remaining`);
+      
+      // Return current status with rate limited info instead of making a request
+      const currentStatus = serviceStatus[provider];
+      if (currentStatus) {
+        return {
+          ...currentStatus,
+          serviceStatus: 'rate_limited' as const,
+          lastError: `Rate limited. Please wait ${waitTime}s before checking again.`,
+          isOnline: true, // Service is online, just rate limited
+          rateLimitRetryAfter: waitTime,
+          rateLimitResetTime: serverBackoffUntil
+        };
+      }
+      
+      return {
+        isOnline: true,
+        lastChecked: new Date(),
+        lastError: `Rate limited. Please wait ${waitTime}s before checking again.`,
+        consecutiveFailures: 0,
+        isChecking: false,
+        serviceStatus: 'rate_limited' as const,
+        rateLimitRetryAfter: waitTime,
+        rateLimitResetTime: serverBackoffUntil
+      };
+    }
     
     // Global rate limiting - prevent ANY health checks if global limit exceeded
     const globalLimit = globalRateLimitRef.current;
@@ -519,17 +661,58 @@ export const useServiceStatus = (options: ServiceStatusOptions = {}) => {
 
     try {
       const status = await checkServiceHealth(provider);
+      
+      // If we got a rate limit response, store the backoff time
+      if (status.serviceStatus === 'rate_limited' && status.rateLimitResetTime) {
+        serverRateLimitBackoffRef.current.set(provider, status.rateLimitResetTime);
+        console.log(`[ServiceStatus] ${provider} rate limited - backoff until ${new Date(status.rateLimitResetTime).toLocaleTimeString()}`);
+      } else if (status.serviceStatus === 'online') {
+        // Clear backoff on successful response
+        serverRateLimitBackoffRef.current.delete(provider);
+      }
+      
       updateServiceStatus(provider, status);
       return status;
     } catch (error) {
+      // Check if this error contains rate limit info
+      const retryAfter = (error as any)?.retryAfter as number | undefined;
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const errorType = categorizeError(errorMessage);
+      const derivedServiceStatus = determineServiceStatus(errorMessage, errorType);
+      
+      // If it's a rate limit error, track the backoff
+      if (derivedServiceStatus === 'rate_limited' || retryAfter) {
+        const backoffTime = retryAfter 
+          ? Date.now() + (retryAfter * 1000) 
+          : Date.now() + 60000; // Default 60s backoff if no retryAfter
+        serverRateLimitBackoffRef.current.set(provider, backoffTime);
+        
+        const rateLimitStatus: ServiceStatus = {
+          isOnline: true, // Service is online, just rate limited
+          lastChecked: new Date(),
+          lastError: errorMessage,
+          consecutiveFailures: 0, // Rate limits don't count as failures
+          isChecking: false,
+          errorType: 'rate_limit',
+          serviceStatus: 'rate_limited',
+          rateLimitRetryAfter: retryAfter || 60,
+          rateLimitResetTime: backoffTime
+        };
+        updateServiceStatus(provider, rateLimitStatus);
+        return rateLimitStatus;
+      }
+      
+      // For non-rate-limit errors, handle normally
       const errorStatus: ServiceStatus = {
-        isOnline: false,
+        isOnline: derivedServiceStatus !== 'offline',
         lastChecked: new Date(),
-        lastError: error instanceof Error ? error.message : 'Unknown error',
-        consecutiveFailures: (serviceStatus[provider]?.consecutiveFailures || 0) + 1,
+        lastError: errorMessage,
+        consecutiveFailures: derivedServiceStatus === 'offline' 
+          ? (serviceStatus[provider]?.consecutiveFailures || 0) + 1 
+          : 0,
         isChecking: false,
-        errorType: 'unknown',
-        serviceStatus: 'offline'
+        errorType,
+        serviceStatus: derivedServiceStatus
       };
       updateServiceStatus(provider, errorStatus);
       return errorStatus;
@@ -571,6 +754,7 @@ export const useServiceStatus = (options: ServiceStatusOptions = {}) => {
       // Clear all debounced update functions and rate limiting
       debouncedUpdateRef.current.clear();
       clientRateLimitRef.current.clear();
+      serverRateLimitBackoffRef.current.clear();
     };
   }, [stopMonitoring]);
 

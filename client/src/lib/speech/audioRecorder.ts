@@ -1,6 +1,6 @@
 // AudioRecorder: MRecordRTC-based audio recording and processing service
 
-import RecordRTC from 'recordrtc';
+import RecordRTC from 'recordrtc/RecordRTC';
 import { blobToBase64 } from './speechUtils';
 
 export interface AudioRecorderConfig {

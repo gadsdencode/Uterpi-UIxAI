@@ -30,6 +30,8 @@ const ECHOED_HISTORY_PATTERNS = [
 
 /**
  * Patterns that indicate analysis/meta prompts leaked into response
+ * These should ideally be in system role messages, not user role,
+ * but we sanitize them as a safety net if they leak through
  */
 const ANALYSIS_PROMPT_PATTERNS = [
   /ANALYSIS TASK:/gi,
@@ -38,6 +40,21 @@ const ANALYSIS_PROMPT_PATTERNS = [
   /analyze this conversation/gi,
   /return only a json object/gi,
   /json object with this structure/gi,
+  // Additional patterns for comprehensive protection
+  /Analyze this conversation transcript:/gi,
+  /Your task:/gi,
+  /CRITICAL REQUIREMENTS:/gi,
+  /Return this exact JSON structure/gi,
+  /User Interaction Style Analysis:/gi,
+  /Conversation Dynamics:/gi,
+  /Behavioral Insights:/gi,
+  /Interaction Quality Assessment:/gi,
+  /Hidden Patterns:/gi,
+  /Analysis Criteria:/gi,
+  /--- RELEVANT PAST CONVERSATIONS ---/gi,
+  /--- RELEVANT PAST MESSAGES ---/gi,
+  /--- RELEVANT FILE EXCERPTS ---/gi,
+  /--- CONTEXT USAGE GUIDELINES ---/gi,
 ];
 
 /**

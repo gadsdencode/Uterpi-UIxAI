@@ -153,6 +153,11 @@ export class ContextEnhancer {
 
   /**
    * Create contextual system message with relevant past conversations
+   * 
+   * IMPORTANT: This content is placed STRICTLY in the system role message, NOT in user messages.
+   * This prevents context headers like "--- RELEVANT PAST CONVERSATIONS ---" from appearing
+   * in the visible chat UI. The separation between system instructions and user conversation
+   * is critical for preventing context leaks.
    */
   private async createContextualSystemMessage(
     similarMessages: SimilarMessage[],

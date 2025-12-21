@@ -312,16 +312,21 @@ export class IntelligentToastService {
     // Create a more concise prompt for providers with token limitations (like Gemini)
     const isGemini = this.aiService.constructor?.name?.includes('Gemini');
     
-    const analysisPrompt = isGemini ? 
-    // Concise version for Gemini with strict JSON requirements
-    `Analyze this conversation. Return ONLY valid JSON, no other text.
+    // IMPORTANT: System instructions and analysis tasks are now STRICTLY in the system role
+    // to prevent context leaks where "ANALYSIS TASK:" strings appear in the UI.
+    // The user role message contains ONLY the conversation data to analyze.
+    
+    const systemInstructions = isGemini ?
+    // Concise system instructions for Gemini
+    `You are an expert in analyzing human-AI interaction patterns. You will receive a conversation transcript to analyze.
 
-CONVERSATION:
-${conversationText.substring(0, 1500)}
+Your task: Analyze the conversation and return ONLY a valid JSON object with insights about the user's interaction style, behavioral patterns, and communication preferences.
 
-CRITICAL: Return ONLY a valid JSON object. Do NOT include any text before or after the JSON.
-Do NOT use apostrophes or quotes in string values unless you escape them with backslash.
-Example: "user's goal" should be "user\\'s goal" or just "user goal"
+CRITICAL REQUIREMENTS:
+- Return ONLY valid JSON, no other text
+- Do NOT include any text before or after the JSON
+- Do NOT use apostrophes or quotes in string values unless you escape them with backslash
+- Example: "user's goal" should be "user goal" or "users goal"
 
 Return this exact JSON structure (replace placeholders with actual values):
 {
@@ -357,42 +362,38 @@ Return this exact JSON structure (replace placeholders with actual values):
     "motivation": "problem solving"
   }
 }` :
-    // Full version for other providers
-    `Analyze this conversation to understand the user's interaction patterns and provide hidden insights:
+    // Full system instructions for other providers
+    `You are an expert in analyzing human-AI interaction patterns. You will receive a conversation transcript to analyze.
 
-CONVERSATION:
-${conversationText}
+Your task: Provide deep insights about the user's interaction style, communication patterns, and behavioral tendencies. Focus on revealing "hidden insights" that would help understand how this user thinks and interacts with AI.
 
-ANALYSIS TASK:
-Provide deep insights about the user's interaction style, communication patterns, and behavioral tendencies. Focus on revealing "hidden insights" that would help understand how this user thinks and interacts with AI.
+Analysis Criteria:
 
-ANALYSIS CRITERIA:
-
-1. **User Interaction Style Analysis:**
+1. User Interaction Style Analysis:
    - How does the user communicate? (direct, exploratory, detailed, concise, iterative)
    - What type of questions do they ask? (specific, open-ended, follow-up, clarifying)
    - What's their engagement level? (high, medium, low)
    - How patient are they with responses? (high, medium, low)
 
-2. **Conversation Dynamics:**
+2. Conversation Dynamics:
    - How deep do they go into topics? (surface, moderate, deep, expert)
    - How do they handle multiple topics? (single-topic, multi-topic, branching, returning)
    - Does complexity increase, decrease, or stay stable?
    - What response style do they prefer? (detailed, concise, step-by-step, overview)
 
-3. **Behavioral Insights:**
+3. Behavioral Insights:
    - What's their learning style? (visual, practical, theoretical, experimental)
    - How do they approach problem-solving? (systematic, creative, pragmatic, analytical)
    - What's their confidence level? (high, medium, low)
    - What areas show expertise vs. areas for improvement?
 
-4. **Interaction Quality Assessment:**
+4. Interaction Quality Assessment:
    - Rate clarity of communication (1-10)
    - Rate efficiency of interaction (1-10)
    - Predict satisfaction level (1-10)
    - Identify potential frustration points
 
-5. **Hidden Patterns:**
+5. Hidden Patterns:
    - What subtle patterns reveal their thinking process?
    - What assumptions do they make about AI capabilities?
    - How do they handle uncertainty or ambiguity?
@@ -433,6 +434,12 @@ Return ONLY a JSON object with this structure:
   }
 }`;
 
+    // User message contains ONLY the conversation data - no analysis instructions
+    // This prevents "ANALYSIS TASK:" or similar strings from leaking into visible conversation
+    const userMessage = isGemini ?
+      `Analyze this conversation transcript:\n\n${conversationText.substring(0, 1500)}` :
+      `Analyze this conversation transcript:\n\n${conversationText}`;
+
     try {
       // Check if the AI service is available and properly configured
       if (!this.aiService || typeof this.aiService.sendChatCompletion !== 'function') {
@@ -449,15 +456,16 @@ Return ONLY a JSON object with this structure:
       const maxTokens = serviceName.includes('Gemini') ? 4096 : 1500;
       console.log(`📊 Requesting ${maxTokens} max tokens for analysis`);
 
-      // Try to use the AI service for analysis (works with any provider that supports sendChatCompletion)
+      // FIXED: System instructions and analysis tasks are now STRICTLY in the system role
+      // This prevents context leaks where analysis prompt strings appear in the UI
       const response = await this.aiService.sendChatCompletion([
         {
           role: "system",
-          content: "You are an expert in analyzing human-AI interaction patterns. Focus on revealing subtle insights about user behavior, communication style, and interaction preferences. Be insightful and specific."
+          content: systemInstructions
         },
         {
           role: "user",
-          content: analysisPrompt
+          content: userMessage
         }
       ], { maxTokens, temperature: 0.3 });
 

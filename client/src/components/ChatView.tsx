@@ -258,6 +258,7 @@ const FuturisticAIChat: React.FC = () => {
           <InputArea
             input={chat.input}
             setInput={chat.setInput}
+            handleManualInput={chat.handleManualInput}
             handleSend={chat.handleSend}
             isLoading={chat.isLoading}
             attachments={chat.attachments}

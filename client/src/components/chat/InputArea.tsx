@@ -75,6 +75,7 @@ const isCommandAvailable = (command: string, capabilities: ModelCapabilities | n
 export interface InputAreaProps {
   input: string;
   setInput: (val: string) => void;
+  handleManualInput: (val: string) => void; // Use for keyboard input to prevent transcript overwrite
   handleSend: () => void;
   isLoading: boolean;
   attachments: string[];
@@ -105,6 +106,7 @@ export interface InputAreaProps {
 export const InputArea = memo<InputAreaProps>(({
   input,
   setInput,
+  handleManualInput,
   handleSend,
   isLoading,
   attachments,
@@ -410,7 +412,7 @@ export const InputArea = memo<InputAreaProps>(({
                 <textarea
                   ref={inputRef}
                   value={input}
-                  onChange={(e) => setInput(e.target.value)}
+                  onChange={(e) => handleManualInput(e.target.value)}
                   onKeyPress={handleKeyPress}
                   placeholder="Type your message or use / for commands..."
                   className="w-full bg-transparent text-white placeholder-slate-400 resize-none focus:outline-none min-h-[40px] max-h-32"

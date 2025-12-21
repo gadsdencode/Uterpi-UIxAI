@@ -37,6 +37,7 @@ export interface UseChatReturn {
   isChatActive: boolean;
   responseBuffer: string;
   error: string | null;
+  isUserTyping: boolean; // True when user is manually typing (keyboard input)
   
   // Speech state
   isListening: boolean;
@@ -75,6 +76,7 @@ export interface UseChatReturn {
   
   // Actions
   setInput: (val: string) => void;
+  handleManualInput: (val: string) => void; // Use this for keyboard input to prevent transcript overwrite
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
   handleSend: () => Promise<void>;
   startNewConversation: () => void;
@@ -151,6 +153,12 @@ export const useChat = (options: UseChatOptions): UseChatReturn => {
   
   // Greeting initialization ref
   const hasInitializedGreeting = useRef(false);
+  
+  // User typing state lock - prevents transcript from overwriting manual keyboard input
+  // Using ref to avoid unnecessary re-renders, with a state mirror for UI if needed
+  const isUserTypingRef = useRef(false);
+  const [isUserTyping, setIsUserTyping] = useState(false);
+  const userTypingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
   // Listen for real-time credit updates
   const creditUpdate = useCreditUpdates();
@@ -270,20 +278,28 @@ export const useChat = (options: UseChatOptions): UseChatReturn => {
   });
   
   // Sync input field with speech recognition transcript
+  // IMPORTANT: This effect respects the isUserTyping lock to prevent overwriting manual keyboard input
   useEffect(() => {
     console.log('🎤 Transcript sync effect triggered:', {
       transcript,
       interimTranscript,
       isSubmittingMessage,
+      isUserTyping: isUserTypingRef.current,
       currentInput: input
     });
     
-    if (!isSubmittingMessage) {
-      const currentTranscript = transcript + (interimTranscript ? ' ' + interimTranscript : '');
-      if (currentTranscript.trim() && currentTranscript !== input) {
-        console.log('🎤 Syncing input with transcript:', currentTranscript);
-        setInput(currentTranscript);
+    // Skip sync if user is actively typing via keyboard or if submitting
+    if (isSubmittingMessage || isUserTypingRef.current) {
+      if (isUserTypingRef.current) {
+        console.log('🎤 Skipping transcript sync - user is manually typing');
       }
+      return;
+    }
+    
+    const currentTranscript = transcript + (interimTranscript ? ' ' + interimTranscript : '');
+    if (currentTranscript.trim() && currentTranscript !== input) {
+      console.log('🎤 Syncing input with transcript:', currentTranscript);
+      setInput(currentTranscript);
     }
   }, [transcript, interimTranscript, isSubmittingMessage, input]);
   
@@ -458,6 +474,15 @@ export const useChat = (options: UseChatOptions): UseChatReturn => {
     setAttachments([]);
     setAttachedFileIds([]);
     clearError();
+    
+    // Reset user typing lock
+    isUserTypingRef.current = false;
+    setIsUserTyping(false);
+    if (userTypingTimeoutRef.current) {
+      clearTimeout(userTypingTimeoutRef.current);
+      userTypingTimeoutRef.current = null;
+    }
+    
     console.log('🆕 Started new conversation');
   }, [clearTranscript, clearError]);
   
@@ -469,6 +494,37 @@ export const useChat = (options: UseChatOptions): UseChatReturn => {
     }
     trackAction('system_message_change');
   }, [trackAction]);
+  
+  // Handle manual input from keyboard - sets user typing lock to prevent transcript overwrite
+  const handleManualInput = useCallback((val: string) => {
+    // Set the user typing lock
+    isUserTypingRef.current = true;
+    setIsUserTyping(true);
+    
+    // Clear any existing timeout
+    if (userTypingTimeoutRef.current) {
+      clearTimeout(userTypingTimeoutRef.current);
+    }
+    
+    // Reset the lock after user stops typing for 3 seconds
+    // This allows transcript to resume if user pauses but keeps voice input active
+    userTypingTimeoutRef.current = setTimeout(() => {
+      // Only reset if input hasn't been cleared (submitted or manually deleted)
+      if (val.trim()) {
+        console.log('🎤 User typing lock timeout - keeping lock since input has content');
+        // Keep the lock active as long as there's manual content
+      } else {
+        console.log('🎤 User typing lock reset - input is empty');
+        isUserTypingRef.current = false;
+        setIsUserTyping(false);
+      }
+    }, 3000);
+    
+    // Update the input value
+    setInput(val);
+    
+    console.log('⌨️ Manual input detected - transcript sync paused');
+  }, []);
   
   // Handle speak
   const handleSpeak = useCallback(async (messageId: string, text: string) => {
@@ -511,6 +567,17 @@ export const useChat = (options: UseChatOptions): UseChatReturn => {
         }
       } else {
         console.log('🎤 Starting recording...');
+        
+        // Reset user typing lock when starting voice input
+        // This allows transcript sync to resume
+        isUserTypingRef.current = false;
+        setIsUserTyping(false);
+        if (userTypingTimeoutRef.current) {
+          clearTimeout(userTypingTimeoutRef.current);
+          userTypingTimeoutRef.current = null;
+        }
+        console.log('🎤 User typing lock reset - voice input taking over');
+        
         setInput('');
         clearTranscript();
         
@@ -588,6 +655,14 @@ export const useChat = (options: UseChatOptions): UseChatReturn => {
     clearError();
     setInput('');
     clearTranscript();
+    
+    // Reset user typing lock after message submission
+    isUserTypingRef.current = false;
+    setIsUserTyping(false);
+    if (userTypingTimeoutRef.current) {
+      clearTimeout(userTypingTimeoutRef.current);
+      userTypingTimeoutRef.current = null;
+    }
     
     if (isListening) {
       console.log('🎤 Stopping speech recognition after message send');
@@ -742,6 +817,10 @@ export const useChat = (options: UseChatOptions): UseChatReturn => {
       if (isSpeaking) {
         stopSpeaking();
       }
+      // Clean up user typing timeout
+      if (userTypingTimeoutRef.current) {
+        clearTimeout(userTypingTimeoutRef.current);
+      }
     };
   }, [isListening, isSpeaking, stopListening, stopSpeaking]);
 
@@ -760,6 +839,7 @@ export const useChat = (options: UseChatOptions): UseChatReturn => {
     isChatActive,
     responseBuffer,
     error,
+    isUserTyping,
     
     // Speech state
     isListening,
@@ -798,6 +878,7 @@ export const useChat = (options: UseChatOptions): UseChatReturn => {
     
     // Actions
     setInput,
+    handleManualInput,
     setMessages,
     handleSend,
     startNewConversation,

@@ -267,7 +267,8 @@ Similarity: ${(msg.similarity * 100).toFixed(1)}%`;
       enhancedMessages: [
         { role: 'system', content: basicSystemMessage },
         ...messages.filter(msg => msg.role !== 'system')
-      ]
+      ],
+      fileSnippets: []
     };
   }
 

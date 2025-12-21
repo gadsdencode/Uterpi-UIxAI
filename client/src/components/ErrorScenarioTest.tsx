@@ -10,7 +10,7 @@ import { Badge } from './ui/badge';
 import { Alert, AlertDescription } from './ui/alert';
 import { LMStudioService } from '../lib/lmstudio';
 import { GeminiService } from '../lib/gemini';
-import { OpenAIService } from '../lib/openai';
+import { OpenAIService } from '../lib/openAI';
 import { handleError, createError } from '../lib/error-handler';
 import { toast } from 'sonner';
 

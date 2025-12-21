@@ -263,6 +263,7 @@ export class LMStudioSpeechService extends BaseSpeechService {
       supportsVoiceCloning: false,
       supportsEmotions: false,
       supportsMultiLanguage: true,
+      supportsVAD: false,
       availableVoices: [],
       availableLanguages: ['en-US', 'en-GB', 'es-ES', 'fr-FR', 'de-DE', 'it-IT', 'pt-BR', 'ja-JP', 'ko-KR', 'zh-CN']
     };
@@ -281,7 +282,7 @@ export class LMStudioSpeechService extends BaseSpeechService {
   }
 
   private isTTSAvailable(): boolean {
-    return typeof window !== 'undefined' && window.speechSynthesis;
+    return typeof window !== 'undefined' && !!window.speechSynthesis;
   }
 
   private cleanupRecognition(): void {

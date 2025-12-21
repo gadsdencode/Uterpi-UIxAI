@@ -557,9 +557,9 @@ export const EnhancedFileManager: React.FC<EnhancedFileManagerProps> = ({
             </div>
           ) : !sortedFiles.length ? (
             <div className="h-64">
-              {searchQuery || currentFolder !== '/' ? (
+              {searchQuery || selectedFolder !== '/' ? (
                 <FileEmptyStates.NoFilesInFolder 
-                  currentFolder={currentFolder}
+                  currentFolder={selectedFolder}
                   onUpload={() => {
                     // Trigger file upload
                     const input = document.createElement('input');

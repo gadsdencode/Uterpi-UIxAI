@@ -263,6 +263,7 @@ export class GoogleSpeechService extends BaseSpeechService {
       supportsVoiceCloning: false,
       supportsEmotions: false,
       supportsMultiLanguage: true,
+      supportsVAD: false,
       availableVoices: [],
       availableLanguages: this.getAvailableLanguages()
     };

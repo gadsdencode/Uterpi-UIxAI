@@ -47,8 +47,10 @@ const categoryIcons = {
   reasoning: TrendingUp
 };
 
-const tierColors = {
+const tierColors: Record<string, string> = {
   free: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
+  freemium: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
+  standard: "bg-blue-500/20 text-blue-400 border-blue-500/30",
   pro: "bg-violet-500/20 text-violet-400 border-violet-500/30",
   enterprise: "bg-amber-500/20 text-amber-400 border-amber-500/30"
 };
@@ -511,13 +513,13 @@ const LLMModalSelector: React.FC<LLMModalSelectorProps> = ({
             {/* Empty State */}
             {filteredAndSortedModels.length === 0 && (
               <SearchEmptyStates.NoResults 
-                searchTerm={searchQuery}
-                hasFilters={categoryFilter !== 'all' || tierFilter !== 'all' || sortBy !== 'name'}
+                searchTerm={searchTerm}
+                hasFilters={selectedCategory !== 'all' || selectedTier !== 'all' || sortBy !== 'name'}
                 searchType="models"
-                onClearSearch={() => setSearchQuery('')}
+                onClearSearch={() => setSearchTerm('')}
                 onClearFilters={() => {
-                  setCategoryFilter('all');
-                  setTierFilter('all');
+                  setSelectedCategory('all');
+                  setSelectedTier('all');
                   setSortBy('name');
                 }}
                 suggestions={['GPT-4', 'Claude', 'Gemini', 'Llama']}

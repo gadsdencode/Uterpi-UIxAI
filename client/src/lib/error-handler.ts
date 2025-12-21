@@ -58,6 +58,7 @@ export class AuthenticationError extends Error implements ClientError {
   statusCode = 401;
   retryable = false;
   userMessage = 'Please log in to continue.';
+  action?: { label: string; onClick: () => void };
 
   constructor(message: string = 'Authentication required') {
     super(message);
@@ -98,6 +99,8 @@ export class SubscriptionError extends Error implements ClientError {
   statusCode = 402;
   retryable = false;
   details: any;
+  userMessage: string;
+  action?: { label: string; onClick: () => void };
 
   constructor(code: string, message: string, details?: any) {
     super(message);

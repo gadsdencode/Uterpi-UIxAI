@@ -214,6 +214,7 @@ export class SpeechServiceFactory {
             supportsVoiceCloning: false,
             supportsEmotions: false,
             supportsMultiLanguage: false,
+            supportsVAD: false,
             availableVoices: [],
             availableLanguages: []
           }),

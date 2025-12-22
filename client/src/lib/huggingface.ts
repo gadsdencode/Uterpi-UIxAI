@@ -1,23 +1,35 @@
+// client/src/lib/huggingface.ts
+// Hugging Face Inference API service implementation
+
 import { AzureAIMessage, ChatCompletionOptions, LLMModel } from "../types";
-import { getModelConfiguration, validateModelParameters } from "./modelConfigurations";
+import { BaseAIService } from "./ai";
 
 export interface HuggingFaceConfig {
   endpointUrl: string;
   apiToken: string;
   modelName?: string;
+  isUterpi?: boolean;
 }
 
-export class HuggingFaceService {
-  private config: HuggingFaceConfig;
+export class HuggingFaceService extends BaseAIService {
+  // Store HuggingFace-specific config separately since it has different structure
+  private hfConfig: HuggingFaceConfig;
 
   constructor(config: HuggingFaceConfig) {
-    this.config = config;
+    super(
+      { 
+        apiKey: config.apiToken, 
+        modelName: config.modelName || "hf-endpoint",
+        baseUrl: config.endpointUrl 
+      }, 
+      config.isUterpi ? 'uterpi' : 'huggingface'
+    );
+    this.hfConfig = config;
   }
 
-  updateModel(modelName: string): void {
-    this.config.modelName = modelName;
-  }
-
+  /**
+   * Override getCurrentModel to handle optional modelName
+   */
   getCurrentModel(): string {
     return this.config.modelName || "hf-endpoint";
   }
@@ -49,8 +61,10 @@ export class HuggingFaceService {
     ];
   }
 
+  /**
+   * Convert messages to a simple prompt format for HuggingFace text-generation
+   */
   private convertToPrompt(messages: AzureAIMessage[]): string {
-    // Compose a simple prompt including system guidance
     return messages
       .map(m => {
         const role = m.role === "assistant" ? "Assistant" : m.role === "user" ? "User" : "System";
@@ -68,82 +82,32 @@ export class HuggingFaceService {
     options: ChatCompletionOptions = {}
   ): Promise<string> {
     const modelId = this.getCurrentModel();
-    const modelConfig = getModelConfiguration(modelId);
-
-    const validated = validateModelParameters(modelId, {
-      maxTokens: options.maxTokens,
-      temperature: options.temperature,
-      topP: options.topP,
-    });
+    const validatedParams = this.getValidatedParams(options);
 
     // Check if this is Uterpi LLM (uses backend proxy for credit checking)
-    const isUterpi = (this.config as any).isUterpi;
-    
-    if (isUterpi) {
-      // Use backend proxy for Uterpi LLM with credit checking
-      const requestBody = {
-        provider: 'uterpi',
-        messages,
-        model: this.config.modelName || 'uterpi-llm',
-        max_tokens: validated.maxTokens,
-        temperature: validated.temperature,
-        top_p: validated.topP,
-        stream: false
-      };
-
-      const response = await fetch('/ai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify(requestBody),
-      });
-
-      if (!response.ok) {
-        // Handle credit limit errors specially
-        if (response.status === 402) {
-          const errorData = await response.json();
-          throw new Error(`Subscription error: ${JSON.stringify(errorData)}`);
-        }
-        
-        const errText = await response.text();
-        throw new Error(`Uterpi LLM error (${response.status}): ${errText}`);
-      }
-
-      const data = await response.json();
-      
-      // Extract credit information if present and emit update
-      if (data.uterpi_credit_info) {
-        const { emitCreditUpdate } = await import('../hooks/useCreditUpdates');
-        emitCreditUpdate({
-          creditsUsed: data.uterpi_credit_info.credits_used,
-          remainingBalance: data.uterpi_credit_info.remaining_balance
-        });
-      }
-      
-      return data.choices[0]?.message?.content || "";
+    if (this.hfConfig.isUterpi) {
+      return this.sendUterpiCompletion(messages, validatedParams);
     }
 
     // Original HuggingFace direct API call for non-Uterpi endpoints
     const prompt = this.convertToPrompt(messages);
 
-    const body: any = {
+    const body = {
       inputs: prompt,
       parameters: {
         // HF text-generation parameters
-        max_new_tokens: validated.maxTokens,
-        temperature: validated.temperature,
-        top_p: validated.topP,
+        max_new_tokens: validatedParams.maxTokens,
+        temperature: validatedParams.temperature,
+        top_p: validatedParams.topP,
         return_full_text: false
       }
     };
 
-    const response = await fetch(this.config.endpointUrl, {
+    const response = await fetch(this.hfConfig.endpointUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${this.config.apiToken}`
+        "Authorization": `Bearer ${this.hfConfig.apiToken}`
       },
       body: JSON.stringify(body)
     });
@@ -154,23 +118,63 @@ export class HuggingFaceService {
     }
 
     // Response schema can vary by model/task. Handle common shapes without assumptions beyond official docs.
-    // Inference API commonly returns an array of objects with generated_text for text-generation.
     const data = await response.json();
     let text = "";
+    
     if (Array.isArray(data)) {
       const first = data[0] || {};
       text = first.generated_text || first.summary_text || "";
     } else if (typeof data === "object" && data) {
-      // Some endpoints may return an object with generated_text
-      text = (data as any).generated_text || "";
-      if (!text && (data as any).choices?.[0]?.message?.content) {
-        text = (data as any).choices[0].message.content;
+      text = (data as Record<string, unknown>).generated_text as string || "";
+      if (!text) {
+        const choices = (data as Record<string, unknown>).choices as Array<{ message?: { content?: string } }> | undefined;
+        if (choices?.[0]?.message?.content) {
+          text = choices[0].message.content;
+        }
       }
     } else if (typeof data === "string") {
       text = data;
     }
 
     return typeof text === "string" ? text : JSON.stringify(data);
+  }
+
+  /**
+   * Send completion request via Uterpi backend proxy (with credit checking)
+   */
+  private async sendUterpiCompletion(
+    messages: AzureAIMessage[],
+    validatedParams: { maxTokens: number; temperature: number; topP: number }
+  ): Promise<string> {
+    const requestBody = {
+      provider: 'uterpi',
+      messages,
+      model: this.hfConfig.modelName || 'uterpi-llm',
+      max_tokens: validatedParams.maxTokens,
+      temperature: validatedParams.temperature,
+      top_p: validatedParams.topP,
+      stream: false
+    };
+
+    const response = await fetch('/ai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+      body: JSON.stringify(requestBody),
+    });
+
+    if (!response.ok) {
+      await this.handleApiError(response, 'API');
+    }
+
+    const data = await response.json();
+    
+    // Extract credit information if present and emit update
+    await this.emitCreditUpdate(data.uterpi_credit_info);
+    
+    return data.choices[0]?.message?.content || "";
   }
 
   /**
@@ -184,24 +188,16 @@ export class HuggingFaceService {
   ): Promise<void> {
     try {
       // Check if this is Uterpi LLM (uses backend proxy for credit checking)
-      const isUterpi = (this.config as any).isUterpi;
-      
-      if (isUterpi) {
-        // Use backend proxy for Uterpi LLM with credit checking
-        const modelId = this.getCurrentModel();
-        const validated = validateModelParameters(modelId, {
-          maxTokens: options.maxTokens,
-          temperature: options.temperature,
-          topP: options.topP,
-        });
+      if (this.hfConfig.isUterpi) {
+        const validatedParams = this.getValidatedParams(options);
 
         const requestBody = {
           provider: 'uterpi',
           messages,
-          model: this.config.modelName || 'uterpi-llm',
-          max_tokens: validated.maxTokens,
-          temperature: validated.temperature,
-          top_p: validated.topP,
+          model: this.hfConfig.modelName || 'uterpi-llm',
+          max_tokens: validatedParams.maxTokens,
+          temperature: validatedParams.temperature,
+          top_p: validatedParams.topP,
           stream: true
         };
 
@@ -215,14 +211,7 @@ export class HuggingFaceService {
         });
 
         if (!response.ok) {
-          // Handle credit limit errors specially
-          if (response.status === 402) {
-            const errorData = await response.json();
-            throw new Error(`Subscription error: ${JSON.stringify(errorData)}`);
-          }
-          
-          const errText = await response.text();
-          throw new Error(`Uterpi LLM streaming error (${response.status}): ${errText}`);
+          await this.handleStreamError(response);
         }
 
         // For now, fall back to non-streaming for Uterpi LLM
@@ -256,5 +245,3 @@ export class HuggingFaceService {
 }
 
 export default HuggingFaceService;
-
-

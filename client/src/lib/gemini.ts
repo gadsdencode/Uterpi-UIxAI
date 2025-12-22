@@ -1,34 +1,24 @@
-import { GeminiContent, GeminiConfig, AzureAIMessage, ChatCompletionOptions, LLMModel, GeminiSystemInstruction } from "../types";
-import { getModelConfiguration, validateModelParameters } from "./modelConfigurations";
+// client/src/lib/gemini.ts
+// Google Gemini API service implementation
 
-export class GeminiService {
-  private config: GeminiConfig;
+import { GeminiContent, GeminiConfig, AzureAIMessage, ChatCompletionOptions, LLMModel, GeminiSystemInstruction } from "../types";
+import { BaseAIService } from "./ai";
+import { parseGeminiStyleStream, getStreamReader } from "./ai/streamParsers";
+
+export class GeminiService extends BaseAIService {
+  protected declare config: GeminiConfig;
 
   constructor(config: GeminiConfig) {
-    this.config = config;
+    super(config, 'gemini');
   }
 
   /**
-   * Update the model name for this service instance
+   * Estimate token count for Gemini contents (rough approximation)
    */
-  updateModel(modelName: string): void {
-    this.config.modelName = modelName;
-  }
-
-  /**
-   * Get current model configuration
-   */
-  getCurrentModel(): string {
-    return this.config.modelName;
-  }
-
-  /**
-   * Estimate token count for contents (rough approximation)
-   */
-  private estimateTokenCount(contents: GeminiContent[]): number {
+  private estimateGeminiTokenCount(contents: GeminiContent[]): number {
     return contents.reduce((total, content) => {
       const textContent = content.parts.reduce((partTotal, part) => {
-        return partTotal + Math.ceil(part.text.length / 4);
+        return partTotal + this.estimateTextTokens(part.text);
       }, 0);
       return total + textContent + 10;
     }, 0);
@@ -37,7 +27,7 @@ export class GeminiService {
   /**
    * Truncate conversation history while preserving system message and recent context
    */
-  private truncateConversationHistory(contents: GeminiContent[], maxTokens: number): GeminiContent[] {
+  private truncateGeminiHistory(contents: GeminiContent[], maxTokens: number): GeminiContent[] {
     if (contents.length === 0) return contents;
     
     // Calculate tokens and add messages from most recent, working backwards
@@ -45,7 +35,7 @@ export class GeminiService {
     const result: GeminiContent[] = [];
     
     for (let i = contents.length - 1; i >= 0; i--) {
-      const contentTokens = this.estimateTokenCount([contents[i]]);
+      const contentTokens = this.estimateGeminiTokenCount([contents[i]]);
       if (totalTokens + contentTokens <= maxTokens) {
         totalTokens += contentTokens;
         result.unshift(contents[i]);
@@ -183,10 +173,10 @@ export class GeminiService {
       const { contents, systemInstruction } = this.convertToGeminiContents(messages);
       
       // Get model-specific configuration and parameters
-      const modelConfig = getModelConfiguration(this.config.modelName);
+      const modelConfig = this.getModelConfig();
       
       // Estimate token count and truncate if necessary
-      const estimatedTokens = this.estimateTokenCount(contents);
+      const estimatedTokens = this.estimateGeminiTokenCount(contents);
       const maxContextTokens = modelConfig.contextLength || 32000;
       const reserveTokensForResponse = options.maxTokens || 1024;
       
@@ -195,20 +185,13 @@ export class GeminiService {
       let processedContents = contents;
       if (estimatedTokens + reserveTokensForResponse > maxContextTokens) {
         console.warn(`⚠️ Approaching token limit, truncating conversation history`);
-        processedContents = this.truncateConversationHistory(contents, maxContextTokens - reserveTokensForResponse);
+        processedContents = this.truncateGeminiHistory(contents, maxContextTokens - reserveTokensForResponse);
       }
       
       // Use validated parameters based on the model's capabilities and limits
-      const validatedParams = validateModelParameters(this.config.modelName, {
-        maxTokens: options.maxTokens,
-        temperature: options.temperature,
-        topP: options.topP,
-        frequencyPenalty: options.frequencyPenalty,
-        presencePenalty: options.presencePenalty
-      });
+      const validatedParams = this.getValidatedParams(options);
 
       // Gemini requires a minimum number of tokens to generate any response
-      // Even for simple responses, it needs at least 50-100 tokens
       const minTokensForGemini = 50;
       if (validatedParams.maxTokens < minTokensForGemini) {
         console.warn(`⚠️ Gemini requires at least ${minTokensForGemini} tokens. Adjusting from ${validatedParams.maxTokens} to ${minTokensForGemini}`);
@@ -216,7 +199,7 @@ export class GeminiService {
       }
 
       // Build request body
-      const requestBody: any = {
+      const requestBody: Record<string, unknown> = {
         contents: processedContents,
         generationConfig: {
           maxOutputTokens: validatedParams.maxTokens,
@@ -232,16 +215,16 @@ export class GeminiService {
 
       // Add stop sequences if supported
       if (modelConfig.capabilities.supportsStop && options.stop) {
-        requestBody.generationConfig.stopSequences = Array.isArray(options.stop) ? options.stop : [options.stop];
+        (requestBody.generationConfig as Record<string, unknown>).stopSequences = Array.isArray(options.stop) ? options.stop : [options.stop];
       }
 
-      console.log(`Using optimized parameters for ${modelConfig.name} (${modelConfig.provider}):`, {
-        maxOutputTokens: requestBody.generationConfig.maxOutputTokens,
-        temperature: requestBody.generationConfig.temperature,
-        topP: requestBody.generationConfig.topP,
+      this.logParams({
+        maxOutputTokens: (requestBody.generationConfig as Record<string, unknown>).maxOutputTokens,
+        temperature: (requestBody.generationConfig as Record<string, unknown>).temperature,
+        topP: (requestBody.generationConfig as Record<string, unknown>).topP,
       });
 
-      console.log('🔗 Sending Gemini request:', {
+      this.logRequest({
         model: this.config.modelName,
         contentCount: processedContents.length,
         hasSystemInstruction: !!systemInstruction,
@@ -267,18 +250,9 @@ export class GeminiService {
         }),
       });
 
-      console.log('📡 Gemini response status:', response.status);
+      this.logResponse(response.status);
 
       if (!response.ok) {
-        // Handle credit limit errors specially
-        if (response.status === 402) {
-          const errorData = await response.json();
-          throw new Error(`Subscription error: ${JSON.stringify(errorData)}`);
-        }
-        
-        const errorData = await response.text();
-        console.error('❌ Gemini API error details:', errorData);
-        
         // Handle specific error codes
         if (response.status === 403) {
           console.error('❌ Gemini API Key Error: Invalid or missing API key');
@@ -287,11 +261,12 @@ export class GeminiService {
           console.error('❌ Gemini Model Error: Model not found');
           throw new Error(`Gemini model "${this.config.modelName}" not found. Please check the model name.`);
         } else if (response.status === 400) {
+          const errorData = await response.text();
           console.error('❌ Gemini Request Error: Bad request');
           throw new Error(`Invalid request to Gemini API: ${errorData}`);
         }
         
-        throw new Error(`Gemini API error (${response.status}): ${errorData}`);
+        await this.handleApiError(response, 'API');
       }
 
       const data = await response.json();
@@ -302,16 +277,9 @@ export class GeminiService {
         choicesLength: data.choices?.length,
         error: data.error
       });
-      console.log('🔍 FULL RESPONSE DATA:', JSON.stringify(data, null, 2));
       
       // Extract credit information if present and emit update
-      if (data.uterpi_credit_info) {
-        const { emitCreditUpdate } = await import('../hooks/useCreditUpdates');
-        emitCreditUpdate({
-          creditsUsed: data.uterpi_credit_info.credits_used,
-          remainingBalance: data.uterpi_credit_info.remaining_balance
-        });
-      }
+      await this.emitCreditUpdate(data.uterpi_credit_info);
       
       // Check for error in response
       if (data.error) {
@@ -341,12 +309,10 @@ export class GeminiService {
       // Check if response was truncated due to token limit
       if (candidate.finishReason === 'MAX_TOKENS') {
         console.warn('⚠️ Gemini response truncated due to MAX_TOKENS limit');
-        // Still try to get partial content if available
       }
       
       // Check for empty content
       if (!candidate.content || !candidate.content.parts || candidate.content.parts.length === 0) {
-        // If MAX_TOKENS and no content, it means we need more output tokens
         if (candidate.finishReason === 'MAX_TOKENS') {
           console.error('❌ Gemini hit token limit before generating any content. Increase maxTokens.');
           throw new Error('Gemini needs more output tokens. Please increase maxTokens in the request.');
@@ -364,18 +330,16 @@ export class GeminiService {
         console.warn('⚠️ Gemini API returned empty text content');
       }
       
-      console.log('✅ Gemini response received:', content.substring(0, 100) + '...');
-      console.log('🔍 Full Gemini response content:', content);
-      console.log('🔍 Response length:', content.length);
-      console.log('🔍 Response type:', typeof content);
+      this.logSuccess(content);
       return content;
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Gemini Service Error:", error);
       
       // Provide user-friendly error messages
-      if (error.message?.includes('API key')) {
+      const errorMessage = error instanceof Error ? error.message : '';
+      if (errorMessage.includes('API key')) {
         throw new Error('Gemini API key issue. Please verify your API key in AI Provider Settings.');
-      } else if (error.message?.includes('model')) {
+      } else if (errorMessage.includes('model')) {
         throw new Error('Gemini model issue. Please try a different model or check your settings.');
       }
       
@@ -396,16 +360,10 @@ export class GeminiService {
       const { contents, systemInstruction } = this.convertToGeminiContents(messages);
       
       // Get model-specific configuration and parameters
-      const modelConfig = getModelConfiguration(this.config.modelName);
+      const modelConfig = this.getModelConfig();
       
       // Use validated parameters
-      const validatedParams = validateModelParameters(this.config.modelName, {
-        maxTokens: options.maxTokens,
-        temperature: options.temperature,
-        topP: options.topP,
-        frequencyPenalty: options.frequencyPenalty,
-        presencePenalty: options.presencePenalty
-      });
+      const validatedParams = this.getValidatedParams(options);
 
       // Gemini requires a minimum number of tokens to generate any response
       const minTokensForGemini = 50;
@@ -415,7 +373,7 @@ export class GeminiService {
       }
 
       // Build request body
-      const requestBody: any = {
+      const requestBody: Record<string, unknown> = {
         contents,
         generationConfig: {
           maxOutputTokens: validatedParams.maxTokens,
@@ -431,7 +389,7 @@ export class GeminiService {
 
       // Add stop sequences if supported
       if (modelConfig.capabilities.supportsStop && options.stop) {
-        requestBody.generationConfig.stopSequences = Array.isArray(options.stop) ? options.stop : [options.stop];
+        (requestBody.generationConfig as Record<string, unknown>).stopSequences = Array.isArray(options.stop) ? options.stop : [options.stop];
       }
 
       // Use universal AI proxy for credit checking
@@ -454,129 +412,11 @@ export class GeminiService {
       });
       
       if (!response.ok) {
-        // Handle credit limit errors specially
-        if (response.status === 402) {
-          const errorData = await response.json();
-          throw new Error(`Subscription error: ${JSON.stringify(errorData)}`);
-        }
-        
-        const errorData = await response.text();
-        console.error('❌ Gemini streaming error:', errorData);
-        throw new Error(`Gemini streaming error: ${errorData}`);
+        await this.handleStreamError(response);
       }
 
-      const reader = response.body?.getReader();
-      if (!reader) {
-        throw new Error("The response stream is undefined");
-      }
-
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let accumulatedText = ''; // Track ALL text sent so far for the entire response
-
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          
-          if (done) {
-            break;
-          }
-
-          // Decode the chunk and add to buffer
-          const chunk = decoder.decode(value, { stream: true });
-          buffer += chunk;
-
-          // Process complete lines
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || ''; // Keep incomplete line in buffer
-
-          for (const line of lines) {
-            if (!line.trim()) continue;
-            
-            let jsonData = line;
-            
-            // Check if it's SSE format (with alt=sse parameter)
-            if (line.startsWith('data: ')) {
-              jsonData = line.slice(6).trim();
-              if (jsonData === '[DONE]') {
-                return;
-              }
-            }
-            
-            try {
-              const data = JSON.parse(jsonData);
-              
-              // Extract text from Gemini native streaming response
-              if (data.candidates && data.candidates[0]) {
-                const candidate = data.candidates[0];
-                
-                // Get the current text from this response
-                const currentText = candidate.content?.parts?.[0]?.text || '';
-                
-                if (!currentText) continue;
-                
-                // Check if this chunk contains the accumulated text as a prefix
-                // This means it's a cumulative update containing all previous text plus new
-                if (currentText.startsWith(accumulatedText)) {
-                  // Extract only the NEW characters after what we've already sent
-                  const newText = currentText.substring(accumulatedText.length);
-                  if (newText) {
-                    onChunk(newText);
-                    accumulatedText = currentText;
-                  }
-                } else if (accumulatedText.startsWith(currentText)) {
-                  // This chunk is a subset of what we already have, skip it
-                  continue;
-                } else {
-                  // This is completely new text (not a continuation of accumulated)
-                  // Just send it as is
-                  onChunk(currentText);
-                  accumulatedText = accumulatedText + currentText;
-                }
-                
-                // Check if response is complete
-                if (candidate.finishReason && candidate.finishReason !== 'STOP') {
-                  if (candidate.finishReason === 'MAX_TOKENS') {
-                    console.warn('⚠️ Gemini streaming hit token limit');
-                  }
-                }
-              } else if (data.choices && data.choices[0]) {
-                // Extract text from OpenAI-style SSE (server proxy compatibility)
-                const choice = data.choices[0];
-                const deltaText = choice?.delta?.content || '';
-                const fullMessageText = choice?.message?.content || '';
-
-                // Prefer incremental delta when present; fallback to full message text
-                const text = deltaText || fullMessageText;
-                if (text) {
-                  onChunk(text);
-                  accumulatedText += text;
-                }
-              }
-            } catch (e) {
-              // Silently ignore parse errors for non-JSON lines
-            }
-          }
-        }
-        
-        // Process any remaining buffer
-        if (buffer.trim()) {
-          try {
-            const data = JSON.parse(buffer);
-            if (data.candidates && data.candidates[0]) {
-              const fullText = data.candidates[0].content?.parts?.[0]?.text || '';
-              if (fullText && fullText.length > accumulatedText.length) {
-                const newText = fullText.substring(accumulatedText.length);
-                onChunk(newText);
-              }
-            }
-          } catch (e) {
-            // Ignore incomplete JSON at end
-          }
-        }
-      } finally {
-        reader.releaseLock();
-      }
+      const reader = getStreamReader(response);
+      await parseGeminiStyleStream(reader, onChunk);
     } catch (error) {
       console.error("Gemini Streaming Service Error:", error);
       throw error;
@@ -609,4 +449,4 @@ export class GeminiService {
   }
 }
 
-export default GeminiService; 
+export default GeminiService;

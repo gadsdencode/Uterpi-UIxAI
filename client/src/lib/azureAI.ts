@@ -1,14 +1,17 @@
+// client/src/lib/azureAI.ts
+// Azure AI API service implementation
+
 import ModelClient from "@azure-rest/ai-inference";
 import { AzureKeyCredential } from "@azure/core-auth";
-import { createSseStream } from "@azure/core-sse";
 import { AzureAIMessage, AzureAIConfig, ChatCompletionOptions, LLMModel } from "../types";
-import { getModelConfiguration, validateModelParameters, getOptimizedParameters } from "./modelConfigurations";
+import { BaseAIService } from "./ai";
 
-export class AzureAIService {
-  private client: any; // ModelClient type issue - using any for now
-  private config: AzureAIConfig;
+export class AzureAIService extends BaseAIService {
+  private client: ReturnType<typeof ModelClient>;
+  protected declare config: AzureAIConfig;
 
   constructor(config: AzureAIConfig) {
+    super({ apiKey: config.apiKey, modelName: config.modelName, baseUrl: config.endpoint }, 'azure');
     this.config = config;
     this.client = ModelClient(
       config.endpoint,
@@ -29,20 +32,6 @@ export class AzureAIService {
   }
 
   /**
-   * Update the model name for this service instance
-   */
-  updateModel(modelName: string): void {
-    this.config.modelName = modelName;
-  }
-
-  /**
-   * Get current model configuration
-   */
-  getCurrentModel(): string {
-    return this.config.modelName;
-  }
-
-  /**
    * Get the correct API path based on the current model
    * Fine-tuned models need special deployment paths
    */
@@ -53,48 +42,6 @@ export class AzureAIService {
     
     // Default path for regular Azure AI models
     return "/chat/completions";
-  }
-
-  /**
-   * Estimate token count for messages (rough approximation)
-   * This is a simplified estimation - in production, you'd use tiktoken or similar
-   */
-  private estimateTokenCount(messages: AzureAIMessage[]): number {
-    return messages.reduce((total, message) => {
-      // Rough estimation: 1 token ≈ 0.75 words, 1 word ≈ 1.3 tokens
-      const contentTokens = Math.ceil(message.content.length / 4);
-      // Add tokens for role and formatting
-      return total + contentTokens + 10;
-    }, 0);
-  }
-
-  /**
-   * Truncate conversation history while preserving system message and recent context
-   */
-  private truncateConversationHistory(messages: AzureAIMessage[], maxTokens: number): AzureAIMessage[] {
-    if (messages.length === 0) return messages;
-    
-    // Always preserve the system message (first message)
-    const systemMessage = messages[0];
-    let remainingMessages = messages.slice(1);
-    
-    // Calculate tokens for system message
-    let totalTokens = this.estimateTokenCount([systemMessage]);
-    
-    // Add messages from most recent, working backwards
-    const result = [systemMessage];
-    for (let i = remainingMessages.length - 1; i >= 0; i--) {
-      const messageTokens = this.estimateTokenCount([remainingMessages[i]]);
-      if (totalTokens + messageTokens <= maxTokens) {
-        totalTokens += messageTokens;
-        result.splice(1, 0, remainingMessages[i]); // Insert after system message
-      } else {
-        console.log(`🔄 Truncated ${i + 1} older messages to stay within token limit`);
-        break;
-      }
-    }
-    
-    return result;
   }
 
   /**
@@ -322,6 +269,50 @@ export class AzureAIService {
   }
 
   /**
+   * Extract detailed error information from Azure AI response
+   */
+  private extractErrorDetails(errorBody: unknown): string {
+    if (!errorBody) {
+      return 'No error details available';
+    }
+
+    if (typeof errorBody === 'string') {
+      return errorBody;
+    }
+
+    const body = errorBody as Record<string, unknown>;
+    
+    if (body.error) {
+      if (typeof body.error === 'string') {
+        return body.error;
+      }
+      
+      const error = body.error as Record<string, unknown>;
+      if (error.message) {
+        return String(error.message);
+      }
+      
+      if (error.code && error.message) {
+        return `${error.code}: ${error.message}`;
+      }
+    }
+
+    if (body.message) {
+      return String(body.message);
+    }
+
+    if (body.detail) {
+      return String(body.detail);
+    }
+
+    try {
+      return JSON.stringify(errorBody, null, 2);
+    } catch {
+      return 'Unable to parse error details';
+    }
+  }
+
+  /**
    * Send a single chat completion request
    */
   async sendChatCompletion(
@@ -330,10 +321,13 @@ export class AzureAIService {
   ): Promise<string> {
     try {
       // Get model-specific configuration and parameters
-      const modelConfig = getModelConfiguration(this.config.modelName);
+      const modelConfig = this.getModelConfig();
+      
+      // Convert messages to OpenAI format for token estimation
+      const openAIMessages = this.convertToOpenAIMessages(messages);
       
       // ESTIMATE TOKEN COUNT TO PREVENT CONTEXT OVERFLOW
-      const estimatedTokens = this.estimateTokenCount(messages);
+      const estimatedTokens = this.estimateTokenCount(openAIMessages);
       const maxContextTokens = modelConfig.contextLength || 4096;
       const reserveTokensForResponse = options.maxTokens || 1024;
       
@@ -343,20 +337,16 @@ export class AzureAIService {
       let processedMessages = messages;
       if (estimatedTokens + reserveTokensForResponse > maxContextTokens) {
         console.warn(`⚠️ Approaching token limit (${estimatedTokens} + ${reserveTokensForResponse} > ${maxContextTokens}), truncating conversation history`);
-        processedMessages = this.truncateConversationHistory(messages, maxContextTokens - reserveTokensForResponse);
+        const truncatedOpenAI = this.truncateConversationHistory(openAIMessages, maxContextTokens - reserveTokensForResponse);
+        // Convert back to AzureAIMessage format
+        processedMessages = truncatedOpenAI as AzureAIMessage[];
       }
       
       // Use validated parameters based on the model's capabilities and limits
-      const validatedParams = validateModelParameters(this.config.modelName, {
-        maxTokens: options.maxTokens,
-        temperature: options.temperature,
-        topP: options.topP,
-        frequencyPenalty: options.frequencyPenalty,
-        presencePenalty: options.presencePenalty
-      });
+      const validatedParams = this.getValidatedParams(options);
 
       // Build request body with only supported parameters
-      const requestBody: any = {
+      const requestBody: Record<string, unknown> = {
         messages: processedMessages,
         max_tokens: validatedParams.maxTokens,
         temperature: validatedParams.temperature,
@@ -382,7 +372,7 @@ export class AzureAIService {
         requestBody.logit_bias = options.logitBias;
       }
 
-      console.log(`Using optimized parameters for ${modelConfig.name} (${modelConfig.provider}):`, {
+      this.logParams({
         max_tokens: requestBody.max_tokens,
         temperature: requestBody.temperature,
         top_p: requestBody.top_p,
@@ -390,7 +380,7 @@ export class AzureAIService {
         ...(requestBody.presence_penalty !== undefined && { presence_penalty: requestBody.presence_penalty })
       });
 
-      console.log('🔗 Sending Azure AI request:', {
+      this.logRequest({
         endpoint: this.config.endpoint,
         model: this.config.modelName,
         messageCount: messages.length
@@ -409,91 +399,29 @@ export class AzureAIService {
           'Content-Type': 'application/json',
         },
         credentials: 'include',
-        body: JSON.stringify({ ...requestBody, original_messages: (options as any)?.originalMessages }),
+        body: JSON.stringify({ ...requestBody, original_messages: (options as Record<string, unknown>)?.originalMessages }),
       });
 
-      console.log('📡 Azure AI response status:', response.status);
+      this.logResponse(response.status);
 
       if (!response.ok) {
-        // Handle credit limit errors specially
-        if (response.status === 402) {
-          const errorData = await response.json();
-          throw new Error(`Subscription error: ${JSON.stringify(errorData)}`);
-        }
-        
-        // Extract detailed error information
-        const errorDetails = await response.text();
-        console.error('❌ Azure AI API error details:', errorDetails);
-        throw new Error(`Azure AI API error (${response.status}): ${errorDetails}`);
+        await this.handleApiError(response, 'API');
       }
 
       const responseData = await response.json();
+      
       // Dispatch sources event if backend provided citations
-      try {
-        const sources = (responseData as any)?.sources;
-        if (Array.isArray(sources) && sources.length > 0 && typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('ai-sources', { detail: sources }));
-        }
-      } catch {}
+      this.dispatchSourcesEvent(responseData.sources);
       
       // Extract credit information if present and emit update
-      if (responseData.uterpi_credit_info) {
-        const { emitCreditUpdate } = await import('../hooks/useCreditUpdates');
-        emitCreditUpdate({
-          creditsUsed: responseData.uterpi_credit_info.credits_used,
-          remainingBalance: responseData.uterpi_credit_info.remaining_balance
-        });
-      }
+      await this.emitCreditUpdate(responseData.uterpi_credit_info);
       
       const content = responseData.choices[0]?.message?.content || "";
-      console.log('✅ Azure AI response received:', content.substring(0, 100) + '...');
+      this.logSuccess(content);
       return content;
     } catch (error) {
       console.error("Azure AI Service Error:", error);
       throw error;
-    }
-  }
-
-  /**
-   * Extract detailed error information from Azure AI response
-   */
-  private extractErrorDetails(errorBody: any): string {
-    if (!errorBody) {
-      return 'No error details available';
-    }
-
-    // Try different error formats that Azure AI might return
-    if (typeof errorBody === 'string') {
-      return errorBody;
-    }
-
-    if (errorBody.error) {
-      if (typeof errorBody.error === 'string') {
-        return errorBody.error;
-      }
-      
-      if (errorBody.error.message) {
-        return errorBody.error.message;
-      }
-      
-      if (errorBody.error.code && errorBody.error.message) {
-        return `${errorBody.error.code}: ${errorBody.error.message}`;
-      }
-    }
-
-    if (errorBody.message) {
-      return errorBody.message;
-    }
-
-    if (errorBody.detail) {
-      return errorBody.detail;
-    }
-
-    // If all else fails, stringify the object safely
-    try {
-      return JSON.stringify(errorBody, null, 2);
-    } catch {
-      return 'Unable to parse error details';
     }
   }
 
@@ -509,19 +437,13 @@ export class AzureAIService {
     
     try {
       // Get model-specific configuration and parameters
-      const modelConfig = getModelConfiguration(this.config.modelName);
+      const modelConfig = this.getModelConfig();
       
       // Use validated parameters based on the model's capabilities and limits
-      const validatedParams = validateModelParameters(this.config.modelName, {
-        maxTokens: options.maxTokens,
-        temperature: options.temperature,
-        topP: options.topP,
-        frequencyPenalty: options.frequencyPenalty,
-        presencePenalty: options.presencePenalty
-      });
+      const validatedParams = this.getValidatedParams(options);
 
       // Build request body with only supported parameters
-      const requestBody: any = {
+      const requestBody: Record<string, unknown> = {
         messages,
         max_tokens: validatedParams.maxTokens,
         temperature: validatedParams.temperature,
@@ -547,7 +469,7 @@ export class AzureAIService {
         requestBody.logit_bias = options.logitBias;
       }
 
-      console.log(`Using optimized streaming parameters for ${modelConfig.name} (${modelConfig.provider}):`, {
+      this.logParams({
         max_tokens: requestBody.max_tokens,
         temperature: requestBody.temperature,
         top_p: requestBody.top_p,
@@ -562,7 +484,7 @@ export class AzureAIService {
           'Content-Type': 'application/json',
         },
         credentials: 'include',
-        body: JSON.stringify({ ...requestBody, original_messages: (options as any)?.originalMessages }),
+        body: JSON.stringify({ ...requestBody, original_messages: (options as Record<string, unknown>)?.originalMessages }),
       });
 
       if (!response.ok) {
@@ -578,7 +500,7 @@ export class AzureAIService {
           const errorText = await response.text();
           const errorObj = JSON.parse(errorText);
           errorDetails = this.extractErrorDetails(errorObj);
-        } catch (parseError) {
+        } catch {
           // If we can't parse the error, use the status code
           errorDetails = `Failed to get chat completions, HTTP ${response.status}`;
         }
@@ -594,47 +516,7 @@ export class AzureAIService {
 
       // Use the browser's native ReadableStream API
       reader = stream.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      while (true) {
-        const { done, value } = await reader!.read();
-        
-        if (done) {
-          break;
-        }
-
-        // Decode the chunk and add to buffer
-        const chunk = decoder.decode(value, { stream: true });
-        buffer += chunk;
-
-        // Process complete SSE events
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || ''; // Keep incomplete line in buffer
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6).trim();
-            
-            if (data === '[DONE]') {
-              return;
-            }
-
-            try {
-              const eventData = JSON.parse(data);
-              for (const choice of eventData.choices || []) {
-                const content = choice.delta?.content;
-                if (content) {
-                  onChunk(content);
-                }
-              }
-            } catch (parseError) {
-              // Skip invalid JSON, continue processing
-              console.warn("Failed to parse SSE event:", parseError);
-            }
-          }
-        }
-      }
+      await this.parseOpenAIStyleSSE(reader, onChunk);
     } catch (error) {
       console.error("Azure AI Streaming Service Error:", error);
       throw error;
@@ -695,4 +577,4 @@ export class AzureAIService {
   }
 }
 
-export default AzureAIService; 
+export default AzureAIService;

@@ -1,5 +1,8 @@
-import { OpenAIMessage, OpenAIConfig, AzureAIMessage, ChatCompletionOptions, LLMModel } from "../types";
-import { getModelConfiguration, validateModelParameters } from "./modelConfigurations";
+// client/src/lib/lmstudio.ts
+// LM Studio API service implementation (OpenAI-compatible)
+
+import { OpenAIConfig, AzureAIMessage, ChatCompletionOptions, LLMModel } from "../types";
+import { BaseAIService } from "./ai";
 
 // Tool/Function definition types for LM Studio (OpenAI-compatible)
 export interface LMStudioTool {
@@ -7,7 +10,7 @@ export interface LMStudioTool {
   function: {
     name: string;
     description?: string;
-    parameters?: Record<string, any>;
+    parameters?: Record<string, unknown>;
   };
 }
 
@@ -18,50 +21,25 @@ export interface LMStudioToolChoice {
   };
 }
 
+// Extended options for LM Studio with tool support
+interface LMStudioCompletionOptions extends ChatCompletionOptions {
+  tools?: LMStudioTool[];
+  toolChoice?: string | LMStudioToolChoice;
+  originalMessages?: unknown;
+}
+
 // LM Studio uses an OpenAI-compatible API (proxied via /lmstudio by default)
-export class LMStudioService {
-  private config: OpenAIConfig;
+export class LMStudioService extends BaseAIService {
+  protected declare config: OpenAIConfig;
 
   constructor(config: OpenAIConfig) {
     // Ensure baseUrl is set to LM Studio default if not provided
-    this.config = {
+    const configWithDefaults = {
       ...config,
       // Default to backend proxy to avoid CORS/mixed-content issues
       baseUrl: config.baseUrl || "https://lmstudio.uterpi.com"
     };
-  }
-
-  updateModel(modelName: string): void {
-    this.config.modelName = modelName;
-  }
-
-  getCurrentModel(): string {
-    return this.config.modelName;
-  }
-
-  private estimateTokenCount(messages: OpenAIMessage[]): number {
-    return messages.reduce((total, message) => {
-      const contentTokens = Math.ceil(message.content.length / 4);
-      return total + contentTokens + 10;
-    }, 0);
-  }
-
-  private truncateConversationHistory(messages: OpenAIMessage[], maxTokens: number): OpenAIMessage[] {
-    if (messages.length === 0) return messages;
-    const systemMessage = messages[0];
-    let remainingMessages = messages.slice(1);
-    let totalTokens = this.estimateTokenCount([systemMessage]);
-    const result = [systemMessage];
-    for (let i = remainingMessages.length - 1; i >= 0; i--) {
-      const messageTokens = this.estimateTokenCount([remainingMessages[i]]);
-      if (totalTokens + messageTokens <= maxTokens) {
-        totalTokens += messageTokens;
-        result.splice(1, 0, remainingMessages[i]);
-      } else {
-        break;
-      }
-    }
-    return result;
+    super(configWithDefaults, 'lmstudio');
   }
 
   static getAvailableModels(): LLMModel[] {
@@ -83,19 +61,12 @@ export class LMStudioService {
     ];
   }
 
-  private convertToOpenAIMessages(azureMessages: AzureAIMessage[]): OpenAIMessage[] {
-    return azureMessages.map(msg => ({
-      role: msg.role,
-      content: msg.content
-    }));
-  }
-
   async sendChatCompletion(
     messages: AzureAIMessage[],
-    options: ChatCompletionOptions & { tools?: LMStudioTool[]; toolChoice?: string | LMStudioToolChoice } = {}
+    options: LMStudioCompletionOptions = {}
   ): Promise<string> {
     const openAIMessages = this.convertToOpenAIMessages(messages);
-    const modelConfig = getModelConfiguration(this.config.modelName);
+    const modelConfig = this.getModelConfig();
 
     const estimatedTokens = this.estimateTokenCount(openAIMessages);
     const maxContextTokens = modelConfig.contextLength || 128000;
@@ -106,15 +77,9 @@ export class LMStudioService {
       processedMessages = this.truncateConversationHistory(openAIMessages, maxContextTokens - reserveTokensForResponse);
     }
 
-    const validatedParams = validateModelParameters(this.config.modelName, {
-      maxTokens: options.maxTokens,
-      temperature: options.temperature,
-      topP: options.topP,
-      frequencyPenalty: options.frequencyPenalty,
-      presencePenalty: options.presencePenalty
-    });
+    const validatedParams = this.getValidatedParams(options);
 
-    const requestBody: any = {
+    const requestBody: Record<string, unknown> = {
       model: this.config.modelName,
       messages: processedMessages,
       max_tokens: validatedParams.maxTokens,
@@ -151,40 +116,21 @@ export class LMStudioService {
       body: JSON.stringify({
         provider: 'lmstudio',
         ...requestBody,
-        original_messages: (options as any)?.originalMessages
+        original_messages: options.originalMessages
       })
     });
 
     if (!response.ok) {
-      // Handle credit limit errors specially
-      if (response.status === 402) {
-        const errorData = await response.json();
-        throw new Error(`Subscription error: ${JSON.stringify(errorData)}`);
-      }
-      
-      const errorText = await response.text();
-      console.error("LM Studio API error:", errorText);
-      throw new Error(`LM Studio API error (${response.status}): ${errorText}`);
+      await this.handleApiError(response, 'API');
     }
 
     const data = await response.json();
     
     // Extract credit information if present and emit update
-    if (data.uterpi_credit_info) {
-      const { emitCreditUpdate } = await import('../hooks/useCreditUpdates');
-      emitCreditUpdate({
-        creditsUsed: data.uterpi_credit_info.credits_used,
-        remainingBalance: data.uterpi_credit_info.remaining_balance
-      });
-    }
+    await this.emitCreditUpdate(data.uterpi_credit_info);
     
     // Emit sources event if backend provided citations
-    try {
-      const sources = (data as any)?.sources;
-      if (Array.isArray(sources) && sources.length > 0 && typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('ai-sources', { detail: sources }));
-      }
-    } catch {}
+    this.dispatchSourcesEvent(data.sources);
     
     // Handle tool calls if present and non-empty
     if (data.choices?.[0]?.message?.tool_calls && data.choices[0].message.tool_calls.length > 0) {
@@ -199,19 +145,13 @@ export class LMStudioService {
   async sendStreamingChatCompletion(
     messages: AzureAIMessage[],
     onChunk: (chunk: string) => void,
-    options: ChatCompletionOptions & { tools?: LMStudioTool[]; toolChoice?: string | LMStudioToolChoice } = {}
+    options: LMStudioCompletionOptions = {}
   ): Promise<void> {
     const openAIMessages = this.convertToOpenAIMessages(messages);
-    const modelConfig = getModelConfiguration(this.config.modelName);
-    const validatedParams = validateModelParameters(this.config.modelName, {
-      maxTokens: options.maxTokens,
-      temperature: options.temperature,
-      topP: options.topP,
-      frequencyPenalty: options.frequencyPenalty,
-      presencePenalty: options.presencePenalty
-    });
+    const modelConfig = this.getModelConfig();
+    const validatedParams = this.getValidatedParams(options);
 
-    const requestBody: any = {
+    const requestBody: Record<string, unknown> = {
       model: this.config.modelName,
       messages: openAIMessages,
       max_tokens: validatedParams.maxTokens,
@@ -248,53 +188,16 @@ export class LMStudioService {
       body: JSON.stringify({
         provider: 'lmstudio',
         ...requestBody,
-        original_messages: (options as any)?.originalMessages
+        original_messages: options.originalMessages
       })
     });
 
     if (!response.ok) {
-      // Handle credit limit errors specially
-      if (response.status === 402) {
-        const errorData = await response.json();
-        throw new Error(`Subscription error: ${JSON.stringify(errorData)}`);
-      }
-      
-      const errorText = await response.text();
-      throw new Error(`LM Studio streaming error (${response.status}): ${errorText}`);
+      await this.handleStreamError(response);
     }
 
-    const reader = response.body?.getReader();
-    if (!reader) {
-      throw new Error("The response stream is undefined");
-    }
-
-    const decoder = new TextDecoder();
-    let buffer = '';
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-        buffer += chunk;
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6).trim();
-            if (data === '[DONE]') return;
-            try {
-              const eventData = JSON.parse(data);
-              for (const choice of eventData.choices || []) {
-                const content = choice.delta?.content;
-                if (content) onChunk(content);
-              }
-            } catch {}
-          }
-        }
-      }
-    } finally {
-      reader.releaseLock();
-    }
+    const reader = this.getStreamReader(response);
+    await this.parseOpenAIStyleSSE(reader, onChunk);
   }
 
   static createFromEnv(): OpenAIConfig {
@@ -306,7 +209,7 @@ export class LMStudioService {
   }
 
   // Helper method to list available models from LM Studio
-  async listModels(): Promise<any> {
+  async listModels(): Promise<{ data: unknown[]; error?: string }> {
     try {
       const response = await fetch(`${this.config.baseUrl || "https://lmstudio.uterpi.com"}/v1/models`, {
         method: 'GET',
@@ -331,5 +234,3 @@ export class LMStudioService {
     return { ...config, modelName };
   }
 }
-
-

@@ -1,66 +1,14 @@
-import { OpenAIMessage, OpenAIConfig, AzureAIMessage, ChatCompletionOptions, LLMModel } from "../types";
-import { getModelConfiguration, validateModelParameters } from "./modelConfigurations";
+// client/src/lib/openAI.ts
+// OpenAI API service implementation
 
-export class OpenAIService {
-  private config: OpenAIConfig;
+import { OpenAIConfig, AzureAIMessage, ChatCompletionOptions, LLMModel } from "../types";
+import { BaseAIService } from "./ai";
+
+export class OpenAIService extends BaseAIService {
+  protected declare config: OpenAIConfig;
 
   constructor(config: OpenAIConfig) {
-    this.config = config;
-  }
-
-
-
-  /**
-   * Update the model name for this service instance
-   */
-  updateModel(modelName: string): void {
-    this.config.modelName = modelName;
-  }
-
-  /**
-   * Get current model configuration
-   */
-  getCurrentModel(): string {
-    return this.config.modelName;
-  }
-
-  /**
-   * Estimate token count for messages (rough approximation)
-   */
-  private estimateTokenCount(messages: OpenAIMessage[]): number {
-    return messages.reduce((total, message) => {
-      const contentTokens = Math.ceil(message.content.length / 4);
-      return total + contentTokens + 10;
-    }, 0);
-  }
-
-  /**
-   * Truncate conversation history while preserving system message and recent context
-   */
-  private truncateConversationHistory(messages: OpenAIMessage[], maxTokens: number): OpenAIMessage[] {
-    if (messages.length === 0) return messages;
-    
-    // Always preserve the system message (first message)
-    const systemMessage = messages[0];
-    let remainingMessages = messages.slice(1);
-    
-    // Calculate tokens for system message
-    let totalTokens = this.estimateTokenCount([systemMessage]);
-    
-    // Add messages from most recent, working backwards
-    const result = [systemMessage];
-    for (let i = remainingMessages.length - 1; i >= 0; i--) {
-      const messageTokens = this.estimateTokenCount([remainingMessages[i]]);
-      if (totalTokens + messageTokens <= maxTokens) {
-        totalTokens += messageTokens;
-        result.splice(1, 0, remainingMessages[i]);
-      } else {
-        console.log(`🔄 Truncated ${i + 1} older messages to stay within token limit`);
-        break;
-      }
-    }
-    
-    return result;
+    super(config, 'openai');
   }
 
   /**
@@ -148,16 +96,6 @@ export class OpenAIService {
   }
 
   /**
-   * Convert Azure AI messages to OpenAI format
-   */
-  private convertToOpenAIMessages(azureMessages: AzureAIMessage[]): OpenAIMessage[] {
-    return azureMessages.map(msg => ({
-      role: msg.role,
-      content: msg.content
-    }));
-  }
-
-  /**
    * Send a single chat completion request
    */
   async sendChatCompletion(
@@ -169,7 +107,7 @@ export class OpenAIService {
       const openAIMessages = this.convertToOpenAIMessages(messages);
       
       // Get model-specific configuration and parameters
-      const modelConfig = getModelConfiguration(this.config.modelName);
+      const modelConfig = this.getModelConfig();
       
       // Estimate token count and truncate if necessary
       const estimatedTokens = this.estimateTokenCount(openAIMessages);
@@ -185,16 +123,10 @@ export class OpenAIService {
       }
       
       // Use validated parameters based on the model's capabilities and limits
-      const validatedParams = validateModelParameters(this.config.modelName, {
-        maxTokens: options.maxTokens,
-        temperature: options.temperature,
-        topP: options.topP,
-        frequencyPenalty: options.frequencyPenalty,
-        presencePenalty: options.presencePenalty
-      });
+      const validatedParams = this.getValidatedParams(options);
 
       // Build request body
-      const requestBody: any = {
+      const requestBody: Record<string, unknown> = {
         model: this.config.modelName,
         messages: processedMessages,
         max_tokens: validatedParams.maxTokens,
@@ -216,13 +148,13 @@ export class OpenAIService {
         requestBody.stop = options.stop;
       }
 
-      console.log(`Using optimized parameters for ${modelConfig.name} (${modelConfig.provider}):`, {
+      this.logParams({
         max_tokens: requestBody.max_tokens,
         temperature: requestBody.temperature,
         top_p: requestBody.top_p,
       });
 
-      console.log('🔗 Sending OpenAI request:', {
+      this.logRequest({
         model: this.config.modelName,
         messageCount: processedMessages.length
       });
@@ -241,33 +173,19 @@ export class OpenAIService {
         }),
       });
 
-      console.log('📡 OpenAI response status:', response.status);
+      this.logResponse(response.status);
 
       if (!response.ok) {
-        // Handle credit limit errors specially
-        if (response.status === 402) {
-          const errorData = await response.json();
-          throw new Error(`Subscription error: ${JSON.stringify(errorData)}`);
-        }
-        
-        const errorData = await response.text();
-        console.error('❌ OpenAI API error details:', errorData);
-        throw new Error(`OpenAI API error (${response.status}): ${errorData}`);
+        await this.handleApiError(response, 'API');
       }
 
       const data = await response.json();
       
       // Extract credit information if present and emit update
-      if (data.uterpi_credit_info) {
-        const { emitCreditUpdate } = await import('../hooks/useCreditUpdates');
-        emitCreditUpdate({
-          creditsUsed: data.uterpi_credit_info.credits_used,
-          remainingBalance: data.uterpi_credit_info.remaining_balance
-        });
-      }
+      await this.emitCreditUpdate(data.uterpi_credit_info);
       
       const content = data.choices[0]?.message?.content || "";
-      console.log('✅ OpenAI response received:', content.substring(0, 100) + '...');
+      this.logSuccess(content);
       return content;
     } catch (error) {
       console.error("OpenAI Service Error:", error);
@@ -288,19 +206,13 @@ export class OpenAIService {
       const openAIMessages = this.convertToOpenAIMessages(messages);
       
       // Get model-specific configuration and parameters
-      const modelConfig = getModelConfiguration(this.config.modelName);
+      const modelConfig = this.getModelConfig();
       
       // Use validated parameters
-      const validatedParams = validateModelParameters(this.config.modelName, {
-        maxTokens: options.maxTokens,
-        temperature: options.temperature,
-        topP: options.topP,
-        frequencyPenalty: options.frequencyPenalty,
-        presencePenalty: options.presencePenalty
-      });
+      const validatedParams = this.getValidatedParams(options);
 
       // Build request body
-      const requestBody: any = {
+      const requestBody: Record<string, unknown> = {
         model: this.config.modelName,
         messages: openAIMessages,
         max_tokens: validatedParams.maxTokens,
@@ -337,66 +249,11 @@ export class OpenAIService {
       });
 
       if (!response.ok) {
-        // Handle credit limit errors specially
-        if (response.status === 402) {
-          const errorData = await response.json();
-          throw new Error(`Subscription error: ${JSON.stringify(errorData)}`);
-        }
-        
-        const errorData = await response.text();
-        console.error('❌ OpenAI streaming error:', errorData);
-        throw new Error(`OpenAI streaming error: ${errorData}`);
+        await this.handleStreamError(response);
       }
 
-      const reader = response.body?.getReader();
-      if (!reader) {
-        throw new Error("The response stream is undefined");
-      }
-
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          
-          if (done) {
-            break;
-          }
-
-          // Decode the chunk and add to buffer
-          const chunk = decoder.decode(value, { stream: true });
-          buffer += chunk;
-
-          // Process complete SSE events
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || '';
-
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const data = line.slice(6).trim();
-              
-              if (data === '[DONE]') {
-                return;
-              }
-
-              try {
-                const eventData = JSON.parse(data);
-                for (const choice of eventData.choices || []) {
-                  const content = choice.delta?.content;
-                  if (content) {
-                    onChunk(content);
-                  }
-                }
-              } catch (parseError) {
-                console.warn("Failed to parse SSE event:", parseError);
-              }
-            }
-          }
-        }
-      } finally {
-        reader.releaseLock();
-      }
+      const reader = this.getStreamReader(response);
+      await this.parseOpenAIStyleSSE(reader, onChunk);
     } catch (error) {
       console.error("OpenAI Streaming Service Error:", error);
       throw error;
@@ -429,4 +286,4 @@ export class OpenAIService {
   }
 }
 
-export default OpenAIService; 
+export default OpenAIService;

@@ -166,10 +166,12 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat, onOpenProjectSettings }) =
       {/* Header / Logo */}
       <div className="p-4 border-b border-slate-800/50">
         <div className="flex items-center gap-3">
-          <div className="relative">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center">
-              <Sparkles className="w-5 h-5 text-white" />
-            </div>
+          <div className="relative flex-shrink-0">
+            <img 
+              src="/images/uterpi_logo.png" 
+              alt="Uterpi" 
+              className="w-10 h-10 rounded-full"
+            />
             <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-500 rounded-full border-2 border-slate-900" />
           </div>
           <div>

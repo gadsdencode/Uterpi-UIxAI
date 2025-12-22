@@ -16,6 +16,7 @@ import { CommandSuggestion } from "../types";
 import { useAuth } from '../hooks/useAuth';
 import { useChat } from '../hooks/useChat';
 import { useProjects } from '../hooks/useProjects';
+import { useChatContext } from '../contexts/ChatContext';
 import { SYSTEM_MESSAGE_PRESETS } from "../hooks/useAzureAI";
 import { useSnackbar } from './SnackbarProvider';
 import { toast } from "sonner";
@@ -55,10 +56,24 @@ import { AICoachPanel } from './AICoachPanel';
 const FuturisticAIChat: React.FC = () => {
   const { user } = useAuth();
   const { activeProjectId, activeProject } = useProjects();
+  const { registerLoadConversation, registerNewChatHandler } = useChatContext();
   const snackbar = useSnackbar();
   
   // Use the consolidated chat hook with active project context
   const chat = useChat({ user, projectId: activeProjectId });
+
+  // Register conversation loading and new chat functions with context
+  // This allows the Sidebar to load conversations into this chat view
+  useEffect(() => {
+    registerLoadConversation(async (id: number, title?: string) => {
+      await chat.loadConversation(id, title);
+    });
+    
+    registerNewChatHandler(() => {
+      chat.startNewConversation();
+      snackbar.show("Started new conversation!", "success");
+    });
+  }, [registerLoadConversation, registerNewChatHandler, chat.loadConversation, chat.startNewConversation, snackbar]);
   
   // Modal states (kept in ChatView as they are global layout concerns)
   const [showShareModal, setShowShareModal] = useState(false);

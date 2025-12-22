@@ -5,6 +5,7 @@ import Sidebar from './components/Sidebar'
 import { ProjectSettingsModal } from './components/ProjectSettingsModal'
 import { DashboardModal } from './components/DashboardModal'
 import { TeamsModal } from './components/TeamsModal'
+import { ChatProvider } from './contexts/ChatContext'
 import { useAuth } from './hooks/useAuth'
 import { type Project } from './hooks/useProjects'
 import { LoginForm } from './components/auth/LoginForm'
@@ -352,98 +353,95 @@ const AuthenticatedApp: React.FC = () => {
   }
 
   return (
-    <main className="h-screen w-full flex flex-col bg-slate-950">
-      {/* Top Navigation Bar - Fixed height */}
-      <header className="flex-shrink-0 h-12 bg-slate-900/95 backdrop-blur-xl border-b border-slate-800/80 z-50">
-        <div className="h-full flex items-center justify-between px-4">
-          {/* Left side - Navigation links */}
-          <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-violet-400 bg-violet-500/10 hover:bg-violet-500/20"
-              aria-current="page"
-            >
-              <MessageSquare className="w-4 h-4 mr-2" />
-              Chat
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setShowDashboardModal(true)}
-              className="text-slate-300 hover:text-white hover:bg-slate-800"
-              aria-label="Open Dashboard"
-            >
-              <LayoutDashboard className="w-4 h-4 mr-2" />
-              Dashboard
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setShowTeamsModal(true)}
-              className="text-slate-300 hover:text-white hover:bg-slate-800"
-              aria-label="Open Team Management"
-            >
-              <Users className="w-4 h-4 mr-2" />
-              Teams
-            </Button>
+    <ChatProvider>
+      <main className="h-screen w-full flex flex-col bg-slate-950">
+        {/* Top Navigation Bar - Fixed height */}
+        <header className="flex-shrink-0 h-12 bg-slate-900/95 backdrop-blur-xl border-b border-slate-800/80 z-50">
+          <div className="h-full flex items-center justify-between px-4">
+            {/* Left side - Navigation links */}
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-violet-400 bg-violet-500/10 hover:bg-violet-500/20"
+                aria-current="page"
+              >
+                <MessageSquare className="w-4 h-4 mr-2" />
+                Chat
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowDashboardModal(true)}
+                className="text-slate-300 hover:text-white hover:bg-slate-800"
+                aria-label="Open Dashboard"
+              >
+                <LayoutDashboard className="w-4 h-4 mr-2" />
+                Dashboard
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowTeamsModal(true)}
+                className="text-slate-300 hover:text-white hover:bg-slate-800"
+                aria-label="Open Team Management"
+              >
+                <Users className="w-4 h-4 mr-2" />
+                Teams
+              </Button>
+            </div>
+            
+            {/* Right side - User menu */}
+            <UserMenu />
           </div>
-          
-          {/* Right side - User menu */}
-          <UserMenu />
-        </div>
-      </header>
-      
-      {/* Main content area - fills remaining height */}
-      <div className="flex-1 flex min-h-0">
-        {/* Sidebar - hidden on mobile, shown on md+ */}
-        <Sidebar 
-          onNewChat={() => {
-            // This will be handled by the chat component
-            // For now, we trigger a page refresh to start fresh
-            window.location.reload();
-          }}
-          onOpenProjectSettings={handleOpenProjectSettings}
-        />
+        </header>
         
-        {/* Chat area - flex-1 to take remaining space */}
-        <div className="flex-1 min-w-0 h-full overflow-hidden">
-          <SubscriptionGuard 
-            feature="NomadAI" 
-            requiredTier="freemium"
-          >
-            <FuturisticAIChat />
-          </SubscriptionGuard>
+        {/* Main content area - fills remaining height */}
+        <div className="flex-1 flex min-h-0">
+          {/* Sidebar - hidden on mobile, shown on md+ */}
+          <Sidebar 
+            onOpenProjectSettings={handleOpenProjectSettings}
+          />
+          
+          {/* Chat area - flex-1 to take remaining space */}
+          <div className="flex-1 min-w-0 h-full overflow-hidden">
+            <SubscriptionGuard 
+              feature="NomadAI" 
+              requiredTier="freemium"
+            >
+              <FuturisticAIChat />
+            </SubscriptionGuard>
+          </div>
         </div>
-      </div>
 
-      {/* Project Settings Modal */}
-      <ProjectSettingsModal
-        isOpen={showProjectModal}
-        onClose={handleCloseProjectModal}
-        project={editingProject}
-      />
+        {/* Project Settings Modal */}
+        <ProjectSettingsModal
+          isOpen={showProjectModal}
+          onClose={handleCloseProjectModal}
+          project={editingProject}
+        />
 
-      {/* Dashboard Modal */}
-      <DashboardModal
-        isOpen={showDashboardModal}
-        onClose={() => setShowDashboardModal(false)}
-        onNavigateToChat={() => {
-          // Chat is already the main view, just close modal
-          setShowDashboardModal(false);
-        }}
-        onOpenTeams={() => {
-          setShowDashboardModal(false);
-          setShowTeamsModal(true);
-        }}
-      />
+        {/* Dashboard Modal */}
+        <DashboardModal
+          isOpen={showDashboardModal}
+          onClose={() => setShowDashboardModal(false)}
+          onNavigateToChat={() => {
+            // Chat is already the main view, just close modal
+            setShowDashboardModal(false);
+          }}
+          onOpenTeams={() => {
+            setShowDashboardModal(false);
+            setShowTeamsModal(true);
+          }}
+        />
 
-      {/* Teams Modal */}
-      <TeamsModal
-        isOpen={showTeamsModal}
-        onClose={() => setShowTeamsModal(false)}
-      />
-    </main>
+        {/* Teams Modal */}
+        <TeamsModal
+          isOpen={showTeamsModal}
+          onClose={() => setShowTeamsModal(false)}
+        />
+      </main>
+    </ChatProvider>
   );
 };
 

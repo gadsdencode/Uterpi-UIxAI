@@ -419,7 +419,7 @@ const AuthenticatedApp: React.FC = () => {
         />
         
         {/* Chat area - flex-1 to take remaining space */}
-        <div className="flex-1 min-w-0 overflow-hidden">
+        <div className="flex-1 min-w-0 h-full overflow-hidden">
           <SubscriptionGuard 
             feature="NomadAI" 
             requiredTier="freemium"

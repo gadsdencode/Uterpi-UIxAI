@@ -220,12 +220,12 @@ const FuturisticAIChat: React.FC = () => {
 
   return (
     <TooltipProvider>
-      <div className="min-h-screen bg-slate-950 text-white relative overflow-hidden">
+      <div className="h-full bg-slate-950 text-white relative overflow-hidden">
         {/* Background Effects */}
         <Visualizations />
 
         {/* Main Content */}
-        <div className="relative z-10 flex flex-col h-screen">
+        <div className="relative z-10 flex flex-col h-full">
           {/* Header */}
           <ChatHeader
             user={user}

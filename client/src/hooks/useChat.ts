@@ -1,19 +1,20 @@
-// useChat.ts - Custom hook for chat business logic
-// Extracts all chat state management and side effects from ChatView
+// useChat.ts - Composed chat hook orchestrating smaller specialized hooks
+// Refactored from monolithic hook to follow Single Responsibility Principle (SRP)
+// Composes: useSpeechInput, useCreditManager, useMessageStream, useConversation
 
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { Message, CommandSuggestion, LLMModel } from '../types';
-import { useAIProvider, AIProvider } from './useAIProvider';
+import { useState, useCallback, useRef, useEffect } from 'react';
+import { Message } from '../types';
 import { SYSTEM_MESSAGE_PRESETS } from './useAzureAI';
-import { useIntelligentToast } from './useIntelligentToast';
-import { useSpeech } from './useSpeech';
 import { useServiceStatus } from './useServiceStatus';
-import { useDynamicGreeting } from './useDynamicGreeting';
-import { useCreditUpdates } from './useCreditUpdates';
-import { useAICoach } from './useAICoach';
 import { User } from './useAuth';
 import { toast } from 'sonner';
-import { handleError } from '../lib/error-handler';
+import { AIProvider } from './useAIProvider';
+
+// Import composed hooks
+import { useSpeechInput } from './useSpeechInput';
+import { useCreditManager } from './useCreditManager';
+import { useMessageStream } from './useMessageStream';
+import { useConversation } from './useConversation';
 
 export interface UseChatOptions {
   user: User | null;
@@ -38,7 +39,7 @@ export interface UseChatReturn {
   isChatActive: boolean;
   responseBuffer: string;
   error: string | null;
-  isUserTyping: boolean; // True when user is manually typing (keyboard input)
+  isUserTyping: boolean;
   
   // Speech state
   isListening: boolean;
@@ -52,10 +53,10 @@ export interface UseChatReturn {
   interimTranscript: string;
   
   // Voice input state (decoupled from keyboard input)
-  voiceTranscript: string; // Separate voice transcript awaiting confirmation
-  isVoiceInputPending: boolean; // True when voice input awaits merge
-  confirmVoiceInput: () => void; // Explicitly merge voice input to main input
-  discardVoiceInput: () => void; // Discard pending voice input
+  voiceTranscript: string;
+  isVoiceInputPending: boolean;
+  confirmVoiceInput: () => void;
+  discardVoiceInput: () => void;
   
   // Greeting state
   greeting: string;
@@ -70,7 +71,7 @@ export interface UseChatReturn {
   // AI Provider state
   currentProvider: AIProvider;
   currentModel: string | null;
-  selectedLLMModel: LLMModel | null;
+  selectedLLMModel: any;
   modelCapabilities: any;
   isLoadingCapabilities: boolean;
   
@@ -83,7 +84,7 @@ export interface UseChatReturn {
   
   // Actions
   setInput: (val: string) => void;
-  handleManualInput: (val: string) => void; // Use this for keyboard input to prevent transcript overwrite
+  handleManualInput: (val: string) => void;
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
   handleSend: () => Promise<void>;
   startNewConversation: () => void;
@@ -97,8 +98,8 @@ export interface UseChatReturn {
   fetchCreditStatus: () => Promise<void>;
   
   // AI Provider actions
-  updateModel: (model: LLMModel) => void;
-  getAvailableModels: () => LLMModel[];
+  updateModel: (model: any) => void;
+  getAvailableModels: () => any[];
   refreshCapabilities: () => Promise<void>;
   checkProvider: (provider: AIProvider) => void;
   
@@ -120,104 +121,101 @@ export interface UseChatReturn {
 }
 
 export const useChat = (options: UseChatOptions): UseChatReturn => {
-  const { user, enableStreaming: initialEnableStreaming = true } = options;
+  const { 
+    user, 
+    enableStreaming: initialEnableStreaming = true,
+    systemPreset: initialSystemPreset = 'DEFAULT',
+    customSystemMessage: initialCustomSystemMessage = ''
+  } = options;
   
-  // Core chat state
-  const [messages, setMessages] = useState<Message[]>([]);
+  // =========================================================================
+  // LOCAL STATE (input, not extracted to composed hooks)
+  // =========================================================================
   const [input, setInput] = useState('');
-  const [isTyping, setIsTyping] = useState(false);
-  const [isGeneratingResponse, setIsGeneratingResponse] = useState(false);
-  const [isChatActive, setIsChatActive] = useState(false);
   const [isSubmittingMessage, setIsSubmittingMessage] = useState(false);
-  const [responseBuffer, setResponseBuffer] = useState('');
   
-  // Conversation state
-  const [currentConversationId, setCurrentConversationId] = useState<number | null>(null);
-  const [currentConversationTitle, setCurrentConversationTitle] = useState<string | null>(null);
-  const [isLoadingConversation, setIsLoadingConversation] = useState(false);
-  
-  // Attachments state
-  const [attachments, setAttachments] = useState<string[]>([]);
-  const [attachedFileIds, setAttachedFileIds] = useState<number[]>([]);
-  
-  // Credit state
-  const [creditBalance, setCreditBalance] = useState<number | null>(null);
-  const [isFreemium, setIsFreemium] = useState(false);
-  const [messagesRemaining, setMessagesRemaining] = useState<number | null>(null);
-  
-  // Speech state
-  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
-  
-  // Sources state
-  const [latestSources, setLatestSources] = useState<Array<{ fileId: number; name: string; mimeType: string; similarity: number; snippet: string }>>([]);
-  
-  // System message state
-  const [selectedSystemPreset, setSelectedSystemPreset] = useState<keyof typeof SYSTEM_MESSAGE_PRESETS | 'custom'>('DEFAULT');
-  const [customSystemMessage, setCustomSystemMessage] = useState<string>('');
-  
-  // Streaming toggle
-  const [enableStreaming, setEnableStreaming] = useState(initialEnableStreaming);
-  
-  // Greeting initialization ref
-  const hasInitializedGreeting = useRef(false);
-  
-  // Voice input state management - decoupled from main input
-  // voiceTranscript holds the speech-to-text result separately from keyboard input
-  const [voiceTranscript, setVoiceTranscript] = useState('');
-  const [isVoiceInputPending, setIsVoiceInputPending] = useState(false); // True when voice input awaits confirmation
-  const [voiceInputSource, setVoiceInputSource] = useState<'keyboard' | 'voice'>('keyboard'); // Track input source
-  
-  // User typing state lock - prevents transcript from overwriting manual keyboard input
-  // Using ref to avoid unnecessary re-renders, with a state mirror for UI if needed
-  const isUserTypingRef = useRef(false);
-  const [isUserTyping, setIsUserTyping] = useState(false);
+  // User typing timeout ref - managed here since it needs access to input value
   const userTypingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // =========================================================================
+  // COMPOSED HOOKS
+  // =========================================================================
   
-  // Listen for real-time credit updates
-  const creditUpdate = useCreditUpdates();
-  
-  // Update credit balance when we receive real-time updates
-  useEffect(() => {
-    if (creditUpdate) {
-      console.log('💳 Real-time credit update received:', creditUpdate);
-      setCreditBalance(creditUpdate.remainingBalance);
+  // Conversation management (messages, loading, greeting, attachments)
+  const conversation = useConversation({
+    user,
+    enableAIGreeting: true,
+    includeSuggestions: true,
+    maxGreetingLength: 150
+  });
+
+  // Credit/subscription management
+  const credits = useCreditManager({
+    user,
+    enableRealTimeUpdates: true,
+    fetchOnMount: true
+  });
+
+  // Speech/voice input management
+  const speechInput = useSpeechInput({
+    autoConfirm: true,
+    autoConfirmDelay: 500,
+    onVoiceInputConfirmed: (transcript) => {
+      // Append voice transcript to existing input
+      setInput(prev => {
+        const newInput = prev.trim() ? `${prev.trim()} ${transcript}` : transcript;
+        return newInput;
+      });
     }
-  }, [creditUpdate]);
-  
-  // Get current system message
-  const getCurrentSystemMessage = useCallback(() => {
-    if (selectedSystemPreset === 'custom') {
-      return customSystemMessage || SYSTEM_MESSAGE_PRESETS.DEFAULT;
-    }
-    return SYSTEM_MESSAGE_PRESETS[selectedSystemPreset];
-  }, [selectedSystemPreset, customSystemMessage]);
-  
-  // AI Provider hook
-  const {
-    sendMessage,
-    sendStreamingMessage,
-    isLoading,
-    error,
-    clearError,
-    currentModel,
-    updateModel,
-    selectedLLMModel,
-    modelCapabilities,
-    isLoadingCapabilities,
-    refreshCapabilities,
-    getAvailableModels,
-    currentProvider
-  } = useAIProvider({
-    enableStreaming,
-    systemMessage: getCurrentSystemMessage(),
+  });
+
+  // Message streaming/sending management
+  const messageStream = useMessageStream({
+    user,
+    enableStreaming: initialEnableStreaming,
+    systemPreset: initialSystemPreset,
+    customSystemMessage: initialCustomSystemMessage,
     chatOptions: {
       maxTokens: 2048,
       temperature: 0.8,
       topP: 0.1
     },
-    userContext: { user }
+    onMessageSent: (userMessage, aiMessage) => {
+      // Add AI message to conversation
+      conversation.addMessage(aiMessage);
+      
+      // Auto-speak if enabled
+      if (speechInput.speechAvailable && !speechInput.isSpeaking && aiMessage.content) {
+        const autoSpeak = localStorage.getItem('auto-speak-responses');
+        if (autoSpeak === 'true') {
+          speechInput.handleSpeak(aiMessage.id, aiMessage.content);
+        }
+      }
+    },
+    onMessageError: (error, userMessage) => {
+      // Add error message to conversation
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        content: `Sorry, I encountered an error: ${error.message}. Please check your configuration and try again.`,
+        role: 'assistant',
+        timestamp: new Date(),
+      };
+      conversation.addMessage(errorMessage);
+    },
+    onCreditLimitError: (errorData) => {
+      // Add credit limit message
+      const creditLimitMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        content: '',
+        role: 'assistant',
+        timestamp: new Date(),
+        isCreditLimit: true,
+        metadata: errorData,
+      };
+      conversation.addMessage(creditLimitMessage);
+    }
   });
-  
+
   // Service status monitoring
   const {
     serviceStatus,
@@ -230,7 +228,7 @@ export const useChat = (options: UseChatOptions): UseChatReturn => {
     maxConsecutiveFailures: 3,
     timeoutMs: 10000
   });
-  
+
   // Start monitoring when component mounts
   useEffect(() => {
     const providers: AIProvider[] = ['lmstudio', 'azure', 'openai', 'gemini', 'huggingface', 'uterpi'];
@@ -240,352 +238,16 @@ export const useChat = (options: UseChatOptions): UseChatReturn => {
       stopMonitoring();
     };
   }, [startMonitoring, stopMonitoring]);
-  
-  // AI Coach integration - workflow tracking and insights
-  const {
-    trackCommand: coachTrackCommand,
-    trackModelSwitch: coachTrackModelSwitch,
-    analyzeConversation: coachAnalyzeConversation,
-  } = useAICoach({ 
-    enabled: true, 
-    autoFetch: true,
-    pollingInterval: 60000 
-  });
-  
-  // Track previous model for detecting model switches
-  const previousModelRef = useRef<string | null>(null);
-  
-  // Track model switches for AI Coach
-  useEffect(() => {
-    if (selectedLLMModel?.id && previousModelRef.current && previousModelRef.current !== selectedLLMModel.id) {
-      console.log('🔄 Model switch detected:', previousModelRef.current, '->', selectedLLMModel.id);
-      coachTrackModelSwitch(
-        previousModelRef.current,
-        selectedLLMModel.id,
-        'User initiated model switch'
-      );
-    }
-    previousModelRef.current = selectedLLMModel?.id || null;
-  }, [selectedLLMModel?.id, coachTrackModelSwitch]);
-  
-  // Dynamic greeting
-  const { greeting, isLoading: greetingLoading, isAIGenerated } = useDynamicGreeting(user, {
-    enableAI: true,
-    fallbackToTemplate: true,
-    includeSuggestions: true,
-    maxLength: 150
-  });
-  
-  // Initialize messages with dynamic greeting when it's ready
-  useEffect(() => {
-    if (greeting && !greetingLoading && messages.length === 0 && !hasInitializedGreeting.current) {
-      setMessages([
-        {
-          id: '1',
-          content: greeting,
-          role: 'assistant',
-          timestamp: new Date(),
-        }
-      ]);
-      hasInitializedGreeting.current = true;
-    }
-  }, [greeting, greetingLoading, messages.length]);
-  
-  // Speech hook
-  const {
-    speak,
-    stopSpeaking,
-    isSpeaking,
-    startListening,
-    stopListening,
-    isListening,
-    transcript,
-    interimTranscript,
-    clearTranscript,
-    isAvailable: speechAvailable,
-    isHTTPS,
-    microphonePermission,
-    error: speechError
-  } = useSpeech({
-    autoInitialize: true,
-    onRecognitionResult: (result) => {
-      console.log('🎤 useChat onRecognitionResult called with:', result);
-    },
-    onRecognitionError: (error) => {
-      console.error('🎤 useChat speech recognition error:', error);
-      toast.error(`Speech recognition error: ${error.message}`);
-    }
-  });
-  
-  // Voice transcript state management - decoupled from main input
-  // IMPORTANT: Voice transcript is stored separately and only merged on explicit confirmation
-  useEffect(() => {
-    console.log('🎤 Voice transcript effect triggered:', {
-      transcript,
-      interimTranscript,
-      isListening,
-      voiceInputSource,
-      isUserTyping: isUserTypingRef.current
-    });
-    
-    // Only update voice transcript when actively listening and not manually typing
-    if (isListening && !isUserTypingRef.current && voiceInputSource === 'voice') {
-      const currentTranscript = transcript + (interimTranscript ? ' ' + interimTranscript : '');
-      if (currentTranscript.trim()) {
-        console.log('🎤 Updating voice transcript (decoupled):', currentTranscript);
-        setVoiceTranscript(currentTranscript);
-        setIsVoiceInputPending(true);
-      }
-    }
-  }, [transcript, interimTranscript, isListening, voiceInputSource]);
-  
-  // Auto-confirm voice input when listening stops (legacy behavior for backwards compatibility)
-  // Users can also explicitly confirm or discard voice input
-  useEffect(() => {
-    // When listening stops with a pending voice input, auto-merge to input after a brief delay
-    // This gives users time to see what was recognized before it's submitted
-    if (!isListening && isVoiceInputPending && voiceTranscript.trim()) {
-      console.log('🎤 Listening stopped with pending voice input, auto-confirming');
-      
-      // Small delay to allow user to see/edit the transcribed text
-      const confirmTimer = setTimeout(() => {
-        if (isVoiceInputPending && voiceTranscript.trim() && !isUserTypingRef.current) {
-          console.log('🎤 Auto-confirming voice input:', voiceTranscript);
-          setInput(prev => {
-            // Append voice transcript to existing input if any
-            const newInput = prev.trim() ? `${prev.trim()} ${voiceTranscript.trim()}` : voiceTranscript.trim();
-            return newInput;
-          });
-          setVoiceTranscript('');
-          setIsVoiceInputPending(false);
-          setVoiceInputSource('keyboard');
-        }
-      }, 500);
-      
-      return () => clearTimeout(confirmTimer);
-    }
-  }, [isListening, isVoiceInputPending, voiceTranscript]);
-  
-  // Confirm voice input explicitly - use this when user clicks a "Use Voice Input" button
-  const confirmVoiceInput = useCallback(() => {
-    if (voiceTranscript.trim()) {
-      console.log('🎤 Explicitly confirming voice input:', voiceTranscript);
-      setInput(prev => {
-        const newInput = prev.trim() ? `${prev.trim()} ${voiceTranscript.trim()}` : voiceTranscript.trim();
-        return newInput;
-      });
-      setVoiceTranscript('');
-      setIsVoiceInputPending(false);
-      setVoiceInputSource('keyboard');
-    }
-  }, [voiceTranscript]);
-  
-  // Discard voice input explicitly
-  const discardVoiceInput = useCallback(() => {
-    console.log('🎤 Discarding voice input');
-    setVoiceTranscript('');
-    setIsVoiceInputPending(false);
-    setVoiceInputSource('keyboard');
-    clearTranscript();
-  }, [clearTranscript]);
-  
-  // AI Service ref for intelligent toasts
-  const aiServiceRef = useRef<any>(null);
-  
-  useEffect(() => {
-    const getAIService = async () => {
-      try {
-        switch (currentProvider) {
-          case 'gemini': {
-            const apiKey = localStorage.getItem('gemini-api-key');
-            if (apiKey) {
-              const { GeminiService } = await import('../lib/gemini');
-              aiServiceRef.current = new GeminiService({ 
-                apiKey, 
-                modelName: 'gemini-1.5-flash'
-              });
-              return;
-            }
-            break;
-          }
-          case 'openai': {
-            const apiKey = localStorage.getItem('openai-api-key');
-            if (apiKey) {
-              const { OpenAIService } = await import('../lib/openAI');
-              aiServiceRef.current = new OpenAIService({ 
-                apiKey, 
-                modelName: 'gpt-4o-mini'
-              });
-              return;
-            }
-            break;
-          }
-          case 'lmstudio': {
-            const baseUrl = localStorage.getItem('lmstudio-base-url') || 'http://localhost:1234/v1';
-            const { LMStudioService } = await import('../lib/lmstudio');
-            aiServiceRef.current = new LMStudioService({ 
-              apiKey: 'not-needed',
-              baseUrl, 
-              modelName: selectedLLMModel?.id || 'nomadic-icdu-v8' 
-            });
-            return;
-          }
-        }
-        aiServiceRef.current = null;
-      } catch (err) {
-        console.warn('Failed to initialize AI service for toasts:', err);
-        aiServiceRef.current = null;
-      }
-    };
-    getAIService();
-  }, [currentProvider, selectedLLMModel]);
-  
-  // Intelligent toast system
-  const {
-    analyzeConversation,
-    trackAction,
-    showOptimizationTip,
-    showPerformanceAlert
-  } = useIntelligentToast({
-    enabled: !!aiServiceRef.current,
-    aiService: aiServiceRef.current,
-    toastFunction: (title: string, options?: any) => {
-      toast(title, options);
-    },
-    onModelSwitch: (modelId: string) => {
-      const availableModels = getAvailableModels();
-      const targetModel = availableModels.find((m: any) => m.id === modelId);
-      if (targetModel) {
-        updateModel(targetModel);
-      }
-    },
-    onNewChat: () => {
-      startNewConversation();
-    }
-  });
-  
-  // Listen for AI sources
-  useEffect(() => {
-    const handleSources = (e: Event) => {
-      const ce = e as CustomEvent;
-      if (Array.isArray(ce.detail)) {
-        setLatestSources(ce.detail as any);
-      }
-    };
-    window.addEventListener('ai-sources', handleSources as EventListener);
-    return () => window.removeEventListener('ai-sources', handleSources as EventListener);
-  }, []);
-  
-  // Fetch credit status
-  const fetchCreditStatus = useCallback(async () => {
-    try {
-      const response = await fetch('/api/subscription/details', {
-        credentials: 'include',
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        setCreditBalance(data.features.currentCreditsBalance);
-        setIsFreemium(data.tier === 'freemium');
-        if (data.tier === 'freemium') {
-          setMessagesRemaining(data.features.messagesRemaining);
-        }
-      }
-    } catch (error) {
-      console.error('Error fetching credit status:', error);
-    }
-  }, []);
-  
-  // Fetch credit status on mount
-  useEffect(() => {
-    if (user) {
-      fetchCreditStatus();
-    }
-  }, [user, fetchCreditStatus]);
-  
-  // Note: Previous regex parsing helpers (extractConversationContent, parseConversationIntoMessages) 
-  // have been removed. AI responses are now sanitized at the source (backend) before database storage.
-  // This ensures clean data throughout the system without frontend parsing workarounds.
-  
-  // Load conversation
-  // Note: Backend now sanitizes AI responses before storage, so frontend receives clean data
-  const loadConversation = useCallback(async (conversationId: number, conversationTitle?: string): Promise<Message[]> => {
-    setIsLoadingConversation(true);
-    try {
-      const response = await fetch(`/api/conversations/${conversationId}/messages`, {
-        credentials: 'include',
-      });
 
-      if (!response.ok) {
-        throw new Error('Failed to load conversation');
-      }
-
-      const data = await response.json();
-      const apiMessages = data.messages || [];
-
-      // Map API messages directly to local messages (no parsing needed - data is clean from backend)
-      const localMessages: Message[] = apiMessages.map((apiMsg: any) => ({
-        id: apiMsg.id.toString(),
-        content: apiMsg.content,
-        role: apiMsg.role === 'system' ? 'assistant' : apiMsg.role,
-        timestamp: new Date(apiMsg.createdAt),
-        attachments: apiMsg.attachments || undefined,
-        metadata: apiMsg.metadata || undefined
-      }));
-
-      setMessages(localMessages);
-      setCurrentConversationId(conversationId);
-      setCurrentConversationTitle(conversationTitle || null);
-      hasInitializedGreeting.current = true;
-
-      console.log(`✅ Loaded conversation ${conversationId} with ${localMessages.length} messages`);
-      return localMessages;
-    } catch (error) {
-      console.error('Error loading conversation:', error);
-      toast.error('Failed to load conversation');
-      throw error;
-    } finally {
-      setIsLoadingConversation(false);
-    }
-  }, []);
+  // =========================================================================
+  // INPUT HANDLERS
+  // =========================================================================
   
-  // Start new conversation
-  const startNewConversation = useCallback(() => {
-    setMessages([]);
-    setCurrentConversationId(null);
-    setCurrentConversationTitle(null);
-    hasInitializedGreeting.current = false;
-    setInput('');
-    clearTranscript();
-    setAttachments([]);
-    setAttachedFileIds([]);
-    clearError();
-    
-    // Reset user typing lock
-    isUserTypingRef.current = false;
-    setIsUserTyping(false);
-    if (userTypingTimeoutRef.current) {
-      clearTimeout(userTypingTimeoutRef.current);
-      userTypingTimeoutRef.current = null;
-    }
-    
-    console.log('🆕 Started new conversation');
-  }, [clearTranscript, clearError]);
-  
-  // Handle system preset change
-  const handleSystemPresetChange = useCallback((preset: keyof typeof SYSTEM_MESSAGE_PRESETS | 'custom', message?: string) => {
-    setSelectedSystemPreset(preset);
-    if (preset === 'custom' && message !== undefined) {
-      setCustomSystemMessage(message);
-    }
-    trackAction('system_message_change');
-  }, [trackAction]);
-  
-  // Handle manual input from keyboard - sets user typing lock to prevent transcript overwrite
+  // Handle manual input from keyboard - coordinates with speech input
+  // This function includes the original timeout logic that checks if input has content
   const handleManualInput = useCallback((val: string) => {
     // Set the user typing lock
-    isUserTypingRef.current = true;
-    setIsUserTyping(true);
+    speechInput.setUserTyping(true);
     
     // Clear any existing timeout
     if (userTypingTimeoutRef.current) {
@@ -601,8 +263,7 @@ export const useChat = (options: UseChatOptions): UseChatReturn => {
         // Keep the lock active as long as there's manual content
       } else {
         console.log('🎤 User typing lock reset - input is empty');
-        isUserTypingRef.current = false;
-        setIsUserTyping(false);
+        speechInput.resetUserTypingLock();
       }
     }, 3000);
     
@@ -610,448 +271,216 @@ export const useChat = (options: UseChatOptions): UseChatReturn => {
     setInput(val);
     
     console.log('⌨️ Manual input detected - transcript sync paused');
-  }, []);
+  }, [speechInput]);
+
+  // =========================================================================
+  // CONVERSATION ACTIONS
+  // =========================================================================
   
-  // Handle speak
-  const handleSpeak = useCallback(async (messageId: string, text: string) => {
-    try {
-      if (speakingMessageId === messageId) {
-        stopSpeaking();
-        setSpeakingMessageId(null);
-      } else {
-        stopSpeaking();
-        setSpeakingMessageId(messageId);
-        await speak(text);
-        setSpeakingMessageId(null);
-      }
-    } catch (error) {
-      console.error('Failed to speak:', error);
-      toast.error('Failed to speak message');
-      setSpeakingMessageId(null);
+  // Start new conversation - clears all state
+  const startNewConversation = useCallback(() => {
+    conversation.startNewConversation();
+    setInput('');
+    speechInput.clearTranscript();
+    speechInput.resetUserTypingLock();
+    messageStream.clearError();
+    
+    // Clear user typing timeout
+    if (userTypingTimeoutRef.current) {
+      clearTimeout(userTypingTimeoutRef.current);
+      userTypingTimeoutRef.current = null;
     }
-  }, [speakingMessageId, speak, stopSpeaking]);
+    
+    console.log('🆕 Started new conversation');
+  }, [conversation, speechInput, messageStream]);
+
+  // =========================================================================
+  // MESSAGE SENDING
+  // =========================================================================
   
-  // Handle voice input - uses decoupled voice transcript state
-  const handleVoiceInput = useCallback(async () => {
-    try {
-      console.log('🎤 handleVoiceInput called, isListening:', isListening);
-      
-      const { isHTTPS: checkHTTPS } = await import('../lib/speech/speechUtils');
-      const isSecureContext = checkHTTPS();
-      
-      if (!isSecureContext && microphonePermission !== 'granted') {
-        toast.error('🔒 Microphone access requires HTTPS. Please use a secure connection.');
-        return;
-      }
-      
-      if (isListening) {
-        console.log('🎤 Stopping recording...');
-        const finalTranscript = await stopListening();
-        console.log('🎤 Final transcript:', finalTranscript);
-        
-        // Store final transcript in voice state (decoupled from input)
-        // The auto-confirm effect will handle merging after a brief delay
-        if (finalTranscript) {
-          setVoiceTranscript(finalTranscript);
-          setIsVoiceInputPending(true);
-        }
-        setVoiceInputSource('keyboard'); // Reset to keyboard mode when done
-      } else {
-        console.log('🎤 Starting recording...');
-        
-        // Set voice input source to 'voice' to enable transcript capture
-        setVoiceInputSource('voice');
-        
-        // Reset user typing lock when starting voice input
-        isUserTypingRef.current = false;
-        setIsUserTyping(false);
-        if (userTypingTimeoutRef.current) {
-          clearTimeout(userTypingTimeoutRef.current);
-          userTypingTimeoutRef.current = null;
-        }
-        console.log('🎤 User typing lock reset - voice input taking over');
-        
-        // Clear voice transcript state but keep existing input text (for appending)
-        setVoiceTranscript('');
-        setIsVoiceInputPending(false);
-        clearTranscript();
-        
-        await startListening({
-          language: 'en-US',
-          continuous: true,
-          interimResults: true
-        });
-        console.log('🎤 Recording started successfully');
-      }
-    } catch (error) {
-      console.error('🎤 Voice input error:', error);
-      const errorMessage = (error as Error).message || 'Voice input failed';
-      
-      // Reset voice state on error
-      setVoiceInputSource('keyboard');
-      setVoiceTranscript('');
-      setIsVoiceInputPending(false);
-      
-      if (errorMessage.includes('permission')) {
-        toast.error('🎤 Microphone permission denied. Please allow microphone access and try again.');
-      } else if (errorMessage.includes('not-allowed')) {
-        toast.error('🔒 Microphone access blocked. Check your browser settings.');
-      } else if (errorMessage.includes('network')) {
-        toast.error('🌐 Network error. Please check your internet connection.');
-      } else {
-        toast.error(`🎤 ${errorMessage}`);
-      }
-    }
-  }, [isListening, startListening, stopListening, microphonePermission, clearTranscript]);
-  
-  // Add attachment
-  const addAttachment = useCallback((file: string, fileId?: number) => {
-    setAttachments(prev => [...prev, file]);
-    if (fileId) {
-      setAttachedFileIds(prev => [...prev, fileId]);
-    }
-  }, []);
-  
-  // Remove attachment
-  const removeAttachment = useCallback((index: number) => {
-    setAttachments(prev => prev.filter((_, i) => i !== index));
-    setAttachedFileIds(prev => prev.filter((_, i) => i !== index));
-  }, []);
-  
-  // Handle send
+  // Handle send - orchestrates message sending through composed hooks
   const handleSend = useCallback(async () => {
     console.log('🚀 handleSend called with input:', input.trim());
     
-    if (!input.trim() && attachments.length === 0) {
+    if (!input.trim() && conversation.attachments.length === 0) {
       console.log('❌ handleSend - No input, returning');
       return;
     }
-    if (isLoading) {
+    if (messageStream.isLoading) {
       console.log('❌ handleSend - Already loading, returning');
       return;
     }
 
     console.log('✅ handleSend - Proceeding with message send');
     setIsSubmittingMessage(true);
-    setIsChatActive(true);
-    const startTime = Date.now();
+    conversation.setIsChatActive(true);
     
+    // Create user message and add to conversation
     const userMessage: Message = {
       id: Date.now().toString(),
       content: input,
       role: 'user',
       timestamp: new Date(),
-      attachments: attachments.length > 0 ? [...attachments] : undefined,
-      metadata: attachedFileIds.length ? { attachedFileIds } : undefined
+      attachments: conversation.attachments.length > 0 ? [...conversation.attachments] : undefined,
+      metadata: conversation.attachedFileIds.length ? { attachedFileIds: conversation.attachedFileIds } : undefined
     };
 
-    const updatedMessages = [...messages, userMessage];
+    // Add user message to conversation immediately
+    conversation.addMessage(userMessage);
     
-    console.log('📝 Adding user message to chat:', userMessage);
-    setMessages(updatedMessages);
-    setAttachments([]);
-    setAttachedFileIds([]);
-    setIsTyping(true);
-    clearError();
+    // Clear input state
+    const currentInput = input;
+    const currentAttachments = [...conversation.attachments];
+    const currentAttachedFileIds = [...conversation.attachedFileIds];
+    
     setInput('');
-    clearTranscript();
+    conversation.clearAttachments();
+    speechInput.clearTranscript();
+    speechInput.resetUserTypingLock();
     
-    // Reset user typing lock after message submission
-    isUserTypingRef.current = false;
-    setIsUserTyping(false);
+    // Clear user typing timeout
     if (userTypingTimeoutRef.current) {
       clearTimeout(userTypingTimeoutRef.current);
       userTypingTimeoutRef.current = null;
     }
     
-    if (isListening) {
+    // Stop listening if active
+    if (speechInput.isListening) {
       console.log('🎤 Stopping speech recognition after message send');
-      stopListening().catch(error => {
+      speechInput.handleVoiceInput().catch(error => {
         console.warn('Failed to stop listening after message send:', error);
       });
     }
 
     try {
-      if (enableStreaming) {
-        console.log('📤 Using STREAMING mode with provider:', currentProvider);
-        const aiMessageId = (Date.now() + 1).toString();
-        
-        setIsGeneratingResponse(true);
-        setResponseBuffer('');
-
-        let accumulatedResponse = '';
-        await sendStreamingMessage(updatedMessages, (chunk: string) => {
-          accumulatedResponse += chunk;
-          setResponseBuffer(accumulatedResponse);
-        });
-
-        setIsGeneratingResponse(false);
-        
-        const aiMessage: Message = {
-          id: aiMessageId,
-          content: accumulatedResponse,
-          role: 'assistant',
-          timestamp: new Date(),
-        };
-        
-        setMessages(prev => [...prev, aiMessage]);
-        setResponseBuffer('');
-        
-        if (speechAvailable && !isSpeaking && accumulatedResponse) {
-          const autoSpeak = localStorage.getItem('auto-speak-responses');
-          if (autoSpeak === 'true') {
-            handleSpeak(aiMessageId, accumulatedResponse);
-          }
-        }
-      } else {
-        console.log('📤 Sending message to AI provider:', currentProvider);
-        setIsGeneratingResponse(true);
-        
-        const response = await sendMessage(updatedMessages);
-        console.log('📥 Received response:', response ? `${response.substring(0, 100)}...` : 'EMPTY/UNDEFINED');
-        
-        setIsGeneratingResponse(false);
-        
-        if (!response) {
-          console.error('❌ Empty response received from AI provider');
-          throw new Error('No response received from AI provider');
-        }
-        
-        const aiMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          content: response,
-          role: 'assistant',
-          timestamp: new Date(),
-        };
-        
-        setMessages(prev => [...prev, aiMessage]);
-        
-        if (speechAvailable && !isSpeaking && response) {
-          const autoSpeak = localStorage.getItem('auto-speak-responses');
-          if (autoSpeak === 'true') {
-            handleSpeak(aiMessage.id, response);
-          }
-        }
+      // Send message through message stream hook (which handles streaming, AI response, etc.)
+      const result = await messageStream.sendMessage(
+        conversation.messages, // Current messages (before adding user message)
+        currentInput,
+        currentAttachments,
+        currentAttachedFileIds
+      );
+      
+      if (result) {
+        // AI message is added via onMessageSent callback
+        console.log('📊 Message exchange completed');
       }
-
-      const responseTime = Date.now() - startTime;
-      const estimatedTokens = userMessage.content.length * 1.3;
-      
-      console.log(`📊 Message sent. Total messages: ${updatedMessages.length}, Response time: ${responseTime}ms`);
-      
-      // Track command with AI Coach for workflow analysis
-      try {
-        coachTrackCommand(
-          'chat_message',
-          selectedLLMModel?.id,
-          true // success
-        );
-        
-        // Also analyze conversation for patterns
-        if (selectedLLMModel) {
-          coachAnalyzeConversation(
-            updatedMessages,
-            selectedLLMModel,
-            responseTime,
-            estimatedTokens
-          );
-        }
-      } catch (coachError) {
-        // Non-critical - don't let coach tracking break the chat
-        console.warn('⚠️ AI Coach tracking failed (non-critical):', coachError);
-      }
-      
-      if (updatedMessages.length >= 2 && selectedLLMModel) {
-        setTimeout(() => {
-          try {
-            analyzeConversation(updatedMessages, selectedLLMModel, responseTime, estimatedTokens, isChatActive)
-              .catch((error: any) => {
-                console.error('⚠️ analyzeConversation failed (non-critical):', error);
-              });
-          } catch (error) {
-            console.error('⚠️ analyzeConversation error (non-critical):', error);
-          }
-        }, 2000);
-      }
-
-    } catch (err) {
-      trackAction('error_occurred');
-      
-      // Track failed command with AI Coach
-      try {
-        coachTrackCommand(
-          'chat_message',
-          selectedLLMModel?.id,
-          false // failure
-        );
-      } catch (coachError) {
-        console.warn('⚠️ AI Coach error tracking failed (non-critical):', coachError);
-      }
-      
-      handleError(err as Error, {
-        operation: 'send_message',
-        component: 'useChat',
-        userId: user?.id?.toString(),
-        timestamp: new Date()
-      });
-      
-      if (err instanceof Error && err.message.includes('Subscription error:')) {
-        try {
-          const errorData = JSON.parse(err.message.replace('Subscription error: ', ''));
-          
-          if (errorData.code === 'MESSAGE_LIMIT_EXCEEDED' || 
-              errorData.code === 'INSUFFICIENT_CREDITS' || 
-              errorData.code === 'NO_CREDITS_AVAILABLE') {
-            
-            const creditLimitMessage: Message = {
-              id: (Date.now() + 1).toString(),
-              content: '',
-              role: 'assistant',
-              timestamp: new Date(),
-              isCreditLimit: true,
-              metadata: errorData,
-            };
-            
-            setMessages(prev => [...prev, creditLimitMessage]);
-            return;
-          }
-        } catch (parseError) {
-          console.error('Failed to parse credit limit error:', parseError);
-        }
-      }
-      
-      const errorMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        content: `Sorry, I encountered an error: ${err instanceof Error ? err.message : 'Unknown error'}. Please check your configuration and try again.`,
-        role: 'assistant',
-        timestamp: new Date(),
-      };
-      setMessages(prev => [...prev, errorMessage]);
     } finally {
-      setIsTyping(false);
-      setIsGeneratingResponse(false);
-      setResponseBuffer('');
       setIsSubmittingMessage(false);
-      setTimeout(() => setIsChatActive(false), 1000);
+      setTimeout(() => conversation.setIsChatActive(false), 1000);
     }
-  }, [
-    input, attachments, attachedFileIds, isLoading, messages, enableStreaming,
-    currentProvider, sendMessage, sendStreamingMessage, clearError, clearTranscript,
-    isListening, stopListening, speechAvailable, isSpeaking, handleSpeak,
-    selectedLLMModel, analyzeConversation, trackAction, user, isChatActive,
-    coachTrackCommand, coachAnalyzeConversation
-  ]);
+  }, [input, conversation, messageStream, speechInput]);
+
+  // =========================================================================
+  // CLEANUP
+  // =========================================================================
   
-  // Cleanup on unmount
+  // Clean up user typing timeout on unmount
   useEffect(() => {
     return () => {
-      if (isListening) {
-        stopListening();
-      }
-      if (isSpeaking) {
-        stopSpeaking();
-      }
-      // Clean up user typing timeout
       if (userTypingTimeoutRef.current) {
         clearTimeout(userTypingTimeoutRef.current);
       }
     };
-  }, [isListening, isSpeaking, stopListening, stopSpeaking]);
+  }, []);
 
+  // =========================================================================
+  // RETURN COMPOSED STATE AND ACTIONS
+  // =========================================================================
+  
   return {
     // State
-    messages,
+    messages: conversation.messages,
     input,
-    isLoading,
-    isTyping,
-    isGeneratingResponse,
-    attachments,
-    attachedFileIds,
-    currentConversationId,
-    currentConversationTitle,
-    isLoadingConversation,
-    isChatActive,
-    responseBuffer,
-    error,
-    isUserTyping,
+    isLoading: messageStream.isLoading,
+    isTyping: messageStream.isTyping,
+    isGeneratingResponse: messageStream.isGeneratingResponse,
+    attachments: conversation.attachments,
+    attachedFileIds: conversation.attachedFileIds,
+    currentConversationId: conversation.currentConversationId,
+    currentConversationTitle: conversation.currentConversationTitle,
+    isLoadingConversation: conversation.isLoadingConversation,
+    isChatActive: conversation.isChatActive,
+    responseBuffer: messageStream.responseBuffer,
+    error: messageStream.error,
+    isUserTyping: speechInput.isUserTyping,
     
     // Speech state
-    isListening,
-    isSpeaking,
-    speakingMessageId,
-    speechAvailable,
-    isHTTPS,
-    microphonePermission,
-    speechError,
-    transcript,
-    interimTranscript,
+    isListening: speechInput.isListening,
+    isSpeaking: speechInput.isSpeaking,
+    speakingMessageId: speechInput.speakingMessageId,
+    speechAvailable: speechInput.speechAvailable,
+    isHTTPS: speechInput.isHTTPS,
+    microphonePermission: speechInput.microphonePermission,
+    speechError: speechInput.speechError,
+    transcript: speechInput.transcript,
+    interimTranscript: speechInput.interimTranscript,
     
-    // Voice input state (decoupled from keyboard input)
-    voiceTranscript,
-    isVoiceInputPending,
-    confirmVoiceInput,
-    discardVoiceInput,
+    // Voice input state
+    voiceTranscript: speechInput.voiceTranscript,
+    isVoiceInputPending: speechInput.isVoiceInputPending,
+    confirmVoiceInput: speechInput.confirmVoiceInput,
+    discardVoiceInput: speechInput.discardVoiceInput,
     
     // Greeting state
-    greeting,
-    greetingLoading,
-    isAIGenerated,
+    greeting: conversation.greeting,
+    greetingLoading: conversation.greetingLoading,
+    isAIGenerated: conversation.isAIGenerated,
     
     // Credit state
-    creditBalance,
-    isFreemium,
-    messagesRemaining,
+    creditBalance: credits.creditBalance,
+    isFreemium: credits.isFreemium,
+    messagesRemaining: credits.messagesRemaining,
     
     // AI Provider state
-    currentProvider,
-    currentModel,
-    selectedLLMModel,
-    modelCapabilities,
-    isLoadingCapabilities,
+    currentProvider: messageStream.currentProvider,
+    currentModel: messageStream.currentModel,
+    selectedLLMModel: messageStream.selectedLLMModel,
+    modelCapabilities: messageStream.modelCapabilities,
+    isLoadingCapabilities: messageStream.isLoadingCapabilities,
     
     // Service status
     serviceStatus,
     getServiceStatus,
     
     // Latest sources
-    latestSources,
+    latestSources: conversation.latestSources,
     
     // Actions
     setInput,
     handleManualInput,
-    setMessages,
+    setMessages: conversation.setMessages,
     handleSend,
     startNewConversation,
-    loadConversation,
-    handleVoiceInput,
-    handleSpeak,
-    addAttachment,
-    removeAttachment,
-    clearTranscript,
-    clearError,
-    fetchCreditStatus,
+    loadConversation: conversation.loadConversation,
+    handleVoiceInput: speechInput.handleVoiceInput,
+    handleSpeak: speechInput.handleSpeak,
+    addAttachment: conversation.addAttachment,
+    removeAttachment: conversation.removeAttachment,
+    clearTranscript: speechInput.clearTranscript,
+    clearError: messageStream.clearError,
+    fetchCreditStatus: credits.fetchCreditStatus,
     
     // AI Provider actions
-    updateModel,
-    getAvailableModels,
-    refreshCapabilities,
-    checkProvider,
+    updateModel: messageStream.updateModel,
+    getAvailableModels: messageStream.getAvailableModels,
+    refreshCapabilities: messageStream.refreshCapabilities,
+    checkProvider: messageStream.checkProvider,
     
     // Intelligent toast actions
-    analyzeConversation,
-    trackAction,
-    showOptimizationTip,
-    showPerformanceAlert,
+    analyzeConversation: messageStream.analyzeConversation,
+    trackAction: messageStream.trackAction,
+    showOptimizationTip: messageStream.showOptimizationTip,
+    showPerformanceAlert: messageStream.showPerformanceAlert,
     
     // System message
-    selectedSystemPreset,
-    customSystemMessage,
-    handleSystemPresetChange,
-    getCurrentSystemMessage,
+    selectedSystemPreset: messageStream.selectedSystemPreset,
+    customSystemMessage: messageStream.customSystemMessage,
+    handleSystemPresetChange: messageStream.handleSystemPresetChange,
+    getCurrentSystemMessage: messageStream.getCurrentSystemMessage,
     
     // Streaming toggle
-    enableStreaming,
-    setEnableStreaming,
+    enableStreaming: messageStream.enableStreaming,
+    setEnableStreaming: messageStream.setEnableStreaming,
   };
 };
-

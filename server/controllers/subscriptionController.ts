@@ -17,7 +17,7 @@ import {
   createSubscriptionCheckoutSession, 
   createCreditsCheckoutSession, 
   getCheckoutSession
-} from "../stripe-consolidated";
+} from "../stripe";
 
 /**
  * Subscription Controller - Handles all subscription-related routes

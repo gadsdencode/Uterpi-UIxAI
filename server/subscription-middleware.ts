@@ -8,7 +8,7 @@ import { db } from './db';
 import { users, subscriptions, subscriptionFeatures, teams, aiCreditsTransactions, rateLimits } from '@shared/schema';
 import { eq, desc, and, gte, sql } from 'drizzle-orm';
 import { storage } from './storage';
-import { checkCreditBalance } from './stripe-consolidated';
+import { checkCreditBalance } from './stripe';
 import { isVectorizationEnabled } from './vector-flags';
 
 // Helper: detect if request should be BYOK-exempt from app-side limits/credits

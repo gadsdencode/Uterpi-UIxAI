@@ -7,7 +7,7 @@ import { storage } from "../storage";
 import { db } from "../db";
 import { users, subscriptions, files } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
-import { cancelSubscription } from "../stripe-consolidated";
+import { cancelSubscription } from "../stripe";
 import { 
   registerUserSchema, 
   loginUserSchema, 

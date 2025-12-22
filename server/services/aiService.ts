@@ -329,3 +329,7 @@ export async function retryWithBackoff<T>(
   return aiService.retryWithBackoff(operation, maxRetries, baseDelay);
 }
 
+// Re-export provider factory and types
+export { getProvider, getAvailableProviders, isProviderAvailable } from './providers';
+export type { BaseAIProvider, AIProviderOptions, AIProviderResult } from './providers';
+

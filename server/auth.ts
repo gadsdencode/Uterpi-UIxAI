@@ -3,8 +3,6 @@ import { Strategy as LocalStrategy } from "passport-local";
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import { storage } from "./storage";
 import type { User } from "@shared/schema";
-import dotenv from "dotenv";
-dotenv.config();
 
 // Extend Express User interface to include our User type
 declare global {

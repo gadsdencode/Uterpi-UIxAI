@@ -14,8 +14,6 @@ import {
 import { eq, desc, and, or, like, sql, isNull } from "drizzle-orm";
 import { db } from "./db";
 import { randomBytes } from "crypto";
-import dotenv from "dotenv";
-dotenv.config();
 
 export interface FileStorageService {
   // Core file operations

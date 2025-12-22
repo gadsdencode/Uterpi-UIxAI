@@ -3,7 +3,7 @@
 
 import type { Request, Response } from "express";
 import { smsService } from "../services/smsService";
-import { trackAIUsage } from "../stripe-consolidated";
+import { trackAIUsage } from "../stripe";
 import { 
   updateSmsPreferencesSchema,
   verifyPhoneSchema,

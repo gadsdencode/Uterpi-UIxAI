@@ -2,13 +2,17 @@
 // LM Studio proxy, chat completions, metrics, and AI generation endpoints
 
 import type { Request, Response } from "express";
-import { aiService, createAIClient, createAzureAIClient, extractAzureAIError, parseAzureAIJSON, retryWithBackoff } from "../services/aiService";
-import { aiMetricsService, trackAIRequest } from "../services/aiMetricsService";
-import { aiCacheService, getCacheKey, getCachedResponse, setCachedResponse } from "../services/aiCacheService";
-import { tokenService, estimateTokenCount, countTokensFromMessages, deductCreditsAfterResponse } from "../services/tokenService";
 import { 
-  uiGenerationService, 
-  generateUICodeWithAI, 
+  aiService, 
+  createAIClient, 
+  createAzureAIClient, 
+  parseAzureAIJSON, 
+  getProvider 
+} from "../services/aiService";
+import { aiMetricsService, trackAIRequest } from "../services/aiMetricsService";
+import { aiCacheService } from "../services/aiCacheService";
+import { deductCreditsAfterResponse } from "../services/tokenService";
+import { 
   generatePageWithAI, 
   generatePageFilesWithAI 
 } from "../services/uiGenerationService";
@@ -16,9 +20,7 @@ import { storage } from "../storage";
 import { conversationService } from "../conversation-service";
 import { contextEnhancer } from "../context-enhancer";
 import { isVectorizationEnabled } from "../vector-flags";
-import { trackAIUsage } from "../stripe-consolidated";
 import type { AuthenticatedRequest } from "../types/ai";
-import { sanitizeAIResponseForStorage, detectConversationEchoPatterns } from "../utils/ai-response-sanitizer";
 
 // Rate limiting for health checks
 const healthCheckRateLimit = new Map<string, { count: number; resetTime: number }>();
@@ -255,19 +257,31 @@ export class AIController {
         console.warn('⚠️ Conversation pipeline error, continuing without:', convError);
       }
 
-      // Provider routing with BYOK support
-      const providerLower = provider.toLowerCase();
-      
-      if (providerLower === 'lmstudio' || providerLower === 'uterpi') {
-        await this.handleLMStudioChat(req, res, enhancedMessages, modelName, temperature, max_tokens, top_p, stream, conversation, userId, startTime, userApiKey);
-      } else if (providerLower === 'gemini') {
-        await this.handleGeminiChat(req, res, enhancedMessages, modelName, temperature, max_tokens, stream, conversation, userId, startTime, userApiKey);
-      } else if (providerLower === 'openai') {
-        await this.handleOpenAIChat(req, res, enhancedMessages, modelName, temperature, max_tokens, top_p, stream, conversation, userId, startTime, userApiKey);
-      } else if (providerLower === 'azure' || providerLower === 'azureai') {
-        await this.handleAzureChat(req, res, enhancedMessages, modelName, temperature, max_tokens, top_p, stream, conversation, userId, startTime, userApiKey);
-      } else {
-        res.status(400).json({ error: `Unsupported provider: ${provider}` });
+      // Provider routing with BYOK support using provider factory
+      try {
+        const aiProvider = getProvider(provider);
+        
+        const result = await aiProvider.chat({
+          messages: enhancedMessages,
+          modelName,
+          temperature,
+          maxTokens: max_tokens,
+          topP: top_p,
+          stream,
+          conversation,
+          userId,
+          userApiKey,
+        }, res);
+
+        // Deduct credits after successful response
+        await deductCreditsAfterResponse(req, result.inputTokens, result.outputTokens, result.modelName);
+        
+      } catch (providerError: any) {
+        if (providerError.message?.includes('Unsupported AI provider')) {
+          res.status(400).json({ error: `Unsupported provider: ${provider}` });
+        } else {
+          throw providerError;
+        }
       }
 
     } catch (error: any) {
@@ -305,460 +319,6 @@ export class AIController {
     } else {
       healthCheckRateLimit.set(userIdStr, { count: 1, resetTime: now + HEALTH_CHECK_WINDOW });
       return { allowed: true };
-    }
-  }
-
-  /**
-   * Handle LM Studio chat
-   */
-  private async handleLMStudioChat(
-    req: AuthenticatedRequest,
-    res: Response,
-    messages: any[],
-    modelName: string,
-    temperature: number,
-    max_tokens: number,
-    top_p: number,
-    stream: boolean,
-    conversation: any,
-    userId: number,
-    startTime: number,
-    userApiKey?: string
-  ): Promise<void> {
-    // LM Studio typically doesn't need API keys, but support BYOK if provided
-    const { client, config } = createAIClient('lmstudio', userApiKey);
-    
-    try {
-      if (stream) {
-        res.setHeader("Content-Type", "text/event-stream");
-        res.setHeader("Cache-Control", "no-cache");
-        res.setHeader("Connection", "keep-alive");
-
-        const streamResponse = await client.chat.completions.create({
-          model: modelName || config.modelName,
-          messages,
-          temperature: temperature ?? 0.7,
-          max_tokens: max_tokens ?? 2048,
-          top_p: top_p ?? 1,
-          stream: true,
-        });
-
-        let fullContent = '';
-        for await (const chunk of streamResponse) {
-          const content = chunk.choices[0]?.delta?.content || '';
-          fullContent += content;
-          res.write(`data: ${JSON.stringify(chunk)}\n\n`);
-        }
-        res.write('data: [DONE]\n\n');
-        res.end();
-
-        // Sanitize and store AI response
-        if (conversation && fullContent) {
-          const sanitizedContent = sanitizeAIResponseForStorage(fullContent, { logChanges: true });
-          
-          // Log if we detected problematic patterns (for monitoring)
-          const { hasEchoedHistory } = detectConversationEchoPatterns(fullContent);
-          if (hasEchoedHistory) {
-            console.warn(`⚠️ [LMStudio] Detected echoed history in AI response for conversation ${conversation.id}`);
-          }
-          
-          await conversationService.addMessage({
-            conversationId: conversation.id,
-            content: sanitizedContent,
-            role: 'assistant',
-            metadata: { model: modelName, provider: 'lmstudio' }
-          });
-        }
-
-        // Deduct credits
-        const inputTokens = countTokensFromMessages(messages);
-        const outputTokens = estimateTokenCount(fullContent);
-        await deductCreditsAfterResponse(req, inputTokens, outputTokens, modelName);
-
-      } else {
-        const response = await client.chat.completions.create({
-          model: modelName || config.modelName,
-          messages,
-          temperature: temperature ?? 0.7,
-          max_tokens: max_tokens ?? 2048,
-          top_p: top_p ?? 1,
-          stream: false,
-        });
-
-        const content = response.choices[0]?.message?.content || '';
-        
-        // Sanitize and store AI response
-        if (conversation && content) {
-          const sanitizedContent = sanitizeAIResponseForStorage(content, { logChanges: true });
-          
-          const { hasEchoedHistory } = detectConversationEchoPatterns(content);
-          if (hasEchoedHistory) {
-            console.warn(`⚠️ [LMStudio] Detected echoed history in AI response for conversation ${conversation.id}`);
-          }
-          
-          await conversationService.addMessage({
-            conversationId: conversation.id,
-            content: sanitizedContent,
-            role: 'assistant',
-            metadata: { model: modelName, provider: 'lmstudio' }
-          });
-        }
-
-        const inputTokens = countTokensFromMessages(messages);
-        const outputTokens = estimateTokenCount(content);
-        await deductCreditsAfterResponse(req, inputTokens, outputTokens, modelName);
-
-        res.json(response);
-      }
-
-      const responseTime = Date.now() - startTime;
-      trackAIRequest('/ai/chat/lmstudio', true, responseTime);
-    } catch (error: any) {
-      const responseTime = Date.now() - startTime;
-      trackAIRequest('/ai/chat/lmstudio', false, responseTime, error.message);
-      throw error;
-    }
-  }
-
-  /**
-   * Handle Gemini chat
-   */
-  private async handleGeminiChat(
-    req: AuthenticatedRequest,
-    res: Response,
-    messages: any[],
-    modelName: string,
-    temperature: number,
-    max_tokens: number,
-    stream: boolean,
-    conversation: any,
-    userId: number,
-    startTime: number,
-    userApiKey?: string
-  ): Promise<void> {
-    // Support BYOK: use user's API key if provided, otherwise fall back to env var
-    const { client, config } = createAIClient('gemini', userApiKey);
-    
-    try {
-      const model = client.getGenerativeModel({ 
-        model: modelName || config.modelName,
-        generationConfig: {
-          temperature: temperature ?? 0.7,
-          maxOutputTokens: max_tokens ?? 2048,
-        }
-      });
-
-      const systemMessage = messages.find((m: any) => m.role === 'system')?.content || '';
-      const chatMessages = messages.filter((m: any) => m.role !== 'system');
-      
-      const history = chatMessages.slice(0, -1).map((m: any) => ({
-        role: m.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: m.content }]
-      }));
-
-      const lastMessage = chatMessages[chatMessages.length - 1];
-      const chat = model.startChat({ history });
-
-      const userPrompt = systemMessage 
-        ? `${systemMessage}\n\n${lastMessage.content}` 
-        : lastMessage.content;
-
-      if (stream) {
-        res.setHeader("Content-Type", "text/event-stream");
-        res.setHeader("Cache-Control", "no-cache");
-        res.setHeader("Connection", "keep-alive");
-
-        const result = await chat.sendMessageStream(userPrompt);
-        let fullContent = '';
-        
-        for await (const chunk of result.stream) {
-          const text = chunk.text();
-          fullContent += text;
-          
-          const openAIChunk = {
-            id: `chatcmpl-${Date.now()}`,
-            object: 'chat.completion.chunk',
-            created: Math.floor(Date.now() / 1000),
-            model: modelName || config.modelName,
-            choices: [{
-              index: 0,
-              delta: { content: text },
-              finish_reason: null
-            }]
-          };
-          res.write(`data: ${JSON.stringify(openAIChunk)}\n\n`);
-        }
-        
-        res.write('data: [DONE]\n\n');
-        res.end();
-
-        // Sanitize and store AI response
-        if (conversation && fullContent) {
-          const sanitizedContent = sanitizeAIResponseForStorage(fullContent, { logChanges: true });
-          
-          const { hasEchoedHistory } = detectConversationEchoPatterns(fullContent);
-          if (hasEchoedHistory) {
-            console.warn(`⚠️ [Gemini] Detected echoed history in AI response for conversation ${conversation.id}`);
-          }
-          
-          await conversationService.addMessage({
-            conversationId: conversation.id,
-            content: sanitizedContent,
-            role: 'assistant',
-            metadata: { model: modelName, provider: 'gemini' }
-          });
-        }
-
-        const inputTokens = countTokensFromMessages(messages);
-        const outputTokens = estimateTokenCount(fullContent);
-        await deductCreditsAfterResponse(req, inputTokens, outputTokens, modelName);
-      } else {
-        const result = await chat.sendMessage(userPrompt);
-        const response = await result.response;
-        const content = response.text();
-
-        // Sanitize and store AI response
-        if (conversation && content) {
-          const sanitizedContent = sanitizeAIResponseForStorage(content, { logChanges: true });
-          
-          const { hasEchoedHistory } = detectConversationEchoPatterns(content);
-          if (hasEchoedHistory) {
-            console.warn(`⚠️ [Gemini] Detected echoed history in AI response for conversation ${conversation.id}`);
-          }
-          
-          await conversationService.addMessage({
-            conversationId: conversation.id,
-            content: sanitizedContent,
-            role: 'assistant',
-            metadata: { model: modelName, provider: 'gemini' }
-          });
-        }
-
-        const inputTokens = countTokensFromMessages(messages);
-        const outputTokens = estimateTokenCount(content);
-        await deductCreditsAfterResponse(req, inputTokens, outputTokens, modelName);
-
-        res.json({
-          id: `chatcmpl-${Date.now()}`,
-          object: 'chat.completion',
-          created: Math.floor(Date.now() / 1000),
-          model: modelName || config.modelName,
-          choices: [{
-            index: 0,
-            message: { role: 'assistant', content },
-            finish_reason: 'stop'
-          }],
-          usage: {
-            prompt_tokens: inputTokens,
-            completion_tokens: outputTokens,
-            total_tokens: inputTokens + outputTokens
-          }
-        });
-      }
-
-      const responseTime = Date.now() - startTime;
-      trackAIRequest('/ai/chat/gemini', true, responseTime);
-    } catch (error: any) {
-      const responseTime = Date.now() - startTime;
-      trackAIRequest('/ai/chat/gemini', false, responseTime, error.message);
-      throw error;
-    }
-  }
-
-  /**
-   * Handle OpenAI chat
-   */
-  private async handleOpenAIChat(
-    req: AuthenticatedRequest,
-    res: Response,
-    messages: any[],
-    modelName: string,
-    temperature: number,
-    max_tokens: number,
-    top_p: number,
-    stream: boolean,
-    conversation: any,
-    userId: number,
-    startTime: number,
-    userApiKey?: string
-  ): Promise<void> {
-    // Support BYOK: use user's API key if provided, otherwise fall back to env var
-    const { client, config } = createAIClient('openai', userApiKey);
-    
-    try {
-      if (stream) {
-        res.setHeader("Content-Type", "text/event-stream");
-        res.setHeader("Cache-Control", "no-cache");
-        res.setHeader("Connection", "keep-alive");
-
-        const streamResponse = await client.chat.completions.create({
-          model: modelName || config.modelName,
-          messages,
-          temperature: temperature ?? 0.7,
-          max_tokens: max_tokens ?? 2048,
-          top_p: top_p ?? 1,
-          stream: true,
-        });
-
-        let fullContent = '';
-        for await (const chunk of streamResponse) {
-          const content = chunk.choices[0]?.delta?.content || '';
-          fullContent += content;
-          res.write(`data: ${JSON.stringify(chunk)}\n\n`);
-        }
-        res.write('data: [DONE]\n\n');
-        res.end();
-
-        // Sanitize and store AI response
-        if (conversation && fullContent) {
-          const sanitizedContent = sanitizeAIResponseForStorage(fullContent, { logChanges: true });
-          
-          const { hasEchoedHistory } = detectConversationEchoPatterns(fullContent);
-          if (hasEchoedHistory) {
-            console.warn(`⚠️ [OpenAI] Detected echoed history in AI response for conversation ${conversation.id}`);
-          }
-          
-          await conversationService.addMessage({
-            conversationId: conversation.id,
-            content: sanitizedContent,
-            role: 'assistant',
-            metadata: { model: modelName, provider: 'openai' }
-          });
-        }
-
-        const inputTokens = countTokensFromMessages(messages);
-        const outputTokens = estimateTokenCount(fullContent);
-        await deductCreditsAfterResponse(req, inputTokens, outputTokens, modelName);
-      } else {
-        const response = await client.chat.completions.create({
-          model: modelName || config.modelName,
-          messages,
-          temperature: temperature ?? 0.7,
-          max_tokens: max_tokens ?? 2048,
-          top_p: top_p ?? 1,
-          stream: false,
-        });
-
-        const content = response.choices[0]?.message?.content || '';
-        
-        // Sanitize and store AI response
-        if (conversation && content) {
-          const sanitizedContent = sanitizeAIResponseForStorage(content, { logChanges: true });
-          
-          const { hasEchoedHistory } = detectConversationEchoPatterns(content);
-          if (hasEchoedHistory) {
-            console.warn(`⚠️ [OpenAI] Detected echoed history in AI response for conversation ${conversation.id}`);
-          }
-          
-          await conversationService.addMessage({
-            conversationId: conversation.id,
-            content: sanitizedContent,
-            role: 'assistant',
-            metadata: { model: modelName, provider: 'openai' }
-          });
-        }
-
-        const inputTokens = countTokensFromMessages(messages);
-        const outputTokens = estimateTokenCount(content);
-        await deductCreditsAfterResponse(req, inputTokens, outputTokens, modelName);
-
-        res.json(response);
-      }
-
-      const responseTime = Date.now() - startTime;
-      trackAIRequest('/ai/chat/openai', true, responseTime);
-    } catch (error: any) {
-      const responseTime = Date.now() - startTime;
-      trackAIRequest('/ai/chat/openai', false, responseTime, error.message);
-      throw error;
-    }
-  }
-
-  /**
-   * Handle Azure AI chat
-   */
-  private async handleAzureChat(
-    req: AuthenticatedRequest,
-    res: Response,
-    messages: any[],
-    modelName: string,
-    temperature: number,
-    max_tokens: number,
-    top_p: number,
-    stream: boolean,
-    conversation: any,
-    userId: number,
-    startTime: number,
-    userApiKey?: string
-  ): Promise<void> {
-    // Support BYOK: use user's API key if provided, otherwise fall back to env var
-    const { client, config } = createAIClient('azure', userApiKey);
-    
-    try {
-      const response = await retryWithBackoff(async () => {
-        return await client.path("/chat/completions").post({
-          body: {
-            messages,
-            max_tokens: max_tokens ?? 2048,
-            temperature: temperature ?? 0.7,
-            top_p: top_p ?? 1,
-            model: modelName || config.modelName,
-            stream: false,
-          },
-        });
-      }, config.maxRetries, config.retryDelay);
-
-      if (response.status !== "200") {
-        const errorDetail = extractAzureAIError(response.body?.error || response.body);
-        throw new Error(`Azure AI API error (${response.status}): ${errorDetail}`);
-      }
-
-      const content = response.body.choices[0]?.message?.content || '';
-
-      // Sanitize and store AI response
-      if (conversation && content) {
-        const sanitizedContent = sanitizeAIResponseForStorage(content, { logChanges: true });
-        
-        const { hasEchoedHistory } = detectConversationEchoPatterns(content);
-        if (hasEchoedHistory) {
-          console.warn(`⚠️ [Azure] Detected echoed history in AI response for conversation ${conversation.id}`);
-        }
-        
-        await conversationService.addMessage({
-          conversationId: conversation.id,
-          content: sanitizedContent,
-          role: 'assistant',
-          metadata: { model: modelName, provider: 'azure' }
-        });
-      }
-
-      const inputTokens = countTokensFromMessages(messages);
-      const outputTokens = estimateTokenCount(content);
-      await deductCreditsAfterResponse(req, inputTokens, outputTokens, modelName);
-
-      res.json({
-        id: `chatcmpl-${Date.now()}`,
-        object: 'chat.completion',
-        created: Math.floor(Date.now() / 1000),
-        model: modelName || config.modelName,
-        choices: [{
-          index: 0,
-          message: { role: 'assistant', content },
-          finish_reason: 'stop'
-        }],
-        usage: response.body.usage || {
-          prompt_tokens: inputTokens,
-          completion_tokens: outputTokens,
-          total_tokens: inputTokens + outputTokens
-        }
-      });
-
-      const responseTime = Date.now() - startTime;
-      trackAIRequest('/ai/chat/azure', true, responseTime);
-    } catch (error: any) {
-      const responseTime = Date.now() - startTime;
-      trackAIRequest('/ai/chat/azure', false, responseTime, error.message);
-      throw error;
     }
   }
 

@@ -29,7 +29,7 @@ import {
   checkCreditBalance,
   CREDIT_PACKAGES,
   STRIPE_PRODUCTS
-} from './stripe-consolidated';
+} from './stripe';
 
 const router = Router();
 

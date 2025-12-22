@@ -19,9 +19,7 @@ import { eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { db } from "./db";
 import { engagementService } from "./engagement";
-import dotenv from "dotenv";
 import { Profile } from "passport";
-dotenv.config();
 
 export interface IStorage {
   // User CRUD operations

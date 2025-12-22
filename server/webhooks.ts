@@ -1,15 +1,15 @@
 import type { Request, Response } from 'express';
 import Stripe from 'stripe';
-import { verifyWebhookSignature } from './stripe';
-import { db } from './db';
-import { users } from '@shared/schema';
-import { eq } from 'drizzle-orm';
 import { 
+  verifyWebhookSignature,
   handleSubscriptionCheckoutSuccess, 
   handleCreditsCheckoutSuccess, 
   grantMonthlyCreditsForTier,
   syncSubscriptionFromStripe,
-} from "./stripe-consolidated";
+} from './stripe';
+import { db } from './db';
+import { users } from '@shared/schema';
+import { eq } from 'drizzle-orm';
 
 /**
  * Handle Stripe webhooks for subscription events

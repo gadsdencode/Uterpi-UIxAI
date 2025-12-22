@@ -1,7 +1,7 @@
 // Token Service - Token Estimation and Credit Deduction
 // Handles token counting and credit management for AI operations
 
-import { trackAIUsage } from "../stripe-consolidated";
+import { trackAIUsage } from "../stripe";
 import type { CreditDeductionResult, AuthenticatedRequest } from "../types/ai";
 
 /**

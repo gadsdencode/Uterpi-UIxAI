@@ -182,50 +182,182 @@ ${JSON.stringify(analysis, null, 2)}
 
   /**
    * Generate fallback UI code when AI generation fails
+   * Uses conversation context from the analysis to create relevant, dynamic fallback code
    */
   generateFallbackUICode(analysis: UIAnalysisResult): string {
     const components = analysis.components || [];
+    const layout = analysis.layout || {};
+    const theme = analysis.theme || {};
+    const metadata = analysis.metadata || {};
+    
+    // Extract context from analysis for dynamic generation
+    const title = metadata.title || layout.title || 'Your Application';
+    const subtitle = metadata.subtitle || layout.subtitle || 'Generated with AI assistance';
+    const primaryColor = theme.primaryColor || 'violet';
+    const backgroundColor = theme.backgroundColor || 'slate';
+    const pageType = metadata.pageType || layout.type || 'landing';
+    
+    // Generate navigation items from analysis or use sensible defaults
+    const navItems = (layout.navigation || []).slice(0, 5);
+    const defaultNavItems = ['Home', 'Features', 'About', 'Contact'];
+    const finalNavItems = navItems.length > 0 ? navItems : defaultNavItems;
+    
+    // Generate component sections based on analysis
+    const hasHero = components.some((c: any) => c.type?.toLowerCase().includes('hero'));
+    const hasFeatures = components.some((c: any) => c.type?.toLowerCase().includes('feature'));
+    const hasCTA = components.some((c: any) => 
+      c.type?.toLowerCase().includes('cta') || c.type?.toLowerCase().includes('button')
+    );
+    
+    // Build dynamic sections based on detected components
+    const heroSection = this.generateHeroSection(title, subtitle, primaryColor, hasHero);
+    const featuresSection = this.generateFeaturesSection(components, primaryColor, hasFeatures);
+    const ctaSection = hasCTA ? this.generateCTASection(primaryColor) : '';
+    
     return `
 import React from 'react';
 
+/**
+ * Generated Component
+ * Created based on: ${pageType} page analysis
+ * Components detected: ${components.length}
+ */
 const GeneratedComponent: React.FC = () => {
   return (
-    <div className="min-h-screen bg-slate-50">
-      <header className="bg-slate-900 text-white p-4">
+    <div className="min-h-screen bg-${backgroundColor}-50">
+      {/* Navigation */}
+      <header className="bg-${backgroundColor}-900 text-white p-4">
         <nav className="max-w-6xl mx-auto flex justify-between items-center">
-          <h1 className="text-xl font-bold">Your Logo</h1>
+          <h1 className="text-xl font-bold">${title}</h1>
           <div className="hidden md:flex space-x-6">
-            <a href="#" className="hover:text-violet-400">Home</a>
-            <a href="#" className="hover:text-violet-400">About</a>
-            <a href="#" className="hover:text-violet-400">Contact</a>
+            ${finalNavItems.map((item: string) => `
+            <a href="#" className="hover:text-${primaryColor}-400 transition-colors">${item}</a>`).join('')}
           </div>
+          {/* Mobile menu button */}
+          <button className="md:hidden p-2 text-white hover:bg-${backgroundColor}-800 rounded">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
         </nav>
       </header>
       
       <main className="max-w-6xl mx-auto px-4 py-12">
-        <section className="text-center mb-16">
-          <h2 className="text-4xl font-bold mb-4">Welcome to Your Site</h2>
-          <p className="text-xl text-gray-600 mb-8">Generated from your design</p>
-          <button className="bg-violet-600 text-white px-8 py-3 rounded-lg hover:bg-violet-700">
-            Get Started
-          </button>
-        </section>
+        ${heroSection}
         
-        <section className="grid md:grid-cols-3 gap-8">
-          ${components.map((comp: any, i: number) => `
-          <div key={${i}} className="p-6 bg-white rounded-lg shadow-md">
-            <h3 className="text-xl font-semibold mb-2">${comp.type || 'Component'}</h3>
-            <p className="text-gray-600">${comp.description || 'Description'}</p>
-          </div>
-          `).join('')}
-        </section>
+        ${featuresSection}
+        
+        ${ctaSection}
       </main>
+      
+      {/* Footer */}
+      <footer className="bg-${backgroundColor}-900 text-white py-8 mt-16">
+        <div className="max-w-6xl mx-auto px-4 text-center">
+          <p className="text-${backgroundColor}-400">© ${new Date().getFullYear()} ${title}. All rights reserved.</p>
+        </div>
+      </footer>
     </div>
   );
 };
 
 export default GeneratedComponent;
-  `.trim();
+    `.trim();
+  }
+  
+  /**
+   * Generate hero section based on context
+   */
+  private generateHeroSection(title: string, subtitle: string, color: string, hasHeroComponent: boolean): string {
+    if (!hasHeroComponent) {
+      return `
+        {/* Hero Section */}
+        <section className="text-center mb-16 py-16">
+          <h2 className="text-4xl md:text-5xl font-bold mb-4 text-slate-900">${title}</h2>
+          <p className="text-xl text-gray-600 mb-8 max-w-2xl mx-auto">${subtitle}</p>
+          <div className="flex justify-center gap-4">
+            <button className="bg-${color}-600 text-white px-8 py-3 rounded-lg hover:bg-${color}-700 transition-colors">
+              Get Started
+            </button>
+            <button className="border border-${color}-600 text-${color}-600 px-8 py-3 rounded-lg hover:bg-${color}-50 transition-colors">
+              Learn More
+            </button>
+          </div>
+        </section>`;
+    }
+    
+    return `
+        {/* Hero Section */}
+        <section className="text-center mb-16 py-20 bg-gradient-to-br from-${color}-600 to-${color}-800 rounded-3xl text-white">
+          <h2 className="text-4xl md:text-6xl font-bold mb-6">${title}</h2>
+          <p className="text-xl opacity-90 mb-10 max-w-2xl mx-auto px-4">${subtitle}</p>
+          <div className="flex flex-col sm:flex-row justify-center gap-4 px-4">
+            <button className="bg-white text-${color}-700 px-10 py-4 rounded-lg font-semibold hover:bg-${color}-50 transition-colors">
+              Get Started Free
+            </button>
+            <button className="border-2 border-white text-white px-10 py-4 rounded-lg font-semibold hover:bg-white/10 transition-colors">
+              Watch Demo
+            </button>
+          </div>
+        </section>`;
+  }
+  
+  /**
+   * Generate features section from components
+   */
+  private generateFeaturesSection(components: any[], color: string, hasFeatureComponents: boolean): string {
+    const featureComponents = components.filter((c: any) => 
+      c.type?.toLowerCase().includes('feature') || 
+      c.type?.toLowerCase().includes('card') ||
+      c.type?.toLowerCase().includes('section')
+    );
+    
+    // Use analyzed components or generate defaults
+    const features = featureComponents.length > 0 
+      ? featureComponents.slice(0, 6)
+      : [
+          { type: 'Feature', description: 'Powerful AI integration for enhanced productivity' },
+          { type: 'Feature', description: 'Seamless collaboration with your team' },
+          { type: 'Feature', description: 'Advanced analytics and insights' }
+        ];
+    
+    const gridCols = features.length <= 2 ? 'md:grid-cols-2' : 
+                     features.length === 4 ? 'md:grid-cols-2 lg:grid-cols-4' : 'md:grid-cols-3';
+    
+    return `
+        {/* Features Section */}
+        <section className="mb-16">
+          <h3 className="text-2xl md:text-3xl font-bold text-center mb-12 text-slate-900">
+            ${hasFeatureComponents ? 'Our Features' : 'What We Offer'}
+          </h3>
+          <div className="grid ${gridCols} gap-8">
+            ${features.map((comp: any, i: number) => `
+            <div key={${i}} className="p-6 bg-white rounded-xl shadow-sm hover:shadow-lg transition-shadow border border-gray-100">
+              <div className="w-12 h-12 bg-${color}-100 rounded-lg flex items-center justify-center mb-4">
+                <div className="w-6 h-6 bg-${color}-600 rounded"></div>
+              </div>
+              <h4 className="text-xl font-semibold mb-2 text-slate-900">${comp.name || comp.type || 'Feature'}</h4>
+              <p className="text-gray-600">${comp.description || 'A powerful feature to help you achieve more.'}</p>
+            </div>
+            `).join('')}
+          </div>
+        </section>`;
+  }
+  
+  /**
+   * Generate CTA section
+   */
+  private generateCTASection(color: string): string {
+    return `
+        {/* Call to Action */}
+        <section className="bg-gradient-to-r from-${color}-600 to-${color}-700 rounded-2xl p-8 md:p-12 text-center text-white">
+          <h3 className="text-2xl md:text-3xl font-bold mb-4">Ready to Get Started?</h3>
+          <p className="text-lg opacity-90 mb-8 max-w-xl mx-auto">
+            Join thousands of users who are already experiencing the future.
+          </p>
+          <button className="bg-white text-${color}-700 px-10 py-4 rounded-lg font-semibold hover:bg-${color}-50 transition-colors">
+            Start Your Free Trial
+          </button>
+        </section>`;
   }
 
   /**

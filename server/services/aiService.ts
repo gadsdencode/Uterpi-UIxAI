@@ -45,11 +45,12 @@ export class AIService {
     };
 
     // Try multiple sources for LM Studio URL configuration
+    // Priority: LMSTUDIO_BASE_URL > VITE_LMSTUDIO_BASE_URL > LMSTUDIO_DEV_BASE_URL > production default
     // In production (Replit), use the Cloudflare tunnel URL with HTTPS
-    // In development, use local IP or configured URL
+    // In development, use environment variable (no hardcoded IPs)
     const defaultUrl = isProduction 
       ? "https://lmstudio.uterpi.com"  // Cloudflare tunnel URL for production (MUST be HTTPS)
-      : "http://192.168.86.44:1234";   // Local IP for development
+      : (process.env.LMSTUDIO_DEV_BASE_URL || "http://localhost:1234"); // Development: env var or localhost
     
     const lmBaseRaw = process.env.LMSTUDIO_BASE_URL || process.env.VITE_LMSTUDIO_BASE_URL || defaultUrl;
     

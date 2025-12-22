@@ -183,6 +183,7 @@ export class AIController {
         sessionId, 
         enableContext = true, 
         original_messages,
+        apiKey: userApiKey, // User-provided API key for BYOK support
         ...otherParams 
       } = req.body;
       
@@ -254,17 +255,17 @@ export class AIController {
         console.warn('⚠️ Conversation pipeline error, continuing without:', convError);
       }
 
-      // Provider routing
+      // Provider routing with BYOK support
       const providerLower = provider.toLowerCase();
       
       if (providerLower === 'lmstudio' || providerLower === 'uterpi') {
-        await this.handleLMStudioChat(req, res, enhancedMessages, modelName, temperature, max_tokens, top_p, stream, conversation, userId, startTime);
+        await this.handleLMStudioChat(req, res, enhancedMessages, modelName, temperature, max_tokens, top_p, stream, conversation, userId, startTime, userApiKey);
       } else if (providerLower === 'gemini') {
-        await this.handleGeminiChat(req, res, enhancedMessages, modelName, temperature, max_tokens, stream, conversation, userId, startTime);
+        await this.handleGeminiChat(req, res, enhancedMessages, modelName, temperature, max_tokens, stream, conversation, userId, startTime, userApiKey);
       } else if (providerLower === 'openai') {
-        await this.handleOpenAIChat(req, res, enhancedMessages, modelName, temperature, max_tokens, top_p, stream, conversation, userId, startTime);
+        await this.handleOpenAIChat(req, res, enhancedMessages, modelName, temperature, max_tokens, top_p, stream, conversation, userId, startTime, userApiKey);
       } else if (providerLower === 'azure' || providerLower === 'azureai') {
-        await this.handleAzureChat(req, res, enhancedMessages, modelName, temperature, max_tokens, top_p, stream, conversation, userId, startTime);
+        await this.handleAzureChat(req, res, enhancedMessages, modelName, temperature, max_tokens, top_p, stream, conversation, userId, startTime, userApiKey);
       } else {
         res.status(400).json({ error: `Unsupported provider: ${provider}` });
       }
@@ -321,9 +322,11 @@ export class AIController {
     stream: boolean,
     conversation: any,
     userId: number,
-    startTime: number
+    startTime: number,
+    userApiKey?: string
   ): Promise<void> {
-    const { client, config } = createAIClient('lmstudio');
+    // LM Studio typically doesn't need API keys, but support BYOK if provided
+    const { client, config } = createAIClient('lmstudio', userApiKey);
     
     try {
       if (stream) {
@@ -430,9 +433,11 @@ export class AIController {
     stream: boolean,
     conversation: any,
     userId: number,
-    startTime: number
+    startTime: number,
+    userApiKey?: string
   ): Promise<void> {
-    const { client, config } = createAIClient('gemini');
+    // Support BYOK: use user's API key if provided, otherwise fall back to env var
+    const { client, config } = createAIClient('gemini', userApiKey);
     
     try {
       const model = client.getGenerativeModel({ 
@@ -574,9 +579,11 @@ export class AIController {
     stream: boolean,
     conversation: any,
     userId: number,
-    startTime: number
+    startTime: number,
+    userApiKey?: string
   ): Promise<void> {
-    const { client, config } = createAIClient('openai');
+    // Support BYOK: use user's API key if provided, otherwise fall back to env var
+    const { client, config } = createAIClient('openai', userApiKey);
     
     try {
       if (stream) {
@@ -681,9 +688,11 @@ export class AIController {
     stream: boolean,
     conversation: any,
     userId: number,
-    startTime: number
+    startTime: number,
+    userApiKey?: string
   ): Promise<void> {
-    const { client, config } = createAIClient('azure');
+    // Support BYOK: use user's API key if provided, otherwise fall back to env var
+    const { client, config } = createAIClient('azure', userApiKey);
     
     try {
       const response = await retryWithBackoff(async () => {

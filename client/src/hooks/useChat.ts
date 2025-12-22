@@ -51,6 +51,12 @@ export interface UseChatReturn {
   transcript: string;
   interimTranscript: string;
   
+  // Voice input state (decoupled from keyboard input)
+  voiceTranscript: string; // Separate voice transcript awaiting confirmation
+  isVoiceInputPending: boolean; // True when voice input awaits merge
+  confirmVoiceInput: () => void; // Explicitly merge voice input to main input
+  discardVoiceInput: () => void; // Discard pending voice input
+  
   // Greeting state
   greeting: string;
   greetingLoading: boolean;
@@ -154,6 +160,12 @@ export const useChat = (options: UseChatOptions): UseChatReturn => {
   
   // Greeting initialization ref
   const hasInitializedGreeting = useRef(false);
+  
+  // Voice input state management - decoupled from main input
+  // voiceTranscript holds the speech-to-text result separately from keyboard input
+  const [voiceTranscript, setVoiceTranscript] = useState('');
+  const [isVoiceInputPending, setIsVoiceInputPending] = useState(false); // True when voice input awaits confirmation
+  const [voiceInputSource, setVoiceInputSource] = useState<'keyboard' | 'voice'>('keyboard'); // Track input source
   
   // User typing state lock - prevents transcript from overwriting manual keyboard input
   // Using ref to avoid unnecessary re-renders, with a state mirror for UI if needed
@@ -305,31 +317,77 @@ export const useChat = (options: UseChatOptions): UseChatReturn => {
     }
   });
   
-  // Sync input field with speech recognition transcript
-  // IMPORTANT: This effect respects the isUserTyping lock to prevent overwriting manual keyboard input
+  // Voice transcript state management - decoupled from main input
+  // IMPORTANT: Voice transcript is stored separately and only merged on explicit confirmation
   useEffect(() => {
-    console.log('🎤 Transcript sync effect triggered:', {
+    console.log('🎤 Voice transcript effect triggered:', {
       transcript,
       interimTranscript,
-      isSubmittingMessage,
-      isUserTyping: isUserTypingRef.current,
-      currentInput: input
+      isListening,
+      voiceInputSource,
+      isUserTyping: isUserTypingRef.current
     });
     
-    // Skip sync if user is actively typing via keyboard or if submitting
-    if (isSubmittingMessage || isUserTypingRef.current) {
-      if (isUserTypingRef.current) {
-        console.log('🎤 Skipping transcript sync - user is manually typing');
+    // Only update voice transcript when actively listening and not manually typing
+    if (isListening && !isUserTypingRef.current && voiceInputSource === 'voice') {
+      const currentTranscript = transcript + (interimTranscript ? ' ' + interimTranscript : '');
+      if (currentTranscript.trim()) {
+        console.log('🎤 Updating voice transcript (decoupled):', currentTranscript);
+        setVoiceTranscript(currentTranscript);
+        setIsVoiceInputPending(true);
       }
-      return;
     }
-    
-    const currentTranscript = transcript + (interimTranscript ? ' ' + interimTranscript : '');
-    if (currentTranscript.trim() && currentTranscript !== input) {
-      console.log('🎤 Syncing input with transcript:', currentTranscript);
-      setInput(currentTranscript);
+  }, [transcript, interimTranscript, isListening, voiceInputSource]);
+  
+  // Auto-confirm voice input when listening stops (legacy behavior for backwards compatibility)
+  // Users can also explicitly confirm or discard voice input
+  useEffect(() => {
+    // When listening stops with a pending voice input, auto-merge to input after a brief delay
+    // This gives users time to see what was recognized before it's submitted
+    if (!isListening && isVoiceInputPending && voiceTranscript.trim()) {
+      console.log('🎤 Listening stopped with pending voice input, auto-confirming');
+      
+      // Small delay to allow user to see/edit the transcribed text
+      const confirmTimer = setTimeout(() => {
+        if (isVoiceInputPending && voiceTranscript.trim() && !isUserTypingRef.current) {
+          console.log('🎤 Auto-confirming voice input:', voiceTranscript);
+          setInput(prev => {
+            // Append voice transcript to existing input if any
+            const newInput = prev.trim() ? `${prev.trim()} ${voiceTranscript.trim()}` : voiceTranscript.trim();
+            return newInput;
+          });
+          setVoiceTranscript('');
+          setIsVoiceInputPending(false);
+          setVoiceInputSource('keyboard');
+        }
+      }, 500);
+      
+      return () => clearTimeout(confirmTimer);
     }
-  }, [transcript, interimTranscript, isSubmittingMessage, input]);
+  }, [isListening, isVoiceInputPending, voiceTranscript]);
+  
+  // Confirm voice input explicitly - use this when user clicks a "Use Voice Input" button
+  const confirmVoiceInput = useCallback(() => {
+    if (voiceTranscript.trim()) {
+      console.log('🎤 Explicitly confirming voice input:', voiceTranscript);
+      setInput(prev => {
+        const newInput = prev.trim() ? `${prev.trim()} ${voiceTranscript.trim()}` : voiceTranscript.trim();
+        return newInput;
+      });
+      setVoiceTranscript('');
+      setIsVoiceInputPending(false);
+      setVoiceInputSource('keyboard');
+    }
+  }, [voiceTranscript]);
+  
+  // Discard voice input explicitly
+  const discardVoiceInput = useCallback(() => {
+    console.log('🎤 Discarding voice input');
+    setVoiceTranscript('');
+    setIsVoiceInputPending(false);
+    setVoiceInputSource('keyboard');
+    clearTranscript();
+  }, [clearTranscript]);
   
   // AI Service ref for intelligent toasts
   const aiServiceRef = useRef<any>(null);
@@ -573,7 +631,7 @@ export const useChat = (options: UseChatOptions): UseChatReturn => {
     }
   }, [speakingMessageId, speak, stopSpeaking]);
   
-  // Handle voice input
+  // Handle voice input - uses decoupled voice transcript state
   const handleVoiceInput = useCallback(async () => {
     try {
       console.log('🎤 handleVoiceInput called, isListening:', isListening);
@@ -590,14 +648,21 @@ export const useChat = (options: UseChatOptions): UseChatReturn => {
         console.log('🎤 Stopping recording...');
         const finalTranscript = await stopListening();
         console.log('🎤 Final transcript:', finalTranscript);
+        
+        // Store final transcript in voice state (decoupled from input)
+        // The auto-confirm effect will handle merging after a brief delay
         if (finalTranscript) {
-          setInput(finalTranscript);
+          setVoiceTranscript(finalTranscript);
+          setIsVoiceInputPending(true);
         }
+        setVoiceInputSource('keyboard'); // Reset to keyboard mode when done
       } else {
         console.log('🎤 Starting recording...');
         
+        // Set voice input source to 'voice' to enable transcript capture
+        setVoiceInputSource('voice');
+        
         // Reset user typing lock when starting voice input
-        // This allows transcript sync to resume
         isUserTypingRef.current = false;
         setIsUserTyping(false);
         if (userTypingTimeoutRef.current) {
@@ -606,7 +671,9 @@ export const useChat = (options: UseChatOptions): UseChatReturn => {
         }
         console.log('🎤 User typing lock reset - voice input taking over');
         
-        setInput('');
+        // Clear voice transcript state but keep existing input text (for appending)
+        setVoiceTranscript('');
+        setIsVoiceInputPending(false);
         clearTranscript();
         
         await startListening({
@@ -619,6 +686,11 @@ export const useChat = (options: UseChatOptions): UseChatReturn => {
     } catch (error) {
       console.error('🎤 Voice input error:', error);
       const errorMessage = (error as Error).message || 'Voice input failed';
+      
+      // Reset voice state on error
+      setVoiceInputSource('keyboard');
+      setVoiceTranscript('');
+      setIsVoiceInputPending(false);
       
       if (errorMessage.includes('permission')) {
         toast.error('🎤 Microphone permission denied. Please allow microphone access and try again.');
@@ -913,6 +985,12 @@ export const useChat = (options: UseChatOptions): UseChatReturn => {
     speechError,
     transcript,
     interimTranscript,
+    
+    // Voice input state (decoupled from keyboard input)
+    voiceTranscript,
+    isVoiceInputPending,
+    confirmVoiceInput,
+    discardVoiceInput,
     
     // Greeting state
     greeting,

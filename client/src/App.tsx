@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from "framer-motion";
+import { useNavigate, useLocation } from 'react-router-dom';
 import FuturisticAIChat from './components/ChatView'
 import { Toaster } from './components/ui/sonner'
 import { AuthProvider, useAuth } from './hooks/useAuth'
@@ -10,7 +11,7 @@ import { UserMenu } from './components/auth/UserMenu'
 import { SubscriptionGuard } from './components/SubscriptionGuard'
 import { Button } from './components/ui/button'
 import { Card, CardContent } from './components/ui/card'
-import { Loader2, Zap } from 'lucide-react'
+import { Loader2, Zap, LayoutDashboard, Users, MessageSquare } from 'lucide-react'
 // Import model migration utilities for debugging
 import './lib/modelMigration'
 
@@ -594,17 +595,73 @@ const AuthenticatedApp: React.FC = () => {
     );
   }
 
+  // Navigation helper - only use navigate if within Router context
+  let navigate: ((path: string) => void) | null = null;
+  try {
+    const nav = useNavigate();
+    navigate = nav;
+  } catch {
+    // Not within Router context, navigation will be handled via window.location
+  }
+
+  const handleNavigate = (path: string) => {
+    if (navigate) {
+      navigate(path);
+    } else {
+      window.location.href = path;
+    }
+  };
+
   return (
     <main className="h-screen w-full">
-      <div className="absolute top-4 right-4 z-50">
-        <UserMenu />
+      {/* Top Navigation Bar */}
+      <div className="absolute top-0 left-0 right-0 z-50 bg-slate-900/80 backdrop-blur-xl border-b border-slate-800">
+        <div className="flex items-center justify-between px-4 py-2">
+          {/* Left side - Navigation links */}
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => handleNavigate('/chat')}
+              className="text-slate-300 hover:text-white hover:bg-slate-800"
+            >
+              <MessageSquare className="w-4 h-4 mr-2" />
+              Chat
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => handleNavigate('/dashboard')}
+              className="text-slate-300 hover:text-white hover:bg-slate-800"
+            >
+              <LayoutDashboard className="w-4 h-4 mr-2" />
+              Dashboard
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => handleNavigate('/teams')}
+              className="text-slate-300 hover:text-white hover:bg-slate-800"
+            >
+              <Users className="w-4 h-4 mr-2" />
+              Teams
+            </Button>
+          </div>
+          
+          {/* Right side - User menu */}
+          <UserMenu />
+        </div>
       </div>
-      <SubscriptionGuard 
-        feature="NomadAI" 
-        requiredTier="freemium"
-      >
-        <FuturisticAIChat />
-      </SubscriptionGuard>
+      
+      {/* Main content with top padding for nav bar */}
+      <div className="pt-12 h-full">
+        <SubscriptionGuard 
+          feature="NomadAI" 
+          requiredTier="freemium"
+        >
+          <FuturisticAIChat />
+        </SubscriptionGuard>
+      </div>
     </main>
   );
 };

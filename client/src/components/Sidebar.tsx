@@ -173,8 +173,8 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat, onOpenProjectSettings }) =
             <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-500 rounded-full border-2 border-slate-900" />
           </div>
           <div>
-            <h1 className="text-sm font-semibold text-white">AI Assistant</h1>
-            <p className="text-xs text-slate-500">Powered by Uterpi</p>
+            <h1 className="text-sm font-semibold text-white">Uterpi</h1>
+            <p className="text-xs text-slate-500">Powered by Overture Systems Solutions</p>
           </div>
         </div>
       </div>
@@ -187,13 +187,12 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat, onOpenProjectSettings }) =
         <DropdownMenu open={isProjectDropdownOpen} onOpenChange={setIsProjectDropdownOpen}>
           <DropdownMenuTrigger asChild>
             <button 
+              type="button"
               className={cn(
                 "w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-left text-sm transition-all duration-200",
                 "bg-slate-800/50 hover:bg-slate-800 border border-slate-700/50 hover:border-slate-600",
                 "focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500/50"
               )}
-              aria-expanded={isProjectDropdownOpen}
-              aria-haspopup="listbox"
             >
               <div className="flex items-center min-w-0 flex-1 gap-2">
                 {activeProject ? (

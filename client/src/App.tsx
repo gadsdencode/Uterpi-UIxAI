@@ -366,10 +366,10 @@ const AuthenticatedApp: React.FC = () => {
   }
 
   return (
-    <main className="h-screen w-full">
-      {/* Top Navigation Bar */}
-      <div className="absolute top-0 left-0 right-0 z-50 bg-slate-900/80 backdrop-blur-xl border-b border-slate-800">
-        <div className="flex items-center justify-between px-4 py-2">
+    <main className="h-screen w-full flex flex-col bg-slate-950">
+      {/* Top Navigation Bar - Fixed height */}
+      <header className="flex-shrink-0 h-12 bg-slate-900/95 backdrop-blur-xl border-b border-slate-800/80 z-50">
+        <div className="h-full flex items-center justify-between px-4">
           {/* Left side - Navigation links */}
           <div className="flex items-center gap-1">
             <Button
@@ -404,10 +404,10 @@ const AuthenticatedApp: React.FC = () => {
           {/* Right side - User menu */}
           <UserMenu />
         </div>
-      </div>
+      </header>
       
-      {/* Main content with top padding for nav bar */}
-      <div className="pt-12 h-full flex">
+      {/* Main content area - fills remaining height */}
+      <div className="flex-1 flex min-h-0">
         {/* Sidebar - hidden on mobile, shown on md+ */}
         <Sidebar 
           onNewChat={() => {
@@ -419,7 +419,7 @@ const AuthenticatedApp: React.FC = () => {
         />
         
         {/* Chat area - flex-1 to take remaining space */}
-        <div className="flex-1 h-full overflow-hidden">
+        <div className="flex-1 min-w-0 overflow-hidden">
           <SubscriptionGuard 
             feature="NomadAI" 
             requiredTier="freemium"

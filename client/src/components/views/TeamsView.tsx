@@ -46,8 +46,25 @@ import { useAuth } from '../../hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
+// Types
+interface TeamMember {
+  id: number;
+  name: string;
+  email: string;
+  role: 'owner' | 'admin' | 'member';
+  avatar: string | null;
+  joinedAt: string;
+  creditsUsed: number;
+}
+
+const roleConfig = {
+  owner: { label: 'Owner', icon: Crown, color: 'text-amber-400 bg-amber-400/10' },
+  admin: { label: 'Admin', icon: Shield, color: 'text-violet-400 bg-violet-400/10' },
+  member: { label: 'Member', icon: User, color: 'text-slate-400 bg-slate-400/10' },
+};
+
 // Mock team data - in production this would come from the API
-const mockTeamMembers = [
+const mockTeamMembers: TeamMember[] = [
   { 
     id: 1, 
     name: 'John Martinez', 
@@ -76,22 +93,6 @@ const mockTeamMembers = [
     creditsUsed: 42
   },
 ];
-
-const roleConfig = {
-  owner: { label: 'Owner', icon: Crown, color: 'text-amber-400 bg-amber-400/10' },
-  admin: { label: 'Admin', icon: Shield, color: 'text-violet-400 bg-violet-400/10' },
-  member: { label: 'Member', icon: User, color: 'text-slate-400 bg-slate-400/10' },
-};
-
-interface TeamMember {
-  id: number;
-  name: string;
-  email: string;
-  role: 'owner' | 'admin' | 'member';
-  avatar: string | null;
-  joinedAt: string;
-  creditsUsed: number;
-}
 
 const TeamMemberCard: React.FC<{ 
   member: TeamMember; 
@@ -420,8 +421,8 @@ export const TeamsView: React.FC = () => {
 
             {members.length < maxMembers && canInvite && (
               <Button
-                variant="dashed"
-                className="w-full mt-4 border-slate-700 text-slate-400 hover:text-white hover:border-violet-500"
+                variant="outline"
+                className="w-full mt-4 border-dashed border-slate-700 text-slate-400 hover:text-white hover:border-violet-500"
                 onClick={() => setShowInviteDialog(true)}
               >
                 <UserPlus className="w-4 h-4 mr-2" />

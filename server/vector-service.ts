@@ -2,6 +2,7 @@ import { db } from "./db";
 import { isVectorizationEnabled } from "./vector-flags";
 import { messageEmbeddings, messages, conversations, conversationEmbeddings, fileEmbeddings, files } from "@shared/schema";
 import { eq, desc, sql, and } from "drizzle-orm";
+import { embeddingWorkerPool, initializeWorkerPool, type EmbeddingWorkerResult } from "./services/embedding-worker-pool";
 
 export interface SimilarMessage {
   id: number;
@@ -29,13 +30,34 @@ export interface SimilarConversation {
 /**
  * Vector service for generating embeddings and performing semantic search
  * Supports multiple embedding providers with LM Studio as primary choice
+ * 
+ * IMPORTANT: Embedding generation now runs in a separate Worker Thread pool
+ * to avoid blocking the Express event loop during CPU-intensive operations.
  */
 export class VectorService {
   private defaultEmbeddingModel = 'text-embedding-ada-002';
   private defaultDimensions = 1536;
+  private workerPoolInitialized = false;
 
   /**
-   * Generate embedding for text using available providers
+   * Initialize the worker pool for embedding generation
+   * Called automatically on first embedding request
+   */
+  private async ensureWorkerPoolReady(): Promise<void> {
+    if (this.workerPoolInitialized) return;
+    
+    try {
+      await initializeWorkerPool();
+      this.workerPoolInitialized = true;
+      console.log('🧵 [VectorService] Worker pool ready for non-blocking embeddings');
+    } catch (error) {
+      console.warn('⚠️ [VectorService] Worker pool initialization failed, will use fallback:', error);
+    }
+  }
+
+  /**
+   * Generate embedding for text using Worker Thread pool (non-blocking)
+   * Falls back to main thread hash-based embedding if worker pool unavailable
    */
   async generateEmbedding(text: string): Promise<EmbeddingResult> {
     // Short-circuit when vectors are disabled
@@ -46,19 +68,92 @@ export class VectorService {
         dimensions: 0,
       };
     }
+
     // Clean and prepare text
     const cleanText = this.cleanTextForEmbedding(text);
-    // Single local path: Transformers.js local embeddings with hash fallback
-    try {
-      return await this.generateTransformersEmbedding(cleanText);
-    } catch (error) {
-      console.warn('⚠️ Transformers.js embedding failed, falling back to local hash:', error);
-      return this.generateLocalHashEmbedding(cleanText, 384);
+    
+    if (!cleanText) {
+      return {
+        embedding: [],
+        model: 'empty-text',
+        dimensions: 0,
+      };
     }
+
+    // PRIMARY PATH: Use Worker Thread pool for non-blocking embedding generation
+    try {
+      await this.ensureWorkerPoolReady();
+      
+      if (embeddingWorkerPool.isReady()) {
+        const workerResult = await embeddingWorkerPool.generateEmbedding(cleanText);
+        
+        if (workerResult.success && workerResult.embedding) {
+          console.log(`🧵 [VectorService] Worker embedding complete: ${workerResult.dimensions}D (${workerResult.processingTimeMs}ms)`);
+          return {
+            embedding: workerResult.embedding,
+            model: workerResult.model || 'worker-transformers-js',
+            dimensions: workerResult.dimensions || workerResult.embedding.length
+          };
+        }
+        
+        // Worker returned but with failure - use its error info
+        console.warn(`⚠️ [VectorService] Worker embedding failed: ${workerResult.error}`);
+      }
+    } catch (error) {
+      console.warn('⚠️ [VectorService] Worker pool error, falling back:', error);
+    }
+
+    // FALLBACK PATH: Main thread hash-based embedding (lightweight, non-blocking)
+    console.log('🔄 [VectorService] Using main thread hash fallback');
+    return this.generateLocalHashEmbedding(cleanText, 384);
   }
 
   /**
-   * Generate embedding using LM Studio
+   * Generate embedding using Worker Thread pool with batch support
+   * More efficient for multiple texts
+   */
+  async generateEmbeddingsBatch(texts: string[]): Promise<EmbeddingResult[]> {
+    if (!isVectorizationEnabled() || !texts.length) {
+      return texts.map(() => ({
+        embedding: [],
+        model: 'vectors-disabled',
+        dimensions: 0
+      }));
+    }
+
+    await this.ensureWorkerPoolReady();
+
+    if (embeddingWorkerPool.isReady()) {
+      const cleanTexts = texts.map(t => this.cleanTextForEmbedding(t));
+      const results = await embeddingWorkerPool.generateEmbeddingsBatch(cleanTexts);
+      
+      return results.map((r, i) => {
+        if (r.success && r.embedding) {
+          return {
+            embedding: r.embedding,
+            model: r.model || 'worker-transformers-js',
+            dimensions: r.dimensions || r.embedding.length
+          };
+        }
+        // Fallback for failed items
+        return this.generateLocalHashEmbedding(cleanTexts[i], 384);
+      });
+    }
+
+    // Fallback: generate sequentially on main thread
+    return Promise.all(texts.map(t => this.generateEmbedding(t)));
+  }
+
+  /**
+   * Get worker pool statistics for monitoring
+   */
+  getWorkerPoolStats() {
+    return embeddingWorkerPool.getStats();
+  }
+
+  /**
+   * Generate embedding using LM Studio (API-based, non-blocking I/O)
+   * Reserved for future use when external embedding API is preferred
    */
   private async generateLMStudioEmbedding(text: string): Promise<EmbeddingResult> {
     const lmBase = this.getLMStudioBaseUrl();
@@ -100,49 +195,10 @@ export class VectorService {
     };
   }
 
-  /**
-   * Generate embedding using Transformers.js (in-process, no external API)
-   */
-  private transformersExtractorPromise: Promise<any> | null = null;
-  private async getTransformersExtractor(): Promise<any> {
-    if (!this.transformersExtractorPromise) {
-      this.transformersExtractorPromise = (async () => {
-        const { pipeline, env } = await import('@xenova/transformers');
-        if (process.env.TRANSFORMERS_CACHE_DIR) {
-          // @ts-ignore - env types may not include cacheDir
-          env.cacheDir = process.env.TRANSFORMERS_CACHE_DIR;
-        }
-        // Allow using local models if provided
-        // @ts-ignore
-        env.allowLocalModels = true;
-        if (process.env.TRANSFORMERS_LOCAL_DIR) {
-          // @ts-ignore
-          env.localModelPath = process.env.TRANSFORMERS_LOCAL_DIR;
-        }
-        const modelId = process.env.EMBEDDING_MODEL_ID || 'Xenova/all-MiniLM-L6-v2';
-        return await pipeline('feature-extraction', modelId);
-      })();
-    }
-    return this.transformersExtractorPromise;
-  }
-
-  private async generateTransformersEmbedding(text: string): Promise<EmbeddingResult> {
-    console.log(`🔤 Generating Transformers.js embedding for text: ${text.substring(0, 100)}...`);
-    const extractor = await this.getTransformersExtractor();
-    const output = await extractor(text, { pooling: 'mean', normalize: true });
-    // output can be a tensor with .data (Float32Array) or nested array
-    const vec: number[] = Array.isArray(output)
-      ? (output as number[])
-      : Array.from((output?.data as Float32Array) || []);
-    if (!vec || vec.length === 0) {
-      throw new Error('Empty embedding from Transformers.js');
-    }
-    return {
-      embedding: vec,
-      model: 'transformers-js',
-      dimensions: vec.length
-    };
-  }
+  // NOTE: Transformers.js embedding generation has been moved to Worker Thread pool
+  // See: server/workers/embedding-worker.ts
+  // See: server/services/embedding-worker-pool.ts
+  // This ensures CPU-intensive embedding operations don't block the Express event loop
 
   /**
    * Extract UTF-8 text from a file record for embedding.

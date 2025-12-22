@@ -87,17 +87,49 @@ export interface LMStudioBaseInfo {
 // Supported AI Providers
 export type AIProvider = 'gemini' | 'openai' | 'azure' | 'azureai' | 'lmstudio' | 'uterpi';
 
-// UI Analysis Result
+// UI Analysis Result - supports various AI-generated analysis formats
 export interface UIAnalysisResult {
   components: Array<{
     type: string;
+    name?: string;
     description: string;
     styles?: any;
     props?: any;
   }>;
   colorPalette?: string[];
-  layout?: string;
+  // Layout can be a string (e.g., "grid", "flex") or an object with detailed layout info
+  layout?: string | UILayoutDetails;
   typography?: any;
+  // Optional theme information from AI analysis
+  theme?: UITheme;
+  // Optional metadata from AI analysis
+  metadata?: UIMetadata;
+}
+
+// Detailed layout information (when layout is an object)
+export interface UILayoutDetails {
+  type?: string;
+  title?: string;
+  subtitle?: string;
+  navigation?: string[];
+  sections?: any[];
+}
+
+// Theme configuration from AI analysis
+export interface UITheme {
+  primaryColor?: string;
+  secondaryColor?: string;
+  backgroundColor?: string;
+  textColor?: string;
+  accentColor?: string;
+}
+
+// Metadata from AI analysis
+export interface UIMetadata {
+  title?: string;
+  subtitle?: string;
+  pageType?: string;
+  description?: string;
 }
 
 // Page Generation Result

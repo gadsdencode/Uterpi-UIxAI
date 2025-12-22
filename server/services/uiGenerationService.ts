@@ -186,19 +186,25 @@ ${JSON.stringify(analysis, null, 2)}
    */
   generateFallbackUICode(analysis: UIAnalysisResult): string {
     const components = analysis.components || [];
-    const layout = analysis.layout || {};
+    
+    // Handle layout - can be string or object
+    const layoutObj = typeof analysis.layout === 'object' && analysis.layout !== null 
+      ? analysis.layout 
+      : {};
+    
+    // Extract theme and metadata with proper defaults
     const theme = analysis.theme || {};
     const metadata = analysis.metadata || {};
     
     // Extract context from analysis for dynamic generation
-    const title = metadata.title || layout.title || 'Your Application';
-    const subtitle = metadata.subtitle || layout.subtitle || 'Generated with AI assistance';
+    const title = metadata.title || layoutObj.title || 'Your Application';
+    const subtitle = metadata.subtitle || layoutObj.subtitle || 'Generated with AI assistance';
     const primaryColor = theme.primaryColor || 'violet';
     const backgroundColor = theme.backgroundColor || 'slate';
-    const pageType = metadata.pageType || layout.type || 'landing';
+    const pageType = metadata.pageType || layoutObj.type || 'landing';
     
     // Generate navigation items from analysis or use sensible defaults
-    const navItems = (layout.navigation || []).slice(0, 5);
+    const navItems = (layoutObj.navigation || []).slice(0, 5);
     const defaultNavItems = ['Home', 'Features', 'About', 'Contact'];
     const finalNavItems = navItems.length > 0 ? navItems : defaultNavItems;
     

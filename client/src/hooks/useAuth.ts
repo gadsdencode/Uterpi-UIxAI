@@ -13,6 +13,14 @@ export interface User {
   bio?: string | null;
   createdAt: Date;
   updatedAt: Date;
+  // Subscription & Credits
+  ai_credits_balance?: number;
+  messages_used_this_month?: number;
+  subscriptionTier?: 'freemium' | 'pro' | 'team' | 'enterprise';
+  subscriptionStatus?: 'active' | 'inactive' | 'cancelled' | 'past_due' | 'trialing';
+  // Team membership
+  teamId?: number | null;
+  teamRole?: 'owner' | 'admin' | 'member';
 }
 
 export interface UpdateProfileData {

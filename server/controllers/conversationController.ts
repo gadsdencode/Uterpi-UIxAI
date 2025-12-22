@@ -4,6 +4,7 @@
 import type { Request, Response } from "express";
 import { conversationService } from "../conversation-service";
 import { vectorProcessor } from "../vector-processor";
+import { vectorService } from "../vector-service";
 
 /**
  * Conversation Controller - Handles all conversation-related routes
@@ -382,15 +383,23 @@ export class ConversationController {
   }
 
   /**
-   * Get vectorization queue status
+   * Get vectorization queue status and worker pool health
    */
   async getVectorizationStatus(req: Request, res: Response): Promise<void> {
     try {
       const queueStatus = vectorProcessor.getQueueStatus();
+      const workerPoolStats = vectorService.getWorkerPoolStats();
       
       res.json({
         success: true,
         queueStatus,
+        workerPool: {
+          ...workerPoolStats,
+          health: workerPoolStats.isRunning ? 'healthy' : 'unavailable',
+          utilizationPercent: workerPoolStats.totalWorkers > 0 
+            ? Math.round((workerPoolStats.running / workerPoolStats.totalWorkers) * 100)
+            : 0
+        },
         timestamp: new Date().toISOString()
       });
     } catch (error) {

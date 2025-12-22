@@ -1,11 +1,12 @@
 import React, { useState } from 'react'
 import { motion } from "framer-motion";
-import { useNavigate } from 'react-router-dom';
 import FuturisticAIChat from './components/ChatView'
 import Sidebar from './components/Sidebar'
 import { ProjectSettingsModal } from './components/ProjectSettingsModal'
+import { DashboardModal } from './components/DashboardModal'
+import { TeamsModal } from './components/TeamsModal'
 import { useAuth } from './hooks/useAuth'
-import { useProjects, type Project } from './hooks/useProjects'
+import { type Project } from './hooks/useProjects'
 import { LoginForm } from './components/auth/LoginForm'
 import { RegisterForm } from './components/auth/RegisterForm'
 import { ForgotPasswordForm } from './components/auth/ForgotPasswordForm'
@@ -124,26 +125,11 @@ const AuthenticatedApp: React.FC = () => {
   const [showAuth, setShowAuth] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'register' | 'forgot-password'>('login');
   
-  // Project settings modal state - must be declared at top level (React Hooks rule)
+  // Modal states - must be declared at top level (React Hooks rule)
   const [showProjectModal, setShowProjectModal] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | undefined>(undefined);
-
-  // Navigation helper - only use navigate if within Router context
-  let navigate: ((path: string) => void) | null = null;
-  try {
-    const nav = useNavigate();
-    navigate = nav;
-  } catch {
-    // Not within Router context, navigation will be handled via window.location
-  }
-
-  const handleNavigate = (path: string) => {
-    if (navigate) {
-      navigate(path);
-    } else {
-      window.location.href = path;
-    }
-  };
+  const [showDashboardModal, setShowDashboardModal] = useState(false);
+  const [showTeamsModal, setShowTeamsModal] = useState(false);
 
   const handleOpenProjectSettings = (project?: Project) => {
     setEditingProject(project);
@@ -375,8 +361,8 @@ const AuthenticatedApp: React.FC = () => {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => handleNavigate('/chat')}
-              className="text-slate-300 hover:text-white hover:bg-slate-800"
+              className="text-violet-400 bg-violet-500/10 hover:bg-violet-500/20"
+              aria-current="page"
             >
               <MessageSquare className="w-4 h-4 mr-2" />
               Chat
@@ -384,8 +370,9 @@ const AuthenticatedApp: React.FC = () => {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => handleNavigate('/dashboard')}
+              onClick={() => setShowDashboardModal(true)}
               className="text-slate-300 hover:text-white hover:bg-slate-800"
+              aria-label="Open Dashboard"
             >
               <LayoutDashboard className="w-4 h-4 mr-2" />
               Dashboard
@@ -393,8 +380,9 @@ const AuthenticatedApp: React.FC = () => {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => handleNavigate('/teams')}
+              onClick={() => setShowTeamsModal(true)}
               className="text-slate-300 hover:text-white hover:bg-slate-800"
+              aria-label="Open Team Management"
             >
               <Users className="w-4 h-4 mr-2" />
               Teams
@@ -434,6 +422,26 @@ const AuthenticatedApp: React.FC = () => {
         isOpen={showProjectModal}
         onClose={handleCloseProjectModal}
         project={editingProject}
+      />
+
+      {/* Dashboard Modal */}
+      <DashboardModal
+        isOpen={showDashboardModal}
+        onClose={() => setShowDashboardModal(false)}
+        onNavigateToChat={() => {
+          // Chat is already the main view, just close modal
+          setShowDashboardModal(false);
+        }}
+        onOpenTeams={() => {
+          setShowDashboardModal(false);
+          setShowTeamsModal(true);
+        }}
+      />
+
+      {/* Teams Modal */}
+      <TeamsModal
+        isOpen={showTeamsModal}
+        onClose={() => setShowTeamsModal(false)}
       />
     </main>
   );

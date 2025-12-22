@@ -142,10 +142,13 @@ export class EmbeddingWorkerPool {
     const isProduction = process.env.NODE_ENV === 'production';
     
     if (isProduction) {
-      // In production, use the compiled JS worker
-      return path.resolve(__dirname, '../workers/embedding-worker.js');
+      // In production, the code is bundled into dist/index.js
+      // Worker is compiled separately to dist/workers/embedding-worker.js
+      // __dirname from bundled code will be the dist/ directory
+      return path.resolve(__dirname, 'workers/embedding-worker.js');
     } else {
       // In development, use tsx to run TS directly
+      // __dirname is server/services/, so go up to server/ then into workers/
       // Piscina supports execArgv to use tsx
       return path.resolve(__dirname, '../workers/embedding-worker.ts');
     }

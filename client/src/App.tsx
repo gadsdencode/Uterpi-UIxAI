@@ -123,6 +123,37 @@ const AuthenticatedApp: React.FC = () => {
   const { user, loading } = useAuth();
   const [showAuth, setShowAuth] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'register' | 'forgot-password'>('login');
+  
+  // Project settings modal state - must be declared at top level (React Hooks rule)
+  const [showProjectModal, setShowProjectModal] = useState(false);
+  const [editingProject, setEditingProject] = useState<Project | undefined>(undefined);
+
+  // Navigation helper - only use navigate if within Router context
+  let navigate: ((path: string) => void) | null = null;
+  try {
+    const nav = useNavigate();
+    navigate = nav;
+  } catch {
+    // Not within Router context, navigation will be handled via window.location
+  }
+
+  const handleNavigate = (path: string) => {
+    if (navigate) {
+      navigate(path);
+    } else {
+      window.location.href = path;
+    }
+  };
+
+  const handleOpenProjectSettings = (project?: Project) => {
+    setEditingProject(project);
+    setShowProjectModal(true);
+  };
+
+  const handleCloseProjectModal = () => {
+    setShowProjectModal(false);
+    setEditingProject(undefined);
+  };
 
   if (loading) {
     return (
@@ -333,37 +364,6 @@ const AuthenticatedApp: React.FC = () => {
       </div>
     );
   }
-
-  // Project settings modal state
-  const [showProjectModal, setShowProjectModal] = useState(false);
-  const [editingProject, setEditingProject] = useState<Project | undefined>(undefined);
-
-  // Navigation helper - only use navigate if within Router context
-  let navigate: ((path: string) => void) | null = null;
-  try {
-    const nav = useNavigate();
-    navigate = nav;
-  } catch {
-    // Not within Router context, navigation will be handled via window.location
-  }
-
-  const handleNavigate = (path: string) => {
-    if (navigate) {
-      navigate(path);
-    } else {
-      window.location.href = path;
-    }
-  };
-
-  const handleOpenProjectSettings = (project?: Project) => {
-    setEditingProject(project);
-    setShowProjectModal(true);
-  };
-
-  const handleCloseProjectModal = () => {
-    setShowProjectModal(false);
-    setEditingProject(undefined);
-  };
 
   return (
     <main className="h-screen w-full">

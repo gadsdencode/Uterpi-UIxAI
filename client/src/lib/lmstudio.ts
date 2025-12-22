@@ -26,6 +26,7 @@ interface LMStudioCompletionOptions extends ChatCompletionOptions {
   tools?: LMStudioTool[];
   toolChoice?: string | LMStudioToolChoice;
   originalMessages?: unknown;
+  projectId?: number;
 }
 
 // LM Studio uses an OpenAI-compatible API (proxied via /lmstudio by default)
@@ -116,7 +117,8 @@ export class LMStudioService extends BaseAIService {
       body: JSON.stringify({
         provider: 'lmstudio',
         ...requestBody,
-        original_messages: options.originalMessages
+        original_messages: options.originalMessages,
+        projectId: options.projectId
       })
     });
 
@@ -188,7 +190,8 @@ export class LMStudioService extends BaseAIService {
       body: JSON.stringify({
         provider: 'lmstudio',
         ...requestBody,
-        original_messages: options.originalMessages
+        original_messages: options.originalMessages,
+        projectId: options.projectId
       })
     });
 

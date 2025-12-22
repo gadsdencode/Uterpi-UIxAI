@@ -169,7 +169,8 @@ export class OpenAIService extends BaseAIService {
         body: JSON.stringify({
           provider: 'openai',
           ...requestBody,
-          apiKey: this.config.apiKey
+          apiKey: this.config.apiKey,
+          projectId: options.projectId
         }),
       });
 
@@ -244,7 +245,8 @@ export class OpenAIService extends BaseAIService {
         body: JSON.stringify({
           provider: 'openai',
           ...requestBody,
-          apiKey: this.config.apiKey
+          apiKey: this.config.apiKey,
+          projectId: options.projectId
         }),
       });
 

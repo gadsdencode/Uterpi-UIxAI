@@ -15,6 +15,7 @@ import {
 import { CommandSuggestion } from "../types";
 import { useAuth } from '../hooks/useAuth';
 import { useChat } from '../hooks/useChat';
+import { useProjects } from '../hooks/useProjects';
 import { SYSTEM_MESSAGE_PRESETS } from "../hooks/useAzureAI";
 import { useSnackbar } from './SnackbarProvider';
 import { toast } from "sonner";
@@ -53,10 +54,11 @@ import { AICoachPanel } from './AICoachPanel';
 
 const FuturisticAIChat: React.FC = () => {
   const { user } = useAuth();
+  const { activeProjectId, activeProject } = useProjects();
   const snackbar = useSnackbar();
   
-  // Use the consolidated chat hook
-  const chat = useChat({ user });
+  // Use the consolidated chat hook with active project context
+  const chat = useChat({ user, projectId: activeProjectId });
   
   // Modal states (kept in ChatView as they are global layout concerns)
   const [showShareModal, setShowShareModal] = useState(false);
@@ -240,6 +242,7 @@ const FuturisticAIChat: React.FC = () => {
             isHTTPS={chat.isHTTPS}
             currentConversationTitle={chat.currentConversationTitle}
             isLoadingConversation={chat.isLoadingConversation}
+            activeProject={activeProject}
           />
 
           {/* Messages */}

@@ -20,6 +20,7 @@ export interface AIOptions {
   apiToken?: string;
   endpointUrl?: string;
   isUterpi?: boolean;
+  projectId?: number; // Project scoping for knowledge base and context
 }
 
 // Provider-specific configuration interface
@@ -286,7 +287,7 @@ export const useAI = <TService = any>(
       const azureMessages = convertToAzureAIMessages(messages);
       const response = await (aiService as any).sendChatCompletion(
         azureMessages,
-        { ...options.chatOptions, originalMessages: messages }
+        { ...options.chatOptions, originalMessages: messages, projectId: options.projectId }
       );
       return response;
     } catch (err) {
@@ -296,7 +297,7 @@ export const useAI = <TService = any>(
     } finally {
       setIsLoading(false);
     }
-  }, [getAIService, convertToAzureAIMessages, options.chatOptions, config.providerName]);
+  }, [getAIService, convertToAzureAIMessages, options.chatOptions, options.projectId, config.providerName]);
 
   // Send streaming message
   const sendStreamingMessage = useCallback(async (
@@ -312,7 +313,7 @@ export const useAI = <TService = any>(
       await (aiService as any).sendStreamingChatCompletion(
         azureMessages,
         onChunk,
-        { ...options.chatOptions, originalMessages: messages }
+        { ...options.chatOptions, originalMessages: messages, projectId: options.projectId }
       );
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : `Failed to send streaming message via ${config.providerName}`;
@@ -321,7 +322,7 @@ export const useAI = <TService = any>(
     } finally {
       setIsLoading(false);
     }
-  }, [getAIService, convertToAzureAIMessages, options.chatOptions, config.providerName]);
+  }, [getAIService, convertToAzureAIMessages, options.chatOptions, options.projectId, config.providerName]);
 
   const clearError = useCallback(() => {
     setError(null);

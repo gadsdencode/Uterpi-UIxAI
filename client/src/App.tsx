@@ -2,7 +2,10 @@ import React, { useState } from 'react'
 import { motion } from "framer-motion";
 import { useNavigate } from 'react-router-dom';
 import FuturisticAIChat from './components/ChatView'
+import Sidebar from './components/Sidebar'
+import { ProjectSettingsModal } from './components/ProjectSettingsModal'
 import { useAuth } from './hooks/useAuth'
+import { useProjects, type Project } from './hooks/useProjects'
 import { LoginForm } from './components/auth/LoginForm'
 import { RegisterForm } from './components/auth/RegisterForm'
 import { ForgotPasswordForm } from './components/auth/ForgotPasswordForm'
@@ -331,6 +334,10 @@ const AuthenticatedApp: React.FC = () => {
     );
   }
 
+  // Project settings modal state
+  const [showProjectModal, setShowProjectModal] = useState(false);
+  const [editingProject, setEditingProject] = useState<Project | undefined>(undefined);
+
   // Navigation helper - only use navigate if within Router context
   let navigate: ((path: string) => void) | null = null;
   try {
@@ -346,6 +353,16 @@ const AuthenticatedApp: React.FC = () => {
     } else {
       window.location.href = path;
     }
+  };
+
+  const handleOpenProjectSettings = (project?: Project) => {
+    setEditingProject(project);
+    setShowProjectModal(true);
+  };
+
+  const handleCloseProjectModal = () => {
+    setShowProjectModal(false);
+    setEditingProject(undefined);
   };
 
   return (
@@ -390,14 +407,34 @@ const AuthenticatedApp: React.FC = () => {
       </div>
       
       {/* Main content with top padding for nav bar */}
-      <div className="pt-12 h-full">
-        <SubscriptionGuard 
-          feature="NomadAI" 
-          requiredTier="freemium"
-        >
-          <FuturisticAIChat />
-        </SubscriptionGuard>
+      <div className="pt-12 h-full flex">
+        {/* Sidebar - hidden on mobile, shown on md+ */}
+        <Sidebar 
+          onNewChat={() => {
+            // This will be handled by the chat component
+            // For now, we trigger a page refresh to start fresh
+            window.location.reload();
+          }}
+          onOpenProjectSettings={handleOpenProjectSettings}
+        />
+        
+        {/* Chat area - flex-1 to take remaining space */}
+        <div className="flex-1 h-full overflow-hidden">
+          <SubscriptionGuard 
+            feature="NomadAI" 
+            requiredTier="freemium"
+          >
+            <FuturisticAIChat />
+          </SubscriptionGuard>
+        </div>
       </div>
+
+      {/* Project Settings Modal */}
+      <ProjectSettingsModal
+        isOpen={showProjectModal}
+        onClose={handleCloseProjectModal}
+        project={editingProject}
+      />
     </main>
   );
 };

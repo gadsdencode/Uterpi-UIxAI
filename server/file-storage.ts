@@ -26,6 +26,7 @@ export interface FileStorageService {
     folder?: string;
     description?: string;
     tags?: string[];
+    projectId?: number; // Project scope (null = global/no project)
   }): Promise<File>;
   
   getFile(fileId: number, userId: number): Promise<File | null>;
@@ -39,6 +40,7 @@ export interface FileStorageService {
     search?: string;
     tags?: string[];
     mimeType?: string;
+    projectId?: number; // Project scope filter (undefined = all, null = no project only)
     limit?: number;
     offset?: number;
   }): Promise<{ files: File[]; total: number }>;
@@ -73,6 +75,7 @@ export class DatabaseFileStorage implements FileStorageService {
     folder?: string;
     description?: string;
     tags?: string[];
+    projectId?: number; // Project scope (null = global/no project)
   }): Promise<File> {
     try {
       // Convert content to base64 if it's a Buffer
@@ -92,6 +95,7 @@ export class DatabaseFileStorage implements FileStorageService {
       
       const newFile = {
         userId,
+        projectId: fileData.projectId || null, // Project scope
         name: fileData.name,
         originalName: fileData.originalName,
         mimeType: fileData.mimeType,
@@ -240,6 +244,7 @@ export class DatabaseFileStorage implements FileStorageService {
     search?: string;
     tags?: string[];
     mimeType?: string;
+    projectId?: number; // Project scope filter (undefined = all, null = no project only)
     limit?: number;
     offset?: number;
   }): Promise<{ files: File[]; total: number }> {
@@ -260,6 +265,17 @@ export class DatabaseFileStorage implements FileStorageService {
           )`
         )
       ];
+      
+      // Filter by projectId if provided
+      if (options?.projectId !== undefined) {
+        if (options.projectId === null) {
+          // Filter for files with no project
+          conditions.push(isNull(files.projectId));
+        } else {
+          // Filter for files in specific project
+          conditions.push(eq(files.projectId, options.projectId));
+        }
+      }
       
       if (options?.folder) {
         conditions.push(eq(files.folder, options.folder));

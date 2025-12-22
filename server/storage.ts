@@ -1,10 +1,14 @@
 import { 
   users, 
+  projects,
   type User, 
   type InsertUser, 
   type RegisterUser, 
   type OAuthUser, 
   type UpdateProfile,
+  type Project,
+  type InsertProject,
+  type UpdateProject,
   smsNotifications,
   smsPreferences,
   smsTemplates,
@@ -15,7 +19,7 @@ import {
   type SmsTemplate,
   type InsertSmsTemplate
 } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { db } from "./db";
 import { engagementService } from "./engagement";
@@ -61,6 +65,16 @@ export interface IStorage {
   getAllSmsTemplates(): Promise<SmsTemplate[]>;
   createSmsTemplate(template: InsertSmsTemplate): Promise<SmsTemplate>;
   updateSmsTemplate(id: number, updates: Partial<SmsTemplate>): Promise<SmsTemplate | undefined>;
+  
+  // Project methods
+  createProject(userId: number, project: InsertProject): Promise<Project>;
+  getProject(id: number): Promise<Project | undefined>;
+  getUserProjects(userId: number): Promise<Project[]>;
+  updateProject(id: number, updates: UpdateProject): Promise<Project | undefined>;
+  deleteProject(id: number): Promise<void>;
+  getDefaultProject(userId: number): Promise<Project | undefined>;
+  setDefaultProject(userId: number, projectId: number): Promise<Project | undefined>;
+  clearDefaultProject(userId: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -555,6 +569,156 @@ export class DatabaseStorage implements IStorage {
       return undefined;
     }
   }
+
+  // =============================================================================
+  // PROJECT METHODS
+  // =============================================================================
+
+  async createProject(userId: number, project: InsertProject): Promise<Project> {
+    try {
+      // If this is set as default, unset any existing default for this user
+      if (project.isDefault) {
+        await db.update(projects)
+          .set({ isDefault: false, updatedAt: new Date() })
+          .where(eq(projects.userId, userId));
+      }
+
+      const result = await db.insert(projects).values({
+        userId,
+        name: project.name,
+        description: project.description || null,
+        instructions: project.instructions || null,
+        isDefault: project.isDefault || false,
+      }).returning();
+
+      console.log(`✅ Created project ${result[0].id} for user ${userId}`);
+      return result[0];
+    } catch (error) {
+      console.error("Error creating project:", error);
+      throw error;
+    }
+  }
+
+  async getProject(id: number): Promise<Project | undefined> {
+    try {
+      const result = await db.select().from(projects).where(eq(projects.id, id));
+      return result[0];
+    } catch (error) {
+      console.error("Error getting project:", error);
+      return undefined;
+    }
+  }
+
+  async getUserProjects(userId: number): Promise<Project[]> {
+    try {
+      const result = await db.select()
+        .from(projects)
+        .where(eq(projects.userId, userId))
+        .orderBy(projects.createdAt);
+      return result;
+    } catch (error) {
+      console.error("Error getting user projects:", error);
+      return [];
+    }
+  }
+
+  async updateProject(id: number, updates: UpdateProject): Promise<Project | undefined> {
+    try {
+      // If setting as default, first unset any existing default for the user
+      if (updates.isDefault === true) {
+        const project = await this.getProject(id);
+        if (project) {
+          await db.update(projects)
+            .set({ isDefault: false, updatedAt: new Date() })
+            .where(eq(projects.userId, project.userId));
+        }
+      }
+
+      const result = await db.update(projects)
+        .set({
+          ...updates,
+          updatedAt: new Date()
+        })
+        .where(eq(projects.id, id))
+        .returning();
+
+      return result[0];
+    } catch (error) {
+      console.error("Error updating project:", error);
+      return undefined;
+    }
+  }
+
+  async deleteProject(id: number): Promise<void> {
+    try {
+      // Note: Associated files and conversations will have their projectId set to null
+      // due to ON DELETE SET NULL behavior, or we can handle it explicitly here
+      
+      // First, unlink files from this project (set projectId to null)
+      await db.execute(
+        `UPDATE files SET project_id = NULL, updated_at = NOW() WHERE project_id = ${id}`
+      );
+      
+      // Unlink conversations from this project
+      await db.execute(
+        `UPDATE conversations SET project_id = NULL, updated_at = NOW() WHERE project_id = ${id}`
+      );
+      
+      // Delete the project
+      await db.delete(projects).where(eq(projects.id, id));
+      console.log(`✅ Deleted project ${id}`);
+    } catch (error) {
+      console.error("Error deleting project:", error);
+      throw error;
+    }
+  }
+
+  async getDefaultProject(userId: number): Promise<Project | undefined> {
+    try {
+      const result = await db.select()
+        .from(projects)
+        .where(and(eq(projects.userId, userId), eq(projects.isDefault, true)))
+        .limit(1);
+      return result[0];
+    } catch (error) {
+      console.error("Error getting default project:", error);
+      return undefined;
+    }
+  }
+
+  async setDefaultProject(userId: number, projectId: number): Promise<Project | undefined> {
+    try {
+      // Unset any existing default
+      await db.update(projects)
+        .set({ isDefault: false, updatedAt: new Date() })
+        .where(eq(projects.userId, userId));
+
+      // Set new default
+      const result = await db.update(projects)
+        .set({ isDefault: true, updatedAt: new Date() })
+        .where(eq(projects.id, projectId))
+        .returning();
+
+      return result[0];
+    } catch (error) {
+      console.error("Error setting default project:", error);
+      return undefined;
+    }
+  }
+
+  async clearDefaultProject(userId: number): Promise<void> {
+    try {
+      // Unset any existing default for this user
+      await db.update(projects)
+        .set({ isDefault: false, updatedAt: new Date() })
+        .where(eq(projects.userId, userId));
+      
+      console.log(`✅ Cleared default project for user ${userId}`);
+    } catch (error) {
+      console.error("Error clearing default project:", error);
+      throw error;
+    }
+  }
 }
 
 // Keep memory storage for development/testing purposes (fallback)
@@ -856,6 +1020,39 @@ export class MemStorage implements IStorage {
   async updateSmsTemplate(id: number, updates: Partial<SmsTemplate>): Promise<SmsTemplate | undefined> {
     // MemStorage doesn't support SMS templates
     return undefined;
+  }
+
+  // Project methods - stub implementations for MemStorage
+  async createProject(userId: number, project: InsertProject): Promise<Project> {
+    throw new Error("Projects not supported in memory storage");
+  }
+
+  async getProject(id: number): Promise<Project | undefined> {
+    return undefined;
+  }
+
+  async getUserProjects(userId: number): Promise<Project[]> {
+    return [];
+  }
+
+  async updateProject(id: number, updates: UpdateProject): Promise<Project | undefined> {
+    return undefined;
+  }
+
+  async deleteProject(id: number): Promise<void> {
+    // No-op for memory storage
+  }
+
+  async getDefaultProject(userId: number): Promise<Project | undefined> {
+    return undefined;
+  }
+
+  async setDefaultProject(userId: number, projectId: number): Promise<Project | undefined> {
+    return undefined;
+  }
+
+  async clearDefaultProject(userId: number): Promise<void> {
+    // No-op for MemStorage
   }
 }
 

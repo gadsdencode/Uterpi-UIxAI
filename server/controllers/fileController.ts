@@ -37,8 +37,9 @@ export class FileController {
         return;
       }
 
-      const { folder, description, tags } = req.body;
+      const { folder, description, tags, projectId } = req.body;
       const parsedTags = tags ? JSON.parse(tags) : [];
+      const parsedProjectId = projectId ? parseInt(projectId) : undefined;
 
       const file = await fileStorage.uploadFile(user.id, {
         name: req.file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_'),
@@ -48,7 +49,8 @@ export class FileController {
         size: req.file.size,
         folder: folder || 'default',
         description,
-        tags: parsedTags
+        tags: parsedTags,
+        projectId: parsedProjectId
       });
 
       // Queue for vectorization if enabled
@@ -281,15 +283,19 @@ export class FileController {
         search, 
         tags, 
         mimeType, 
+        projectId,
         limit = '20', 
         offset = '0' 
       } = req.query;
+
+      const parsedProjectId = projectId ? parseInt(projectId as string) : undefined;
 
       const result = await fileStorage.listUserFiles(user.id, {
         folder: folder as string,
         search: search as string,
         tags: tags ? (tags as string).split(',') : undefined,
         mimeType: mimeType as string,
+        projectId: parsedProjectId,
         limit: parseInt(limit as string),
         offset: parseInt(offset as string)
       });

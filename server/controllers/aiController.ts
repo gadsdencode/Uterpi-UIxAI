@@ -185,6 +185,7 @@ export class AIController {
         sessionId, 
         enableContext = true, 
         original_messages,
+        projectId, // Project ID for scoped context and instructions
         apiKey: userApiKey, // User-provided API key for BYOK support
         ...otherParams 
       } = req.body;
@@ -208,6 +209,16 @@ export class AIController {
       let aiResponse;
       let enhancedMessages = msgArray;
       const rawMessages = original_messages || msgArray;
+      
+      // Fetch project instructions if projectId is provided
+      let projectInstructions: string | null = null;
+      if (projectId) {
+        const project = await storage.getProject(projectId);
+        if (project && project.userId === userId && project.instructions) {
+          projectInstructions = project.instructions;
+          console.log(`📋 Loaded project instructions for project ${projectId}`);
+        }
+      }
 
       // Vectorization pipeline integration
       try {
@@ -215,10 +226,11 @@ export class AIController {
           userId, 
           provider.toLowerCase(), 
           modelName, 
-          sessionId
+          sessionId,
+          projectId // Pass projectId for scoped conversation
         );
 
-        console.log(`💬 Using conversation ${conversation.id} for user ${userId}`);
+        console.log(`💬 Using conversation ${conversation.id} for user ${userId}${projectId ? ` (project ${projectId})` : ''}`);
 
         const lastMessage = rawMessages[rawMessages.length - 1];
         if (lastMessage && lastMessage.role === 'user') {
@@ -244,7 +256,8 @@ export class AIController {
                 includeConversationContext: true, 
                 includeMessageContext: true, 
                 maxContextLength: 2000 
-              }
+              },
+              projectId // Pass projectId for scoped RAG
             );
             enhancedMessages = enhanced.enhancedMessages;
             console.log(`🔍 Context enhancement: ${rawMessages.length} → ${enhancedMessages.length} messages`);
@@ -252,6 +265,20 @@ export class AIController {
             console.warn('⚠️ Context enhancement failed, using original messages:', contextError);
             enhancedMessages = rawMessages;
           }
+        }
+        
+        // Inject project instructions into system message if available
+        if (projectInstructions && enhancedMessages.length > 0) {
+          const systemMessage = enhancedMessages.find((msg: any) => msg.role === 'system');
+          if (systemMessage) {
+            systemMessage.content = `${systemMessage.content}\n\n--- PROJECT INSTRUCTIONS ---\n${projectInstructions}`;
+          } else {
+            enhancedMessages.unshift({
+              role: 'system',
+              content: `You are a helpful AI assistant.\n\n--- PROJECT INSTRUCTIONS ---\n${projectInstructions}`
+            });
+          }
+          console.log(`📋 Injected project instructions into system message`);
         }
       } catch (convError) {
         console.warn('⚠️ Conversation pipeline error, continuing without:', convError);

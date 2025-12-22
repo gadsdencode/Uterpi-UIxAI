@@ -375,12 +375,14 @@ export class VectorService {
 
   /**
    * Find similar messages using cosine similarity
+   * @param projectId - Optional project ID to scope the search. If null, searches all user messages.
    */
   async findSimilarMessages(
     queryEmbedding: number[], 
     userId: number, 
     limit: number = 5,
-    threshold: number = 0.7
+    threshold: number = 0.7,
+    projectId?: number | null
   ): Promise<SimilarMessage[]> {
     if (!isVectorizationEnabled()) {
       return [];
@@ -390,6 +392,7 @@ export class VectorService {
       const dims = queryEmbedding.length;
       
       // Use raw SQL for vector similarity search
+      // Filter by projectId if provided (null means search all user messages)
       const result = await db.execute(sql`
         SELECT 
           m.id,
@@ -402,6 +405,7 @@ export class VectorService {
         JOIN messages m ON me.message_id = m.id
         JOIN conversations c ON m.conversation_id = c.id
         WHERE c.user_id = ${userId}
+          AND (${projectId}::int IS NULL OR c.project_id = ${projectId})
           AND (1 - (me.embedding::vector <=> ${queryEmbeddingStr}::vector)) > ${threshold}
         ORDER BY similarity DESC
         LIMIT ${limit}
@@ -424,12 +428,14 @@ export class VectorService {
 
   /**
    * Find similar conversations using summary embeddings
+   * @param projectId - Optional project ID to scope the search. If null, searches all user conversations.
    */
   async findSimilarConversations(
     queryEmbedding: number[], 
     userId: number, 
     limit: number = 3,
-    threshold: number = 0.7
+    threshold: number = 0.7,
+    projectId?: number | null
   ): Promise<SimilarConversation[]> {
     if (!isVectorizationEnabled()) {
       return [];
@@ -438,6 +444,7 @@ export class VectorService {
       const queryEmbeddingStr = JSON.stringify(queryEmbedding);
       const dims = queryEmbedding.length;
       
+      // Filter by projectId if provided (null means search all user conversations)
       const result = await db.execute(sql`
         SELECT 
           c.id,
@@ -449,6 +456,7 @@ export class VectorService {
         JOIN conversations c ON ce.conversation_id = c.id
         WHERE c.user_id = ${userId}
           AND c.archived_at IS NULL
+          AND (${projectId}::int IS NULL OR c.project_id = ${projectId})
           AND (1 - (ce.summary_embedding::vector <=> ${queryEmbeddingStr}::vector)) > ${threshold}
         ORDER BY similarity DESC
         LIMIT ${limit}
@@ -600,19 +608,22 @@ export class VectorService {
 
   /**
    * Find top-k relevant file chunks for a user by semantic similarity
+   * @param projectId - Optional project ID to scope the search. If null, searches all user files.
    */
-  async findRelevantFileChunks(queryEmbedding: number[], userId: number, limit: number = 8, threshold: number = 0.7): Promise<Array<{ fileId: number; chunkIndex: number; text: string; similarity: number; name: string; mimeType: string }>> {
+  async findRelevantFileChunks(queryEmbedding: number[], userId: number, limit: number = 8, threshold: number = 0.7, projectId?: number | null): Promise<Array<{ fileId: number; chunkIndex: number; text: string; similarity: number; name: string; mimeType: string }>> {
     if (!isVectorizationEnabled()) {
       return [];
     }
     try {
       const queryEmbeddingStr = JSON.stringify(queryEmbedding);
+      // Filter by projectId if provided (null means search all user files)
       const result = await db.execute(sql`
         SELECT fe.file_id, fe.chunk_index, fe.chunk_text, (1 - (fe.embedding::vector <=> ${queryEmbeddingStr}::vector)) as similarity, f.name, f.mime_type
         FROM file_embeddings fe
         JOIN files f ON fe.file_id = f.id
         WHERE f.user_id = ${userId}
           AND f.status = 'active'
+          AND (${projectId}::int IS NULL OR f.project_id = ${projectId})
           AND (1 - (fe.embedding::vector <=> ${queryEmbeddingStr}::vector)) > ${threshold}
         ORDER BY similarity DESC
         LIMIT ${limit}
@@ -633,13 +644,15 @@ export class VectorService {
 
   /**
    * Find relevant file chunks restricted to a set of fileIds
+   * @param projectId - Optional project ID for additional validation. If null, only fileIds filter is used.
    */
   async findRelevantFileChunksForFiles(
     queryEmbedding: number[],
     userId: number,
     fileIds: number[],
     limit: number = 12,
-    threshold: number = 0.0
+    threshold: number = 0.0,
+    projectId?: number | null
   ): Promise<Array<{ fileId: number; chunkIndex: number; text: string; similarity: number; name: string; mimeType: string }>> {
     if (!isVectorizationEnabled()) {
       return [];
@@ -648,6 +661,7 @@ export class VectorService {
       const cleanIds = (fileIds || []).filter((id) => Number.isFinite(id));
       if (cleanIds.length === 0) return [];
       const queryEmbeddingStr = JSON.stringify(queryEmbedding);
+      // Filter by projectId if provided for additional validation
       const result = await db.execute(sql`
         SELECT fe.file_id, fe.chunk_index, fe.chunk_text,
                (1 - (fe.embedding::vector <=> ${queryEmbeddingStr}::vector)) as similarity,
@@ -657,6 +671,7 @@ export class VectorService {
         WHERE f.user_id = ${userId}
           AND f.status = 'active'
           AND fe.file_id = ANY(${cleanIds}::int[])
+          AND (${projectId}::int IS NULL OR f.project_id = ${projectId})
           AND (1 - (fe.embedding::vector <=> ${queryEmbeddingStr}::vector)) >= ${threshold}
         ORDER BY similarity DESC
         LIMIT ${limit}

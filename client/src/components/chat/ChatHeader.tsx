@@ -9,12 +9,21 @@ import {
   Settings,
   MessageSquare,
   Loader2,
-  Volume2
+  Volume2,
+  FolderKanban,
+  Sparkles
 } from 'lucide-react';
 import { User } from '../../hooks/useAuth';
 import { RippleButton, MicPermissionBadge } from './shared';
 import { AICreditsQuickPurchase } from '../AICreditsQuickPurchase';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
+
+// Project type for display
+interface ActiveProjectInfo {
+  id: number;
+  name: string;
+  instructions?: string | null;
+}
 
 export interface ChatHeaderProps {
   user: User | null;
@@ -32,6 +41,8 @@ export interface ChatHeaderProps {
   // Conversation state
   currentConversationTitle: string | null;
   isLoadingConversation: boolean;
+  // Project state
+  activeProject?: ActiveProjectInfo | null;
 }
 
 export const ChatHeader = memo<ChatHeaderProps>(({
@@ -48,7 +59,8 @@ export const ChatHeader = memo<ChatHeaderProps>(({
   microphonePermission,
   isHTTPS,
   currentConversationTitle,
-  isLoadingConversation
+  isLoadingConversation,
+  activeProject
 }) => {
   return (
     <>
@@ -71,6 +83,34 @@ export const ChatHeader = memo<ChatHeaderProps>(({
                 transition={{ duration: 2, repeat: Infinity }}
               />
             </div>
+            
+            {/* Active Project Badge */}
+            {activeProject && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <motion.div 
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-500/20 border border-violet-400/30 rounded-full cursor-default"
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    aria-label={`Active project: ${activeProject.name}`}
+                  >
+                    <FolderKanban className="w-3.5 h-3.5 text-violet-400" aria-hidden="true" />
+                    <span className="text-xs font-medium text-violet-300 max-w-[120px] truncate">
+                      {activeProject.name}
+                    </span>
+                    {activeProject.instructions && (
+                      <Sparkles className="w-3 h-3 text-amber-400" aria-hidden="true" />
+                    )}
+                  </motion.div>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-xs">
+                  <p className="font-medium">Project: {activeProject.name}</p>
+                  {activeProject.instructions && (
+                    <p className="text-xs text-muted-foreground mt-1">Custom AI instructions active</p>
+                  )}
+                </TooltipContent>
+              </Tooltip>
+            )}
           </div>
           
           <div className="flex items-center gap-1 sm:gap-2">

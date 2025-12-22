@@ -6,6 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 export interface ConversationData {
   id: number;
   userId: number;
+  projectId?: number; // Project scope (null = global/no project)
   sessionId: string;
   title?: string;
   provider: string;
@@ -47,6 +48,7 @@ export interface CreateConversationInput {
   model: string;
   sessionId?: string;
   title?: string;
+  projectId?: number; // Project scope (null = global/no project)
 }
 
 export interface CreateMessageInput {
@@ -71,6 +73,7 @@ export class ConversationService {
       
       const result = await db.insert(conversations).values({
         userId: input.userId,
+        projectId: input.projectId || null,
         sessionId,
         title: input.title,
         provider: input.provider,
@@ -79,11 +82,12 @@ export class ConversationService {
 
       const conversation = result[0];
       
-      console.log(`✅ Created conversation ${conversation.id} for user ${input.userId} (${input.provider}/${input.model})`);
+      console.log(`✅ Created conversation ${conversation.id} for user ${input.userId} (${input.provider}/${input.model})${input.projectId ? ` in project ${input.projectId}` : ''}`);
       
       return {
         id: conversation.id,
         userId: conversation.userId,
+        projectId: conversation.projectId || undefined,
         sessionId: conversation.sessionId,
         title: conversation.title || undefined,
         provider: conversation.provider,
@@ -106,7 +110,8 @@ export class ConversationService {
     userId: number, 
     provider: string, 
     model: string, 
-    sessionId?: string
+    sessionId?: string,
+    projectId?: number
   ): Promise<ConversationData> {
     try {
       // If sessionId provided, try to find existing conversation
@@ -127,6 +132,7 @@ export class ConversationService {
           return {
             id: conv.id,
             userId: conv.userId,
+            projectId: conv.projectId || undefined,
             sessionId: conv.sessionId,
             title: conv.title || undefined,
             provider: conv.provider,
@@ -144,7 +150,8 @@ export class ConversationService {
         userId,
         provider,
         model,
-        sessionId
+        sessionId,
+        projectId
       });
     } catch (error) {
       console.error('❌ Error getting or creating conversation:', error);
@@ -221,6 +228,7 @@ export class ConversationService {
       return {
         id: conv.id,
         userId: conv.userId,
+        projectId: conv.projectId || undefined,
         sessionId: conv.sessionId,
         title: conv.title || undefined,
         provider: conv.provider,
@@ -265,22 +273,35 @@ export class ConversationService {
 
   /**
    * Get recent conversations for a user
+   * @param projectId - Optional project ID to filter conversations. If null, returns all user conversations.
    */
-  async getUserConversations(userId: number, limit: number = 20): Promise<ConversationData[]> {
+  async getUserConversations(userId: number, limit: number = 20, projectId?: number | null): Promise<ConversationData[]> {
     try {
+      // Build conditions based on whether projectId is provided
+      const conditions = [
+        eq(conversations.userId, userId),
+        isNull(conversations.archivedAt)
+      ];
+
       const result = await db
         .select()
         .from(conversations)
-        .where(and(
-          eq(conversations.userId, userId),
-          isNull(conversations.archivedAt)
-        ))
+        .where(and(...conditions))
         .orderBy(desc(conversations.updatedAt))
         .limit(limit);
 
-      return result.map(conv => ({
+      // Filter by projectId in memory if provided (to handle null vs undefined correctly)
+      let filtered = result;
+      if (projectId !== undefined) {
+        filtered = result.filter(conv => 
+          projectId === null ? conv.projectId === null : conv.projectId === projectId
+        );
+      }
+
+      return filtered.map(conv => ({
         id: conv.id,
         userId: conv.userId,
+        projectId: conv.projectId || undefined,
         sessionId: conv.sessionId,
         title: conv.title || undefined,
         provider: conv.provider,

@@ -26,6 +26,8 @@ export interface UseMessageStreamOptions {
     temperature?: number;
     topP?: number;
   };
+  /** Project ID for context scoping */
+  projectId?: number | null;
   /** Callback on successful message send */
   onMessageSent?: (userMessage: Message, aiMessage: Message) => void;
   /** Callback on message error */
@@ -90,6 +92,7 @@ export const useMessageStream = (options: UseMessageStreamOptions): UseMessageSt
       temperature: 0.8,
       topP: 0.1
     },
+    projectId,
     onMessageSent,
     onMessageError,
     onCreditLimitError
@@ -134,7 +137,8 @@ export const useMessageStream = (options: UseMessageStreamOptions): UseMessageSt
     enableStreaming,
     systemMessage: getCurrentSystemMessage(),
     chatOptions,
-    userContext: { user }
+    userContext: { user },
+    projectId: projectId ?? undefined
   });
 
   // AI Service ref for intelligent toasts

@@ -246,7 +246,8 @@ export class GeminiService extends BaseAIService {
           temperature: validatedParams.temperature,
           top_p: validatedParams.topP,
           stream: false,
-          apiKey: this.config.apiKey
+          apiKey: this.config.apiKey,
+          projectId: options.projectId
         }),
       });
 
@@ -407,7 +408,8 @@ export class GeminiService extends BaseAIService {
           temperature: validatedParams.temperature,
           top_p: validatedParams.topP,
           stream: true,
-          apiKey: this.config.apiKey
+          apiKey: this.config.apiKey,
+          projectId: options.projectId
         }),
       });
       

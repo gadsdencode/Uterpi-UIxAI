@@ -13,6 +13,7 @@ import {
   authController,
   conversationController,
   fileController,
+  projectController,
   subscriptionController,
   userController,
   smsController,
@@ -358,6 +359,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/analyze/design-patterns", requireActiveSubscription({
     requiredTier: 'pro'
   }), (req, res) => analysisController.analyzeDesignPatterns(req as any, res));
+
+  // =============================================================================
+  // PROJECT (WORKSPACE) ROUTES
+  // =============================================================================
+
+  app.post("/api/projects", requireAuth, (req, res) => 
+    projectController.create(req, res));
+
+  app.get("/api/projects", requireAuth, (req, res) => 
+    projectController.list(req, res));
+
+  // Active project management (MUST be before :id routes to avoid "active" being captured as ID)
+  app.get("/api/projects/active", requireAuth, (req, res) => 
+    projectController.getActive(req, res));
+
+  app.delete("/api/projects/active", requireAuth, (req, res) => 
+    projectController.clearActive(req, res));
+
+  // Specific project routes (after /active to avoid route conflicts)
+  app.get("/api/projects/:id", requireAuth, (req, res) => 
+    projectController.get(req, res));
+
+  app.patch("/api/projects/:id", requireAuth, (req, res) => 
+    projectController.update(req, res));
+
+  app.delete("/api/projects/:id", requireAuth, (req, res) => 
+    projectController.delete(req, res));
+
+  app.post("/api/projects/:id/set-default", requireAuth, (req, res) => 
+    projectController.setDefault(req, res));
 
   // =============================================================================
   // FILE MANAGEMENT ROUTES

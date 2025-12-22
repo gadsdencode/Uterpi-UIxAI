@@ -14,9 +14,11 @@ import {
   Keyboard,
   Filter,
   SortAsc,
-  SortDesc
+  SortDesc,
+  FolderKanban
 } from 'lucide-react';
 import { useFileManager, type FileItem, type UploadFileData, type ListFilesOptions } from '../../hooks/useFileManager';
+import { useProjects } from '../../hooks/useProjects';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Badge } from '../ui/badge';
@@ -77,6 +79,7 @@ export const EnhancedFileManager: React.FC<EnhancedFileManagerProps> = ({
   showUploadArea = true
 }) => {
   const fileManager = useFileManager();
+  const { activeProjectId, activeProject } = useProjects();
   
   // State management
   const [searchQuery, setSearchQuery] = useState('');
@@ -113,12 +116,13 @@ export const EnhancedFileManager: React.FC<EnhancedFileManagerProps> = ({
   const [editModalFile, setEditModalFile] = useState<FileItem | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
-  // Query options
+  // Query options - include projectId for filtering
   const listOptions: ListFilesOptions = {
     folder: selectedFolder === '/' ? undefined : selectedFolder,
     search: searchQuery || undefined,
     tags: selectedTags.length > 0 ? selectedTags : undefined,
     mimeType: mimeTypeFilter && mimeTypeFilter !== 'all' ? mimeTypeFilter : undefined,
+    projectId: activeProjectId ?? undefined, // Filter by active project
     limit: 50,
     offset: 0
   };
@@ -172,7 +176,7 @@ export const EnhancedFileManager: React.FC<EnhancedFileManagerProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedFiles, fileList, viewMode]);
 
-  // File operations
+  // File operations - include projectId in uploads
   const handleFileUpload = useCallback(async (files: File[]) => {
     setFilesToUpload(files);
     
@@ -182,9 +186,10 @@ export const EnhancedFileManager: React.FC<EnhancedFileManagerProps> = ({
           file,
           folder: uploadData.folder || selectedFolder,
           description: uploadData.description,
-          tags: uploadData.tags
+          tags: uploadData.tags,
+          projectId: activeProjectId ?? undefined // Include projectId for scoping
         });
-        toast.success(`File "${file.name}" uploaded successfully`);
+        toast.success(`File "${file.name}" uploaded successfully${activeProject ? ` to project "${activeProject.name}"` : ''}`);
       } catch (error) {
         toast.error(`Failed to upload "${file.name}"`);
       }
@@ -192,7 +197,7 @@ export const EnhancedFileManager: React.FC<EnhancedFileManagerProps> = ({
     
     setFilesToUpload([]);
     setUploadData({ folder: selectedFolder, description: '', tags: [] });
-  }, [fileManager, uploadData, selectedFolder]);
+  }, [fileManager, uploadData, selectedFolder, activeProjectId, activeProject]);
 
   const handleFileDownload = async (file: FileItem) => {
     try {
@@ -316,6 +321,14 @@ export const EnhancedFileManager: React.FC<EnhancedFileManagerProps> = ({
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
               <h2 className="text-xl font-semibold text-white">File Manager</h2>
+              
+              {/* Project indicator */}
+              {activeProject && (
+                <Badge variant="outline" className="bg-violet-500/10 text-violet-300 border-violet-400/30">
+                  <FolderKanban className="w-3 h-3 mr-1" />
+                  {activeProject.name}
+                </Badge>
+              )}
               
               {selectedFiles.size > 0 && (
                 <motion.div

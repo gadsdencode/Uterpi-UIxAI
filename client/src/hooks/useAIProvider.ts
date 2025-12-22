@@ -20,6 +20,7 @@ interface AIProviderOptions {
   systemMessage?: string;
   chatOptions?: any;
   userContext?: { user?: User | null };
+  projectId?: number;
 }
 
 interface UseAIProviderReturn {

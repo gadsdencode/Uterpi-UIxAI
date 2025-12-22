@@ -86,7 +86,7 @@ export class HuggingFaceService extends BaseAIService {
 
     // Check if this is Uterpi LLM (uses backend proxy for credit checking)
     if (this.hfConfig.isUterpi) {
-      return this.sendUterpiCompletion(messages, validatedParams);
+      return this.sendUterpiCompletion(messages, validatedParams, options.projectId);
     }
 
     // Original HuggingFace direct API call for non-Uterpi endpoints
@@ -144,7 +144,8 @@ export class HuggingFaceService extends BaseAIService {
    */
   private async sendUterpiCompletion(
     messages: AzureAIMessage[],
-    validatedParams: { maxTokens: number; temperature: number; topP: number }
+    validatedParams: { maxTokens: number; temperature: number; topP: number },
+    projectId?: number
   ): Promise<string> {
     const requestBody = {
       provider: 'uterpi',
@@ -153,7 +154,8 @@ export class HuggingFaceService extends BaseAIService {
       max_tokens: validatedParams.maxTokens,
       temperature: validatedParams.temperature,
       top_p: validatedParams.topP,
-      stream: false
+      stream: false,
+      projectId
     };
 
     const response = await fetch('/ai/v1/chat/completions', {
@@ -198,7 +200,8 @@ export class HuggingFaceService extends BaseAIService {
           max_tokens: validatedParams.maxTokens,
           temperature: validatedParams.temperature,
           top_p: validatedParams.topP,
-          stream: true
+          stream: true,
+          projectId: options.projectId
         };
 
         const response = await fetch('/ai/v1/chat/completions', {

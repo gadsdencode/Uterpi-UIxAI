@@ -399,7 +399,11 @@ export class AzureAIService extends BaseAIService {
           'Content-Type': 'application/json',
         },
         credentials: 'include',
-        body: JSON.stringify({ ...requestBody, original_messages: (options as Record<string, unknown>)?.originalMessages }),
+        body: JSON.stringify({ 
+          ...requestBody, 
+          original_messages: (options as Record<string, unknown>)?.originalMessages,
+          projectId: options.projectId
+        }),
       });
 
       this.logResponse(response.status);
@@ -484,7 +488,11 @@ export class AzureAIService extends BaseAIService {
           'Content-Type': 'application/json',
         },
         credentials: 'include',
-        body: JSON.stringify({ ...requestBody, original_messages: (options as Record<string, unknown>)?.originalMessages }),
+        body: JSON.stringify({ 
+          ...requestBody, 
+          original_messages: (options as Record<string, unknown>)?.originalMessages,
+          projectId: options.projectId
+        }),
       });
 
       if (!response.ok) {

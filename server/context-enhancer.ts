@@ -43,10 +43,15 @@ export class ContextEnhancer {
   /**
    * Enhance messages with contextual information from past conversations
    */
+  /**
+   * Enhance messages with context from similar messages, conversations, and file chunks
+   * @param projectId - Optional project ID to scope the context search
+   */
   async enhanceMessagesWithContext(
     messages: ChatMessage[], 
     userId: number,
-    options: Partial<ContextEnhancementOptions> = {}
+    options: Partial<ContextEnhancementOptions> = {},
+    projectId?: number | null
   ): Promise<EnhancedContext> {
     const opts = { ...this.defaultOptions, ...options };
     
@@ -79,6 +84,7 @@ export class ContextEnhancer {
         ? (currentUserMessage as any).metadata.attachedFileIds
         : undefined;
 
+      // Find relevant file chunks, scoped by projectId if provided
       let relevantFileChunks = [] as Array<{ fileId: number; chunkIndex: number; text: string; similarity: number; name: string; mimeType: string }>;
       if (attachedIds && attachedIds.length > 0) {
         // Prioritize chunks from attached files (no similarity threshold to surface most relevant portions)
@@ -87,27 +93,29 @@ export class ContextEnhancer {
           userId,
           attachedIds,
           12,
-          0.0
+          0.0,
+          projectId
         );
         relevantFileChunks = attachedChunks;
 
-        // Supplement with general relevant chunks
-        const supplemental = await vectorService.findRelevantFileChunks(embeddingResult.embedding, userId, 8, 0.7);
+        // Supplement with general relevant chunks (also scoped by projectId)
+        const supplemental = await vectorService.findRelevantFileChunks(embeddingResult.embedding, userId, 8, 0.7, projectId);
         const seen = new Set(attachedChunks.map(c => `${c.fileId}:${c.chunkIndex}`));
         for (const c of supplemental) {
           const key = `${c.fileId}:${c.chunkIndex}`;
           if (!seen.has(key)) relevantFileChunks.push(c);
         }
       } else {
-        relevantFileChunks = await vectorService.findRelevantFileChunks(embeddingResult.embedding, userId, 8, 0.7);
+        relevantFileChunks = await vectorService.findRelevantFileChunks(embeddingResult.embedding, userId, 8, 0.7, projectId);
       }
 
+      // Find similar messages and conversations in parallel, scoped by projectId if provided
       const [similarMessages, similarConversations] = await Promise.all([
         opts.includeMessageContext 
-          ? vectorService.findSimilarMessages(embeddingResult.embedding, userId, opts.maxSimilarMessages, opts.similarityThreshold)
+          ? vectorService.findSimilarMessages(embeddingResult.embedding, userId, opts.maxSimilarMessages, opts.similarityThreshold, projectId)
           : Promise.resolve([]),
         opts.includeConversationContext 
-          ? vectorService.findSimilarConversations(embeddingResult.embedding, userId, opts.maxSimilarConversations, opts.similarityThreshold)
+          ? vectorService.findSimilarConversations(embeddingResult.embedding, userId, opts.maxSimilarConversations, opts.similarityThreshold, projectId)
           : Promise.resolve([])
       ]);
 

@@ -21,6 +21,7 @@ export interface UseChatOptions {
   enableStreaming?: boolean;
   systemPreset?: keyof typeof SYSTEM_MESSAGE_PRESETS | 'custom';
   customSystemMessage?: string;
+  projectId?: number | null;
   onSystemPresetChange?: (preset: keyof typeof SYSTEM_MESSAGE_PRESETS | 'custom', message?: string) => void;
 }
 
@@ -125,7 +126,8 @@ export const useChat = (options: UseChatOptions): UseChatReturn => {
     user, 
     enableStreaming: initialEnableStreaming = true,
     systemPreset: initialSystemPreset = 'DEFAULT',
-    customSystemMessage: initialCustomSystemMessage = ''
+    customSystemMessage: initialCustomSystemMessage = '',
+    projectId
   } = options;
   
   // =========================================================================
@@ -175,6 +177,7 @@ export const useChat = (options: UseChatOptions): UseChatReturn => {
     enableStreaming: initialEnableStreaming,
     systemPreset: initialSystemPreset,
     customSystemMessage: initialCustomSystemMessage,
+    projectId,
     chatOptions: {
       maxTokens: 2048,
       temperature: 0.8,

@@ -101,10 +101,27 @@ export const subscriptions = pgTable("subscriptions", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// =============================================================================
+// PROJECTS (WORKSPACES) SYSTEM
+// =============================================================================
+
+// Projects table for isolated workspaces
+export const projects = pgTable("projects", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  name: text("name").notNull(),
+  description: text("description"),
+  instructions: text("instructions"), // Custom System Prompt for this project
+  isDefault: boolean("is_default").default(false), // Default project for user
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 // File system tables for real file integration
 export const files = pgTable("files", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").references(() => users.id).notNull(),
+  projectId: integer("project_id").references(() => projects.id), // Project scope (null = global/no project)
   name: text("name").notNull(),
   originalName: text("original_name").notNull(),
   mimeType: text("mime_type").notNull(),
@@ -387,13 +404,44 @@ export const fileInteractionSchema = createInsertSchema(fileInteractions, {
 
 // New file system types
 export type File = typeof files.$inferSelect;
-export type InsertFile = z.infer<typeof insertFileSchema>;
+export type InsertFile = z.infer<typeof insertFileSchema> & { projectId?: number };
 export type UpdateFile = z.infer<typeof updateFileSchema>;
 export type FileVersion = typeof fileVersions.$inferSelect;
 export type FilePermission = typeof filePermissions.$inferSelect;
 export type ShareFile = z.infer<typeof shareFileSchema>;
 export type FileInteraction = typeof fileInteractions.$inferSelect;
 export type InsertFileInteraction = z.infer<typeof fileInteractionSchema>;
+
+// =============================================================================
+// PROJECT SCHEMAS AND TYPES
+// =============================================================================
+
+// Project schemas
+export const insertProjectSchema = createInsertSchema(projects, {
+  name: z.string().min(1, "Project name is required").max(100, "Project name too long"),
+  description: z.string().max(500, "Description too long").optional(),
+  instructions: z.string().max(5000, "Instructions too long").optional(),
+  isDefault: z.boolean().optional(),
+}).pick({
+  name: true,
+  description: true,
+  instructions: true,
+  isDefault: true,
+});
+
+export const updateProjectSchema = z.object({
+  name: z.string().min(1, "Project name is required").max(100, "Project name too long").optional(),
+  description: z.string().max(500, "Description too long").optional().nullable(),
+  instructions: z.string().max(5000, "Instructions too long").optional().nullable(),
+  isDefault: z.boolean().optional(),
+});
+
+export const projectSchema = createSelectSchema(projects);
+
+// Project types
+export type Project = typeof projects.$inferSelect;
+export type InsertProject = z.infer<typeof insertProjectSchema>;
+export type UpdateProject = z.infer<typeof updateProjectSchema>;
 
 // Engagement system schemas
 export const updateEmailPreferencesSchema = z.object({
@@ -863,6 +911,7 @@ export const aiCoachConversations = pgTable("ai_coach_conversations", {
 export const conversations = pgTable("conversations", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").references(() => users.id).notNull(),
+  projectId: integer("project_id").references(() => projects.id), // Project scope (null = global/no project)
   sessionId: text("session_id").notNull(),
   title: text("title"),
   provider: text("provider").notNull(), // 'uterpi', 'openai', 'gemini', 'azure', 'lmstudio'

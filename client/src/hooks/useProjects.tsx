@@ -1,8 +1,8 @@
-// useProjects.ts - Project management hooks with TanStack Query
+// useProjects.tsx - Project management hooks with TanStack Query
 // Provides state management and API interactions for the Projects feature
 // Uses database persistence for cross-device sync (not localStorage)
 
-import { createContext, useContext, useCallback, type ReactNode, useEffect } from 'react';
+import { createContext, useContext, useCallback, type ReactNode } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
@@ -487,3 +487,4 @@ export function useDeleteProject() {
     },
   });
 }
+

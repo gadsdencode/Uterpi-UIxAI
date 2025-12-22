@@ -92,7 +92,9 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat, onOpenProjectSettings }) =
                     <FolderKanban className="w-4 h-4 mr-2 flex-shrink-0 text-violet-400" />
                     <span className="truncate">{activeProject.name}</span>
                     {activeProject.instructions && (
-                      <Sparkles className="w-3 h-3 ml-1 text-amber-400 flex-shrink-0" title="Has custom instructions" />
+                      <span title="Has custom instructions">
+                        <Sparkles className="w-3 h-3 ml-1 text-amber-400 flex-shrink-0" />
+                      </span>
                     )}
                   </>
                 ) : (
@@ -145,7 +147,9 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat, onOpenProjectSettings }) =
                     <FolderKanban className="w-4 h-4 mr-2 flex-shrink-0 text-violet-400" />
                     <span className="truncate">{project.name}</span>
                     {project.instructions && (
-                      <Sparkles className="w-3 h-3 ml-1 text-amber-400 flex-shrink-0" title="Has custom instructions" />
+                      <span title="Has custom instructions">
+                        <Sparkles className="w-3 h-3 ml-1 text-amber-400 flex-shrink-0" />
+                      </span>
                     )}
                     {project.isDefault && (
                       <span className="ml-1 text-xs text-muted-foreground">(default)</span>

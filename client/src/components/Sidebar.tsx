@@ -9,7 +9,6 @@ import {
   Sparkles,
   Pencil,
   Trash2,
-  Settings,
   History,
   Loader2,
   RefreshCw
@@ -411,19 +410,6 @@ const Sidebar: React.FC<SidebarProps> = ({ onNewChat, onOpenProjectSettings }) =
         </nav>
       </div>
       
-      {/* Footer / Settings */}
-      <div className="p-3 border-t border-slate-800/50">
-        <a 
-          href="#" 
-          className={cn(
-            "flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-all duration-200",
-            "text-slate-400 hover:bg-slate-800/50 hover:text-slate-300"
-          )}
-        >
-          <Settings className="w-4 h-4 text-slate-500" />
-          Settings
-        </a>
-      </div>
     </aside>
   );
 };

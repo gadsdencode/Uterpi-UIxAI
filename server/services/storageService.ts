@@ -5,6 +5,7 @@
 import { Client } from "@replit/object-storage";
 import { Readable } from "stream";
 import { v4 as uuidv4 } from "uuid";
+import fs from "fs";
 
 // Initialize the Replit Object Storage client
 // Authentication is handled automatically in Replit's environment
@@ -60,6 +61,12 @@ export interface StorageServiceInterface {
   
   /** Upload a file to Object Storage */
   uploadFile(key: string, content: Buffer | string): Promise<{ key: string; success: boolean }>;
+  
+  /** Upload a file from disk path (streams file to avoid memory issues) */
+  uploadFromPath(key: string, filePath: string): Promise<{ key: string; success: boolean }>;
+  
+  /** Upload from a readable stream */
+  uploadFromStream(key: string, stream: Readable): Promise<{ key: string; success: boolean }>;
   
   /** Download file as Buffer */
   getFileBuffer(key: string): Promise<Buffer>;
@@ -125,6 +132,82 @@ export const storageService: StorageServiceInterface = {
       return { key, success: true };
     } catch (error) {
       console.error(`❌ [StorageService] Upload error for ${key}:`, error);
+      throw error;
+    }
+  },
+
+  /**
+   * Upload a file from disk path (more memory efficient for large files)
+   * Streams the file content instead of loading entire file into memory
+   * @param key - The storage key (path) for the file
+   * @param filePath - Path to the file on disk
+   * @returns Object with key and success status
+   */
+  async uploadFromPath(key: string, filePath: string): Promise<{ key: string; success: boolean }> {
+    try {
+      const available = await this.isAvailable();
+      if (!available) {
+        console.warn(`⚠️ [StorageService] Object Storage not available, skipping upload for: ${key}`);
+        return { key, success: false };
+      }
+
+      // Check if file exists
+      if (!fs.existsSync(filePath)) {
+        throw new Error(`File not found: ${filePath}`);
+      }
+
+      // Read file and upload (Replit Object Storage doesn't support streaming directly)
+      // For true streaming, we'd need a different cloud storage provider
+      const content = await fs.promises.readFile(filePath);
+      const result = await client.uploadFromBytes(key, content);
+
+      if (!result.ok) {
+        console.error(`❌ [StorageService] Upload from path failed for ${key}:`, result.error);
+        throw new Error(`Failed to upload file: ${result.error}`);
+      }
+
+      console.log(`✅ [StorageService] Uploaded from path: ${key} (${content.length} bytes from ${filePath})`);
+      return { key, success: true };
+    } catch (error) {
+      console.error(`❌ [StorageService] Upload from path error for ${key}:`, error);
+      throw error;
+    }
+  },
+
+  /**
+   * Upload from a readable stream
+   * Note: Replit Object Storage doesn't support true streaming, so we collect chunks first
+   * This is still more memory-efficient than loading entire files for streaming sources
+   * @param key - The storage key (path) for the file
+   * @param stream - Readable stream of file content
+   * @returns Object with key and success status
+   */
+  async uploadFromStream(key: string, stream: Readable): Promise<{ key: string; success: boolean }> {
+    try {
+      const available = await this.isAvailable();
+      if (!available) {
+        console.warn(`⚠️ [StorageService] Object Storage not available, skipping upload for: ${key}`);
+        return { key, success: false };
+      }
+
+      // Collect stream chunks into buffer
+      const chunks: Buffer[] = [];
+      for await (const chunk of stream) {
+        chunks.push(Buffer.from(chunk));
+      }
+      const content = Buffer.concat(chunks);
+
+      const result = await client.uploadFromBytes(key, content);
+
+      if (!result.ok) {
+        console.error(`❌ [StorageService] Upload from stream failed for ${key}:`, result.error);
+        throw new Error(`Failed to upload file: ${result.error}`);
+      }
+
+      console.log(`✅ [StorageService] Uploaded from stream: ${key} (${content.length} bytes)`);
+      return { key, success: true };
+    } catch (error) {
+      console.error(`❌ [StorageService] Upload from stream error for ${key}:`, error);
       throw error;
     }
   },

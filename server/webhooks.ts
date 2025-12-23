@@ -10,6 +10,7 @@ import {
 import { db } from './db';
 import { users } from '@shared/schema';
 import { eq } from 'drizzle-orm';
+import { invalidateSubscriptionCache } from './subscription-middleware';
 
 /**
  * Handle Stripe webhooks for subscription events
@@ -96,6 +97,8 @@ async function handleSubscriptionCreated(subscription: Stripe.Subscription): Pro
     const userId = await getUserIdFromCustomer(subscription.customer as string);
     if (userId) {
       await syncSubscriptionFromStripe(subscription.id, userId);
+      // Invalidate cache after subscription creation
+      await invalidateSubscriptionCache(userId);
       console.log(`Synced new subscription for user ${userId}`);
     }
   } catch (error) {
@@ -113,6 +116,8 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription): Pro
     const userId = await getUserIdFromCustomer(subscription.customer as string);
     if (userId) {
       await syncSubscriptionFromStripe(subscription.id, userId);
+      // Invalidate cache after subscription update
+      await invalidateSubscriptionCache(userId);
       console.log(`Synced updated subscription for user ${userId}`);
     }
   } catch (error) {
@@ -138,6 +143,9 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription): Pro
           updatedAt: new Date()
         })
         .where(eq(users.id, userId));
+
+      // Invalidate cache after subscription deletion
+      await invalidateSubscriptionCache(userId);
 
       console.log(`Updated user ${userId} to freemium tier after subscription deletion`);
     }
@@ -187,6 +195,9 @@ async function handlePaymentSucceeded(invoice: Stripe.Invoice): Promise<void> {
         } catch (grantErr) {
           console.error('Error granting monthly credits on invoice:', grantErr);
         }
+
+        // Invalidate cache after payment success
+        await invalidateSubscriptionCache(userId);
       }
     }
   } catch (error) {
@@ -211,6 +222,9 @@ async function handlePaymentFailed(invoice: Stripe.Invoice): Promise<void> {
             updatedAt: new Date()
           })
           .where(eq(users.id, userId));
+
+        // Invalidate cache after payment failure
+        await invalidateSubscriptionCache(userId);
 
         console.log(`Updated user ${userId} to past_due status after payment failure`);
         

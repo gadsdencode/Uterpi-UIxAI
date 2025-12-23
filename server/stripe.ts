@@ -22,6 +22,7 @@ import {
 } from '@shared/schema';
 import { eq, and } from 'drizzle-orm';
 import type { User, SubscriptionPlan } from '@shared/schema';
+import { invalidateSubscriptionCache } from './subscription-middleware';
 
 // ============================================================================
 // CONFIGURATION & CONSTANTS
@@ -268,6 +269,9 @@ export async function syncSubscriptionFromStripe(stripeSubscriptionId: string, u
         updatedAt: new Date(),
       })
       .where(eq(users.id, userId));
+
+    // Invalidate subscription cache after sync
+    await invalidateSubscriptionCache(userId);
 
   } catch (error) {
     console.error('Error syncing subscription from Stripe:', error);
@@ -548,6 +552,9 @@ export async function handleSubscriptionCheckoutSuccess(session: Stripe.Checkout
       // This would integrate with your existing team creation logic
     }
 
+    // Invalidate subscription cache after successful checkout
+    await invalidateSubscriptionCache(userId);
+
     console.log(`Subscription created successfully for user ${userId}, tier: ${tier}`);
     
   } catch (error) {
@@ -623,6 +630,9 @@ export async function grantMonthlyCreditsForTier(params: {
       } as any,
     });
   });
+
+  // Invalidate subscription cache after granting credits (outside transaction)
+  await invalidateSubscriptionCache(params.userId);
 }
 
 /**
@@ -724,6 +734,9 @@ export async function handleCreditsCheckoutSuccess(session: Stripe.Checkout.Sess
 
     const finalBalance = (await db.select().from(users).where(eq(users.id, userId)).limit(1))[0]?.ai_credits_balance || 0;
     console.log(`✅ [handleCreditsCheckoutSuccess] Successfully added ${credits} AI credits to user ${userId}, new balance: ${finalBalance}`);
+
+    // Invalidate subscription cache after adding credits
+    await invalidateSubscriptionCache(userId);
     
   } catch (error) {
     console.error(`❌ Error handling credits checkout success for session ${session.id}:`, error);
@@ -857,6 +870,9 @@ export async function createTeamSubscription(data: {
         console.log(`Invitation would be sent to ${email} to join team ${data.teamName}`);
       }
     }
+
+    // Invalidate subscription cache for owner after team creation
+    await invalidateSubscriptionCache(data.ownerId);
 
     return { subscription, teamId: team.id };
 
@@ -1021,6 +1037,9 @@ async function addCreditsToUser(
       description: `Purchased ${credits} AI Credits`,
     });
   });
+
+  // Invalidate subscription cache after adding credits
+  await invalidateSubscriptionCache(userId);
 }
 
 /**
@@ -1124,6 +1143,14 @@ export async function trackAIUsage(data: {
       tokensConsumed: data.tokensConsumed,
       description: `Used ${creditsToDeduct} credits for ${data.operationType}`,
     });
+
+    // Invalidate subscription cache after usage deduction
+    // Note: Doing this inside the transaction is safe - cache update is non-critical
+    try {
+      await invalidateSubscriptionCache(data.userId);
+    } catch (cacheErr) {
+      console.warn('Failed to invalidate subscription cache after usage:', cacheErr);
+    }
 
     return {
       creditsUsed: creditsToDeduct,

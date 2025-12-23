@@ -10,6 +10,7 @@ import { eq, desc, and, gte, sql } from 'drizzle-orm';
 import { storage } from './storage';
 import { checkCreditBalance } from './stripe';
 import { isVectorizationEnabled } from './vector-flags';
+import { cacheService, getSubscriptionCacheKey, CACHE_TTL } from './services/cacheService';
 
 // Helper: detect if request should be BYOK-exempt from app-side limits/credits
 function isBYOKNonLmstudio(req: any): boolean {
@@ -144,6 +145,29 @@ export interface EnhancedSubscriptionCheck {
   };
   isGrandfathered: boolean;
   grandfatheredFrom?: string;
+}
+
+/**
+ * Check if monthly reset is needed (lightweight check for cache validation)
+ * Does NOT perform the reset, just checks if it's needed
+ */
+async function checkIfMonthlyResetNeeded(userId: number): Promise<boolean> {
+  const now = new Date();
+  const startOfCurrentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  
+  try {
+    const [user] = await db.select({
+      messagesResetAt: users.messages_reset_at
+    }).from(users).where(eq(users.id, userId));
+
+    if (!user) return false;
+
+    // Reset is needed if messages_reset_at is null or before the start of current month
+    return !user.messagesResetAt || user.messagesResetAt < startOfCurrentMonth;
+  } catch (error) {
+    console.error('Error checking monthly reset status:', error);
+    return false;
+  }
 }
 
 /**
@@ -312,11 +336,29 @@ export async function checkSubscriptionAccess(userId: number): Promise<Subscript
  * 
  * The function uses an "effective tier" concept where grandfathered users
  * get Pro tier features while maintaining their original tier for billing purposes.
+ * 
+ * Results are cached in Redis with a 60-second TTL to reduce database load.
+ * Cache is invalidated on subscription changes, credit updates, or team changes.
  */
 export async function getEnhancedSubscriptionDetails(
   userId: number
 ): Promise<EnhancedSubscriptionCheck> {
+  const cacheKey = getSubscriptionCacheKey(userId);
+  
   try {
+    // Check cache first
+    const cached = await cacheService.get<EnhancedSubscriptionCheck>(cacheKey);
+    if (cached) {
+      // Even with cached data, we need to check if monthly reset is needed
+      // This is a lightweight check that only updates if necessary
+      const needsReset = await checkIfMonthlyResetNeeded(userId);
+      if (!needsReset) {
+        return cached;
+      }
+      // If reset is needed, invalidate cache and proceed with fresh data
+      await cacheService.delete(cacheKey);
+    }
+
     // First, check and perform monthly reset if needed
     await checkAndPerformMonthlyReset(userId);
 
@@ -429,7 +471,7 @@ export async function getEnhancedSubscriptionDetails(
     const hasAccess = user.is_grandfathered || 
                      ['active', 'trialing', 'freemium'].includes(user.subscriptionStatus || 'freemium');
 
-    return {
+    const result: EnhancedSubscriptionCheck = {
       hasAccess,
       tier,
       status: user.subscriptionStatus || 'freemium',
@@ -456,6 +498,11 @@ export async function getEnhancedSubscriptionDetails(
       isGrandfathered: user.is_grandfathered || false,
       grandfatheredFrom: user.grandfathered_from_tier || undefined,
     };
+
+    // Cache the result with 60-second TTL
+    await cacheService.set(cacheKey, result, CACHE_TTL.SUBSCRIPTION_DETAILS);
+
+    return result;
   } catch (error) {
     console.error('Error getting subscription details:', error);
     throw error;
@@ -1179,9 +1226,20 @@ export async function resetMonthlyMessageCounters(): Promise<void> {
         sql`${users.messages_reset_at} < ${startOfCurrentMonth} OR ${users.messages_reset_at} IS NULL`
       );
 
+    // Invalidate all subscription caches after monthly reset
+    await cacheService.invalidateAllSubscriptions();
+
     console.log(`Monthly reset completed. Updated users: ${result.rowCount}`);
   } catch (error) {
     console.error('Error during monthly reset:', error);
     throw error;
   }
+}
+
+/**
+ * Invalidate subscription cache for a specific user
+ * Should be called when subscription status, credits, or team membership changes
+ */
+export async function invalidateSubscriptionCache(userId: number): Promise<void> {
+  await cacheService.invalidateSubscription(userId);
 }

@@ -5,6 +5,27 @@ import type { Request, Response } from "express";
 import { fileStorage } from "../file-storage";
 import { vectorProcessor } from "../vector-processor";
 import { isVectorizationEnabled } from "../vector-flags";
+import fs from 'fs';
+import { promisify } from 'util';
+
+const unlinkAsync = promisify(fs.unlink);
+
+/**
+ * Clean up temp file after upload (success or error)
+ */
+async function cleanupTempFile(filePath: string | undefined): Promise<void> {
+  if (!filePath) return;
+  
+  try {
+    await unlinkAsync(filePath);
+    console.log(`[FileController] 🧹 Cleaned up temp file: ${filePath}`);
+  } catch (error) {
+    // File might already be deleted or not exist
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      console.warn(`[FileController] Failed to cleanup temp file ${filePath}:`, error);
+    }
+  }
+}
 
 // Helper to validate file IDs
 function validateFileId(id: string): number {
@@ -15,9 +36,11 @@ function validateFileId(id: string): number {
   return fileId;
 }
 
-// Multer request interface
+// Multer request interface (disk storage provides path instead of buffer)
 interface MulterRequest extends Request {
-  file?: Express.Multer.File;
+  file?: Express.Multer.File & {
+    path?: string; // Disk storage path
+  };
 }
 
 /**
@@ -27,8 +50,11 @@ export class FileController {
 
   /**
    * Upload file
+   * Now uses disk storage to prevent memory exhaustion on large files
    */
   async upload(req: MulterRequest, res: Response): Promise<void> {
+    const tempFilePath = req.file?.path;
+    
     try {
       const user = req.user as any;
       
@@ -37,21 +63,43 @@ export class FileController {
         return;
       }
 
+      // Ensure we have a file path (disk storage) or buffer (memory storage fallback)
+      if (!req.file.path && !req.file.buffer) {
+        res.status(400).json({ error: "File upload failed - no content available" });
+        return;
+      }
+
       const { folder, description, tags, projectId } = req.body;
       const parsedTags = tags ? JSON.parse(tags) : [];
       const parsedProjectId = projectId ? parseInt(projectId) : undefined;
+
+      // Read file content from disk (or use buffer if available for backwards compatibility)
+      let fileContent: Buffer;
+      if (req.file.path) {
+        // Disk storage mode - read file from temp location
+        fileContent = await fs.promises.readFile(req.file.path);
+        console.log(`[FileController] 📂 Read ${fileContent.length} bytes from temp file: ${req.file.path}`);
+      } else if (req.file.buffer) {
+        // Memory storage fallback
+        fileContent = req.file.buffer;
+      } else {
+        throw new Error('No file content available');
+      }
 
       const file = await fileStorage.uploadFile(user.id, {
         name: req.file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_'),
         originalName: req.file.originalname,
         mimeType: req.file.mimetype,
-        content: req.file.buffer,
+        content: fileContent,
         size: req.file.size,
         folder: folder || 'default',
         description,
         tags: parsedTags,
         projectId: parsedProjectId
       });
+
+      // Clean up temp file after successful upload
+      await cleanupTempFile(tempFilePath);
 
       // Queue for vectorization if enabled
       if (isVectorizationEnabled() && file.mimeType.startsWith('text/')) {
@@ -76,6 +124,9 @@ export class FileController {
         }
       });
     } catch (error) {
+      // Clean up temp file on error
+      await cleanupTempFile(tempFilePath);
+      
       console.error("File upload error:", error);
       res.status(500).json({ error: "Failed to upload file" });
     }

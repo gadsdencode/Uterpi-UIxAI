@@ -148,6 +148,71 @@ export class CoachController {
       res.status(500).json({ error: "Failed to track model switch" });
     }
   }
+
+  /**
+   * Generate strategic insights using selected AI provider
+   * This endpoint actively generates new insights on-demand
+   */
+  async generateInsights(req: Request, res: Response): Promise<void> {
+    try {
+      const { provider = 'lmstudio', model, workflowType = 'general' } = req.body;
+      
+      // Validate provider
+      const validProviders = ['lmstudio', 'uterpi', 'openai', 'gemini', 'azure', 'azureai'];
+      if (!validProviders.includes(provider.toLowerCase())) {
+        res.status(400).json({ 
+          error: `Invalid provider. Must be one of: ${validProviders.join(', ')}` 
+        });
+        return;
+      }
+
+      // Create a mock workflow analysis for on-demand insight generation
+      // In a real scenario, this would use actual workflow data
+      const mockAnalysis = {
+        workflowType: workflowType,
+        efficiencyScore: 75,
+        bottlenecks: ['Occasional delays in response processing'],
+        optimizations: ['Consider batching similar requests'],
+        modelRecommendations: [],
+        timeAnalysis: {
+          totalTime: 300,
+          activeTime: 250,
+          idleTime: 50,
+          averageStepTime: 30
+        },
+        complexityAssessment: {
+          level: 'moderate' as const,
+          factors: ['Multiple step workflow', 'Variable task complexity']
+        }
+      };
+
+      const mockWorkflow = {
+        workflowType: workflowType,
+        userId: req.user!.id
+      };
+
+      // Generate insights using the selected provider
+      const insights = await aiCoachService.getStrategicInsights(
+        mockAnalysis,
+        mockWorkflow,
+        provider,
+        model
+      );
+
+      res.json({
+        success: true,
+        provider,
+        model: model || 'default',
+        insights
+      });
+    } catch (error) {
+      console.error("Generate insights error:", error);
+      res.status(500).json({ 
+        error: "Failed to generate insights",
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
 }
 
 // Export singleton instance

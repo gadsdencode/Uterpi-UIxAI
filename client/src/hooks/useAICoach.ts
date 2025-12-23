@@ -330,6 +330,81 @@ export const useAICoach = (options: UseAICoachOptions = {}) => {
     });
   }, [enabled, toast]);
 
+  // Generate insights on-demand using selected AI provider
+  const generateInsights = useCallback(async (
+    provider: string = 'lmstudio',
+    model?: string,
+    workflowType: string = 'general'
+  ): Promise<CoachInsight[]> => {
+    if (!enabled) return [];
+    
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      const response = await fetch('/api/coach/generate-insights', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          provider,
+          model,
+          workflowType,
+        }),
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to generate insights');
+      }
+      
+      const data = await response.json();
+      const newInsights = data.insights || [];
+      
+      // Show toast with provider info
+      if (newInsights.length > 0) {
+        toast({
+          title: `🧠 New Insights Generated`,
+          description: `${newInsights.length} insight(s) from ${provider}`,
+          duration: 5000,
+        });
+        
+        // Show high-priority insights immediately
+        const highPriorityInsights = newInsights.filter(
+          (i: any) => i.priority === 'high' || i.priority === 'urgent'
+        );
+        
+        for (const insight of highPriorityInsights.slice(0, 2)) {
+          showCoachInsight({
+            ...insight,
+            id: Date.now() + Math.random(), // Temporary ID for display
+            insightType: insight.type,
+            insightCategory: insight.category,
+            expectedImpact: insight.priority === 'high' || insight.priority === 'urgent' ? 'high' : 'medium',
+            wasShown: false,
+            wasActedUpon: false,
+          });
+        }
+      }
+      
+      return newInsights;
+    } catch (err) {
+      console.error('Error generating AI Coach insights:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to generate insights';
+      setError(errorMessage);
+      
+      toast({
+        title: '❌ Failed to Generate Insights',
+        description: errorMessage,
+        duration: 5000,
+      });
+      
+      return [];
+    } finally {
+      setIsLoading(false);
+    }
+  }, [enabled, toast, showCoachInsight]);
+
   return {
     // Data
     insights,
@@ -348,6 +423,7 @@ export const useAICoach = (options: UseAICoachOptions = {}) => {
     showCoachInsight,
     getStrategicAdvice,
     showOptimizationTip,
+    generateInsights,
     
     // State
     isEnabled: enabled,

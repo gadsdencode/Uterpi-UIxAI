@@ -281,6 +281,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/coach/track-model-switch", requireAuth, (req, res) => 
     coachController.trackModelSwitch(req, res));
 
+  app.post("/api/coach/generate-insights", requireAuth, (req, res) => 
+    coachController.generateInsights(req, res));
+
   // =============================================================================
   // USER PROFILE ROUTES
   // =============================================================================

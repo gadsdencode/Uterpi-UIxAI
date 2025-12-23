@@ -21,6 +21,7 @@ import {
   type TaskCharacteristics,
   type ModelRecommendation 
 } from "./model-recommendation-service";
+import { getProvider, type AIProviderOptions } from "./services/providers";
 
 // =============================================================================
 // AI COACH SERVICE
@@ -81,10 +82,15 @@ export interface CoachInsight {
 export class AICoachService {
   private azureAIEndpoint: string;
   private azureAIKey: string;
+  private defaultProvider: string;
+  private defaultModel: string;
 
   constructor() {
     this.azureAIEndpoint = process.env.AZURE_AI_ENDPOINT || '';
     this.azureAIKey = process.env.AZURE_AI_KEY || '';
+    // Default to LM Studio / Uterpi AI as per project configuration
+    this.defaultProvider = 'lmstudio';
+    this.defaultModel = 'nomadic-icdu-v8';
   }
 
   /**
@@ -815,9 +821,13 @@ export class AICoachService {
   async generateInsights(
     userId: number,
     analysis: WorkflowAnalysis,
-    workflow: any
+    workflow: any,
+    provider?: string,
+    model?: string
   ): Promise<CoachInsight[]> {
     const insights: CoachInsight[] = [];
+    const selectedProvider = provider || this.defaultProvider;
+    const selectedModel = model || this.defaultModel;
 
     // Strategic insights based on workflow patterns
     if (analysis.efficiencyScore < 60) {
@@ -920,24 +930,35 @@ export class AICoachService {
       });
     }
 
-    // Use Azure AI for deeper insights if available
-    if (this.azureAIEndpoint && this.azureAIKey) {
-      const aiInsights = await this.getAzureAIInsights(analysis, workflow);
+    // Use AI provider for deeper strategic insights
+    try {
+      const aiInsights = await this.getStrategicInsights(analysis, workflow, selectedProvider, selectedModel);
       insights.push(...aiInsights);
+    } catch (error) {
+      console.warn('[AICoach] Failed to get strategic insights from provider:', error);
+      // Continue without AI insights if provider fails
     }
 
     return insights;
   }
 
   /**
-   * Get insights from Azure AI [[memory:3578529]]
+   * Get strategic insights from AI provider
+   * Uses the provider abstraction for provider-agnostic AI calls
    */
-  private async getAzureAIInsights(
+  async getStrategicInsights(
     analysis: WorkflowAnalysis,
-    workflow: any
+    workflow: any,
+    provider: string = 'lmstudio',
+    model?: string
   ): Promise<CoachInsight[]> {
     try {
-      const prompt = `
+      const selectedProvider = provider || this.defaultProvider;
+      const selectedModel = model || this.defaultModel;
+      
+      const systemPrompt = 'You are an AI Coach that provides strategic, workflow-level advice to developers. Focus on high-level improvements and productivity gains. Always respond with valid JSON.';
+      
+      const userPrompt = `
         Analyze this workflow and provide strategic, high-level insights:
         
         Workflow Type: ${workflow.workflowType}
@@ -966,37 +987,27 @@ export class AICoachService {
         }
       `;
 
-      const response = await fetch(`${this.azureAIEndpoint}/openai/deployments/gpt-4o/chat/completions?api-version=2024-08-01-preview`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'api-key': this.azureAIKey,
-        },
-        body: JSON.stringify({
-          messages: [
-            {
-              role: 'system',
-              content: 'You are an AI Coach that provides strategic, workflow-level advice to developers. Focus on high-level improvements and productivity gains.',
-            },
-            {
-              role: 'user',
-              content: prompt,
-            },
-          ],
-          max_tokens: 800,
-          temperature: 0.7,
-        }),
+      // Get the appropriate provider
+      const aiProvider = getProvider(selectedProvider);
+      
+      // Call the provider's chat method (non-streaming)
+      const result = await aiProvider.chat({
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        modelName: selectedModel,
+        temperature: 0.7,
+        maxTokens: 800,
+        stream: false
       });
 
-      if (!response.ok) {
-        console.error('Azure AI request failed:', response.statusText);
+      const content = result.content;
+      
+      if (!content) {
+        console.warn('[AICoach] Empty response from provider');
         return [];
       }
-
-      const data = await response.json();
-      const content = data.choices[0]?.message?.content;
-      
-      if (!content) return [];
 
       // Parse JSON from response
       const jsonMatch = content.match(/\[[\s\S]*\]/);
@@ -1007,7 +1018,7 @@ export class AICoachService {
 
       return [];
     } catch (error) {
-      console.error('Error getting Azure AI insights:', error);
+      console.error(`[AICoach] Error getting strategic insights from ${provider}:`, error);
       return [];
     }
   }

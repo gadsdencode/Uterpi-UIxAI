@@ -14,6 +14,7 @@ import {
 import { eq, desc, and, or, like, sql, isNull } from "drizzle-orm";
 import { db } from "./db";
 import { randomBytes } from "crypto";
+import { storageService, generateStorageKey } from "./services/storageService";
 
 export interface FileStorageService {
   // Core file operations
@@ -78,19 +79,50 @@ export class DatabaseFileStorage implements FileStorageService {
     projectId?: number; // Project scope (null = global/no project)
   }): Promise<File> {
     try {
-      // Convert content to base64 if it's a Buffer
-      let contentString: string;
+      // Convert content to Buffer for Object Storage upload
+      let contentBuffer: Buffer;
+      if (Buffer.isBuffer(fileData.content)) {
+        contentBuffer = fileData.content;
+      } else {
+        contentBuffer = Buffer.from(fileData.content, 'utf-8');
+      }
+
+      // Generate storage key and attempt Object Storage upload
+      const storageKey = generateStorageKey(userId, fileData.originalName);
+      let useObjectStorage = false;
+      
+      // Try to upload to Replit Object Storage
+      const objectStorageAvailable = await storageService.isAvailable();
+      if (objectStorageAvailable) {
+        try {
+          const uploadResult = await storageService.uploadFile(storageKey, contentBuffer);
+          useObjectStorage = uploadResult.success;
+          
+          if (useObjectStorage) {
+            console.log(`📦 [FileStorage] File uploaded to Object Storage: ${storageKey}`);
+          }
+        } catch (storageError) {
+          console.warn(`⚠️ [FileStorage] Object Storage upload failed, falling back to DB:`, storageError);
+          useObjectStorage = false;
+        }
+      }
+
+      // Prepare content for database (fallback or hybrid storage)
+      let contentString: string | null = null;
       let encoding = 'utf-8';
       
-      if (Buffer.isBuffer(fileData.content)) {
-        if (fileData.mimeType.startsWith('text/') || fileData.mimeType === 'application/json') {
-          contentString = fileData.content.toString('utf-8');
+      // Only store content in DB if Object Storage is unavailable
+      if (!useObjectStorage) {
+        if (Buffer.isBuffer(fileData.content)) {
+          if (fileData.mimeType.startsWith('text/') || fileData.mimeType === 'application/json') {
+            contentString = fileData.content.toString('utf-8');
+          } else {
+            contentString = fileData.content.toString('base64');
+            encoding = 'base64';
+          }
         } else {
-          contentString = fileData.content.toString('base64');
-          encoding = 'base64';
+          contentString = fileData.content;
         }
-      } else {
-        contentString = fileData.content;
       }
       
       const newFile = {
@@ -99,8 +131,9 @@ export class DatabaseFileStorage implements FileStorageService {
         name: fileData.name,
         originalName: fileData.originalName,
         mimeType: fileData.mimeType,
-        content: contentString,
-        encoding,
+        content: contentString, // null if using Object Storage
+        encoding: useObjectStorage ? null : encoding,
+        storageKey: useObjectStorage ? storageKey : null, // Set storage key if using Object Storage
         size: fileData.size,
         folder: fileData.folder || '/',
         description: fileData.description || null,
@@ -119,7 +152,11 @@ export class DatabaseFileStorage implements FileStorageService {
       // Log upload interaction
       await this.logFileInteraction(file.id, userId, {
         interactionType: 'edit',
-        details: { action: 'upload', originalName: fileData.originalName }
+        details: { 
+          action: 'upload', 
+          originalName: fileData.originalName,
+          storageType: useObjectStorage ? 'object_storage' : 'database'
+        }
       });
       
       return file;
@@ -163,7 +200,39 @@ export class DatabaseFileStorage implements FileStorageService {
   async getFileContent(fileId: number, userId: number): Promise<{ content: string; mimeType: string } | null> {
     try {
       const file = await this.getFile(fileId, userId);
-      if (!file || !file.content) {
+      if (!file) {
+        return null;
+      }
+      
+      // Check if file is stored in Object Storage
+      if (file.storageKey) {
+        try {
+          // Fetch content from Object Storage
+          const buffer = await storageService.getFileBuffer(file.storageKey);
+          
+          // Convert buffer to string based on mime type
+          let content: string;
+          if (file.mimeType.startsWith('text/') || file.mimeType === 'application/json') {
+            content = buffer.toString('utf-8');
+          } else {
+            // Return base64 for binary files
+            content = buffer.toString('base64');
+          }
+          
+          console.log(`📦 [FileStorage] Content retrieved from Object Storage: ${file.storageKey}`);
+          return {
+            content,
+            mimeType: file.mimeType
+          };
+        } catch (storageError) {
+          console.error(`❌ [FileStorage] Failed to get content from Object Storage:`, storageError);
+          // Fall through to try database content as backup
+        }
+      }
+      
+      // Fallback to database content (legacy storage or Object Storage failure)
+      if (!file.content) {
+        console.warn(`⚠️ [FileStorage] No content available for file ${fileId}`);
         return null;
       }
       
@@ -214,6 +283,21 @@ export class DatabaseFileStorage implements FileStorageService {
         return false;
       }
       
+      // Get file to check for Object Storage key before soft delete
+      const fileResult = await db.select().from(files).where(eq(files.id, fileId));
+      const file = fileResult[0];
+      
+      // Delete from Object Storage if applicable
+      if (file?.storageKey) {
+        try {
+          await storageService.deleteFile(file.storageKey);
+          console.log(`🗑️ [FileStorage] Deleted from Object Storage: ${file.storageKey}`);
+        } catch (storageError) {
+          console.warn(`⚠️ [FileStorage] Failed to delete from Object Storage:`, storageError);
+          // Continue with soft delete even if Object Storage delete fails
+        }
+      }
+      
       // Soft delete by updating status
       const result = await db
         .update(files)
@@ -228,7 +312,11 @@ export class DatabaseFileStorage implements FileStorageService {
         // Log delete interaction
         await this.logFileInteraction(fileId, userId, {
           interactionType: 'delete',
-          details: { action: 'soft_delete', timestamp: new Date().toISOString() }
+          details: { 
+            action: 'soft_delete', 
+            timestamp: new Date().toISOString(),
+            hadObjectStorage: !!file?.storageKey
+          }
         });
       }
       

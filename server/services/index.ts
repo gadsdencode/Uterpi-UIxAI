@@ -54,3 +54,10 @@ export {
 // Re-export existing services
 export { smsService } from './smsService';
 
+// Storage Service - Replit Object Storage integration
+export { 
+  storageService, 
+  generateStorageKey,
+  type StorageServiceInterface 
+} from './storageService';
+

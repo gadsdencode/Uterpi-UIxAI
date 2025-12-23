@@ -1,7 +1,7 @@
 import { db } from "./db";
 import { isVectorizationEnabled } from "./vector-flags";
 import { messageEmbeddings, messages, conversations, conversationEmbeddings, fileEmbeddings, files } from "@shared/schema";
-import { eq, desc, sql, and } from "drizzle-orm";
+import { eq, desc, sql, and, gt, cosineDistance } from "drizzle-orm";
 import { embeddingWorkerPool, initializeWorkerPool, type EmbeddingWorkerResult } from "./services/embedding-worker-pool";
 
 export interface SimilarMessage {
@@ -308,15 +308,17 @@ export class VectorService {
 
   /**
    * Store message embedding in database
+   * Uses native pgvector type - drizzle-orm handles the conversion automatically
    */
   async storeMessageEmbedding(messageId: number, embeddingResult: EmbeddingResult): Promise<void> {
     if (!isVectorizationEnabled()) {
       return; // no-op when disabled
     }
     try {
+      // Native vector type: pass array directly, drizzle handles conversion
       await db.insert(messageEmbeddings).values({
         messageId,
-        embedding: JSON.stringify(embeddingResult.embedding),
+        embedding: embeddingResult.embedding, // Direct array for native vector type
         embeddingModel: embeddingResult.model,
         embeddingDimensions: embeddingResult.dimensions
       });
@@ -330,6 +332,7 @@ export class VectorService {
 
   /**
    * Store conversation summary embedding
+   * Uses native pgvector type - drizzle-orm handles the conversion automatically
    */
   async storeConversationEmbedding(conversationId: number, summary: string, embeddingResult: EmbeddingResult): Promise<void> {
     if (!isVectorizationEnabled()) {
@@ -344,11 +347,11 @@ export class VectorService {
         .limit(1);
 
       if (existing.length > 0) {
-        // Update existing
+        // Update existing with native vector type
         await db
           .update(conversationEmbeddings)
           .set({
-            summaryEmbedding: JSON.stringify(embeddingResult.embedding),
+            summaryEmbedding: embeddingResult.embedding, // Direct array for native vector type
             embeddingModel: embeddingResult.model,
             embeddingDimensions: embeddingResult.dimensions,
             summary,
@@ -356,10 +359,10 @@ export class VectorService {
           })
           .where(eq(conversationEmbeddings.conversationId, conversationId));
       } else {
-        // Insert new
+        // Insert new with native vector type
         await db.insert(conversationEmbeddings).values({
           conversationId,
-          summaryEmbedding: JSON.stringify(embeddingResult.embedding),
+          summaryEmbedding: embeddingResult.embedding, // Direct array for native vector type
           embeddingModel: embeddingResult.model,
           embeddingDimensions: embeddingResult.dimensions,
           summary
@@ -375,6 +378,7 @@ export class VectorService {
 
   /**
    * Find similar messages using cosine similarity
+   * Uses native pgvector cosineDistance function for efficient similarity search
    * @param projectId - Optional project ID to scope the search. If null, searches all user messages.
    */
   async findSimilarMessages(
@@ -388,11 +392,11 @@ export class VectorService {
       return [];
     }
     try {
-      const queryEmbeddingStr = JSON.stringify(queryEmbedding);
-      const dims = queryEmbedding.length;
+      // Use drizzle-orm's cosineDistance helper for native pgvector similarity
+      // cosineDistance returns distance (0-2), so similarity = 1 - distance
+      const similarity = sql<number>`1 - (${cosineDistance(messageEmbeddings.embedding, queryEmbedding)})`;
       
-      // Use raw SQL for vector similarity search
-      // Filter by projectId if provided (null means search all user messages)
+      // Use raw SQL for complex joins with native vector operations
       const result = await db.execute(sql`
         SELECT 
           m.id,
@@ -400,13 +404,13 @@ export class VectorService {
           m.role,
           m.conversation_id,
           m.created_at,
-          (1 - (me.embedding::vector <=> ${queryEmbeddingStr}::vector)) as similarity
+          (1 - (me.embedding <=> ${JSON.stringify(queryEmbedding)}::vector)) as similarity
         FROM message_embeddings me
         JOIN messages m ON me.message_id = m.id
         JOIN conversations c ON m.conversation_id = c.id
         WHERE c.user_id = ${userId}
           AND (${projectId}::int IS NULL OR c.project_id = ${projectId})
-          AND (1 - (me.embedding::vector <=> ${queryEmbeddingStr}::vector)) > ${threshold}
+          AND (1 - (me.embedding <=> ${JSON.stringify(queryEmbedding)}::vector)) > ${threshold}
         ORDER BY similarity DESC
         LIMIT ${limit}
       `);
@@ -428,6 +432,7 @@ export class VectorService {
 
   /**
    * Find similar conversations using summary embeddings
+   * Uses native pgvector for efficient similarity search
    * @param projectId - Optional project ID to scope the search. If null, searches all user conversations.
    */
   async findSimilarConversations(
@@ -441,8 +446,8 @@ export class VectorService {
       return [];
     }
     try {
-      const queryEmbeddingStr = JSON.stringify(queryEmbedding);
-      const dims = queryEmbedding.length;
+      // Native pgvector: pass array directly as vector literal
+      const vectorLiteral = JSON.stringify(queryEmbedding);
       
       // Filter by projectId if provided (null means search all user conversations)
       const result = await db.execute(sql`
@@ -451,13 +456,13 @@ export class VectorService {
           c.title,
           '' AS summary,
           c.created_at,
-          (1 - (ce.summary_embedding::vector <=> ${queryEmbeddingStr}::vector)) as similarity
+          (1 - (ce.summary_embedding <=> ${vectorLiteral}::vector)) as similarity
         FROM conversation_embeddings ce
         JOIN conversations c ON ce.conversation_id = c.id
         WHERE c.user_id = ${userId}
           AND c.archived_at IS NULL
           AND (${projectId}::int IS NULL OR c.project_id = ${projectId})
-          AND (1 - (ce.summary_embedding::vector <=> ${queryEmbeddingStr}::vector)) > ${threshold}
+          AND (1 - (ce.summary_embedding <=> ${vectorLiteral}::vector)) > ${threshold}
         ORDER BY similarity DESC
         LIMIT ${limit}
       `);
@@ -567,6 +572,7 @@ export class VectorService {
 
   /**
    * Store embeddings for a file's textual content (chunked)
+   * Uses native pgvector type for efficient storage and search
    */
   async indexFileContent(fileId: number, content: string): Promise<number> {
     if (!isVectorizationEnabled()) {
@@ -578,11 +584,12 @@ export class VectorService {
       for (const { index, text } of chunks) {
         const embeddingResult = await this.generateEmbedding(text).catch(() => null as any);
         if (!embeddingResult || !embeddingResult.embedding) continue;
+        // Native vector type: pass array directly
         await db.insert(fileEmbeddings).values({
           fileId,
           chunkIndex: index,
           chunkText: text,
-          embedding: JSON.stringify(embeddingResult.embedding),
+          embedding: embeddingResult.embedding, // Direct array for native vector type
           embeddingModel: embeddingResult.model,
           embeddingDimensions: embeddingResult.dimensions
         });
@@ -608,6 +615,7 @@ export class VectorService {
 
   /**
    * Find top-k relevant file chunks for a user by semantic similarity
+   * Uses native pgvector cosine distance operator for efficient search
    * @param projectId - Optional project ID to scope the search. If null, searches all user files.
    */
   async findRelevantFileChunks(queryEmbedding: number[], userId: number, limit: number = 8, threshold: number = 0.7, projectId?: number | null): Promise<Array<{ fileId: number; chunkIndex: number; text: string; similarity: number; name: string; mimeType: string }>> {
@@ -615,16 +623,17 @@ export class VectorService {
       return [];
     }
     try {
-      const queryEmbeddingStr = JSON.stringify(queryEmbedding);
+      // Native pgvector: pass array as vector literal
+      const vectorLiteral = JSON.stringify(queryEmbedding);
       // Filter by projectId if provided (null means search all user files)
       const result = await db.execute(sql`
-        SELECT fe.file_id, fe.chunk_index, fe.chunk_text, (1 - (fe.embedding::vector <=> ${queryEmbeddingStr}::vector)) as similarity, f.name, f.mime_type
+        SELECT fe.file_id, fe.chunk_index, fe.chunk_text, (1 - (fe.embedding <=> ${vectorLiteral}::vector)) as similarity, f.name, f.mime_type
         FROM file_embeddings fe
         JOIN files f ON fe.file_id = f.id
         WHERE f.user_id = ${userId}
           AND f.status = 'active'
           AND (${projectId}::int IS NULL OR f.project_id = ${projectId})
-          AND (1 - (fe.embedding::vector <=> ${queryEmbeddingStr}::vector)) > ${threshold}
+          AND (1 - (fe.embedding <=> ${vectorLiteral}::vector)) > ${threshold}
         ORDER BY similarity DESC
         LIMIT ${limit}
       `);
@@ -644,6 +653,7 @@ export class VectorService {
 
   /**
    * Find relevant file chunks restricted to a set of fileIds
+   * Uses native pgvector cosine distance for efficient similarity search
    * @param projectId - Optional project ID for additional validation. If null, only fileIds filter is used.
    */
   async findRelevantFileChunksForFiles(
@@ -660,11 +670,12 @@ export class VectorService {
     try {
       const cleanIds = (fileIds || []).filter((id) => Number.isFinite(id));
       if (cleanIds.length === 0) return [];
-      const queryEmbeddingStr = JSON.stringify(queryEmbedding);
+      // Native pgvector: pass array as vector literal
+      const vectorLiteral = JSON.stringify(queryEmbedding);
       // Filter by projectId if provided for additional validation
       const result = await db.execute(sql`
         SELECT fe.file_id, fe.chunk_index, fe.chunk_text,
-               (1 - (fe.embedding::vector <=> ${queryEmbeddingStr}::vector)) as similarity,
+               (1 - (fe.embedding <=> ${vectorLiteral}::vector)) as similarity,
                f.name, f.mime_type
         FROM file_embeddings fe
         JOIN files f ON fe.file_id = f.id
@@ -672,7 +683,7 @@ export class VectorService {
           AND f.status = 'active'
           AND fe.file_id = ANY(${cleanIds}::int[])
           AND (${projectId}::int IS NULL OR f.project_id = ${projectId})
-          AND (1 - (fe.embedding::vector <=> ${queryEmbeddingStr}::vector)) >= ${threshold}
+          AND (1 - (fe.embedding <=> ${vectorLiteral}::vector)) >= ${threshold}
         ORDER BY similarity DESC
         LIMIT ${limit}
       `);

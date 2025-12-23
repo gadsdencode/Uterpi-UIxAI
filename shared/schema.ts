@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, date, varchar, json, decimal } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, date, varchar, json, decimal, vector, index } from "drizzle-orm/pg-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -126,8 +126,11 @@ export const files = pgTable("files", {
   originalName: text("original_name").notNull(),
   mimeType: text("mime_type").notNull(),
   size: integer("size").notNull(), // File size in bytes
-  content: text("content"), // Store file content as base64 encoded text
+  content: text("content"), // Store file content as base64 encoded text (legacy, kept for backward compatibility)
   encoding: text("encoding"), // File encoding (e.g., utf-8, base64)
+  
+  // Replit Object Storage reference (new storage method)
+  storageKey: text("storage_key"), // Reference key for Object Storage (format: uploads/{userId}/{uuid}.{ext})
   
   // File metadata
   description: text("description"),
@@ -214,16 +217,19 @@ export const fileInteractions = pgTable("file_interactions", {
 });
 
 // Vector embeddings for file chunks
+// Uses native pgvector type for fast similarity search (384 dimensions for all-MiniLM-L6-v2)
 export const fileEmbeddings = pgTable("file_embeddings", {
   id: serial("id").primaryKey(),
   fileId: integer("file_id").references(() => files.id).notNull(),
   chunkIndex: integer("chunk_index").notNull(),
   chunkText: text("chunk_text").notNull(),
-  embedding: text("embedding").notNull(), // Stored as JSON array string
+  embedding: vector("embedding", { dimensions: 384 }).notNull(), // Native pgvector type
   embeddingModel: text("embedding_model").notNull(),
   embeddingDimensions: integer("embedding_dimensions").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => [
+  index("idx_file_embeddings_hnsw").using("hnsw", table.embedding.op("vector_cosine_ops")),
+]);
 
 // Schema for creating a user with email/password
 export const insertUserSchema = createInsertSchema(users, {
@@ -949,26 +955,32 @@ export const messages = pgTable("messages", {
 });
 
 // Vector embeddings for semantic search
+// Uses native pgvector type for fast similarity search (384 dimensions for all-MiniLM-L6-v2)
 export const messageEmbeddings = pgTable("message_embeddings", {
   id: serial("id").primaryKey(),
   messageId: integer("message_id").references(() => messages.id).notNull(),
-  embedding: text("embedding").notNull(), // Stored as JSON array string
+  embedding: vector("embedding", { dimensions: 384 }).notNull(), // Native pgvector type
   embeddingModel: text("embedding_model").notNull(), // Model used for embedding
   embeddingDimensions: integer("embedding_dimensions").notNull(), // Vector dimensions
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => [
+  index("idx_message_embeddings_hnsw").using("hnsw", table.embedding.op("vector_cosine_ops")),
+]);
 
 // Conversation context vectors (aggregated summaries)
+// Uses native pgvector type for fast similarity search
 export const conversationEmbeddings = pgTable("conversation_embeddings", {
   id: serial("id").primaryKey(),
   conversationId: integer("conversation_id").references(() => conversations.id).notNull(),
-  summaryEmbedding: text("summary_embedding").notNull(), // Stored as JSON array string
+  summaryEmbedding: vector("summary_embedding", { dimensions: 384 }).notNull(), // Native pgvector type
   embeddingModel: text("embedding_model").notNull(),
   embeddingDimensions: integer("embedding_dimensions").notNull(),
   summary: text("summary"), // Text summary of conversation
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+}, (table) => [
+  index("idx_conversation_embeddings_hnsw").using("hnsw", table.summaryEmbedding.op("vector_cosine_ops")),
+]);
 
 // =============================================================================
 // NEW MULTI-TIER SUBSCRIPTION TABLES

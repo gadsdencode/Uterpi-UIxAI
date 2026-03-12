@@ -104,7 +104,7 @@ export class AudioRecordingTestSuite {
           normalize: true
         },
         onResult: (result) => {
-          console.log(`[Test] Orchestrator result: ${result.transcript}`);
+          console.log(`[Test] Orchestrator result: ${result.displayTranscript}`);
         }
       });
 
@@ -124,7 +124,7 @@ export class AudioRecordingTestSuite {
 
       // Test stop (this will process the recorded audio)
       const result = await this.orchestrator.stop();
-      console.log(`✅ SpeechOrchestrator stopped, transcript: "${result.transcript}"`);
+      console.log(`✅ SpeechOrchestrator stopped, transcript: "${result.displayTranscript}"`);
 
       return true;
     } catch (error) {

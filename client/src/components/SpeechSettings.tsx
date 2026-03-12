@@ -1,6 +1,6 @@
 // Speech Settings Component - Configure and test speech functionality
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Mic,
@@ -15,7 +15,9 @@ import {
   Info,
   Play,
   Square,
-  RefreshCw
+  RefreshCw,
+  Search,
+  Activity
 } from 'lucide-react';
 import { useSpeech } from '../hooks/useSpeech';
 import { useAIProvider } from '../hooks/useAIProvider';
@@ -37,6 +39,9 @@ export const SpeechSettings: React.FC<SpeechSettingsProps> = ({ isOpen, onClose 
   const [testTranscript, setTestTranscript] = useState('');
   const [isTestListening, setIsTestListening] = useState(false);
   const [showAudioRecordingTest, setShowAudioRecordingTest] = useState(false);
+  const [voiceSearch, setVoiceSearch] = useState('');
+  const [voiceLanguageFilter, setVoiceLanguageFilter] = useState<string>('all');
+  const [showAllVoices, setShowAllVoices] = useState(false);
 
   const {
     speak,
@@ -53,9 +58,12 @@ export const SpeechSettings: React.FC<SpeechSettingsProps> = ({ isOpen, onClose 
     voices,
     selectedVoice,
     setVoice,
-    capabilities
+    capabilities,
+    vadState,
+    vadStats
   } = useSpeech({
     autoInitialize: false,
+    enableVAD: true,
     onRecognitionResult: (result) => {
       if (result.isFinal) {
         setTestTranscript(result.transcript);
@@ -68,83 +76,75 @@ export const SpeechSettings: React.FC<SpeechSettingsProps> = ({ isOpen, onClose 
     }
   });
 
-  // Load environment info on mount
   useEffect(() => {
-    const loadEnvironmentInfo = async () => {
+    const loadEnv = async () => {
       const envInfo = await SpeechTestUtils.testEnvironmentRequirements();
       setEnvironmentInfo(envInfo);
     };
-    loadEnvironmentInfo();
+    loadEnv();
   }, []);
 
-  // Test all providers
   const testAllProviders = useCallback(async () => {
     setIsTesting(true);
     try {
       const results = await SpeechTestUtils.testAllProviders();
       setTestResults(results);
       toast.success('Speech test completed!');
-    } catch (error) {
+    } catch {
       toast.error('Speech test failed');
-      console.error('Speech test error:', error);
-    } finally {
-      setIsTesting(false);
-    }
+    } finally { setIsTesting(false); }
   }, []);
 
-  // Test TTS with sample text
   const testTTS = useCallback(async () => {
-    if (!speechAvailable) {
-      await initialize();
-    }
-    
+    if (!speechAvailable) await initialize();
     setIsTestSpeaking(true);
     try {
       await speak('Hello! This is a test of the text-to-speech functionality. How does it sound?');
-    } catch (error) {
-      toast.error('TTS test failed');
-      console.error('TTS test error:', error);
-    } finally {
-      setIsTestSpeaking(false);
-    }
+    } catch { toast.error('TTS test failed'); }
+    finally { setIsTestSpeaking(false); }
   }, [speechAvailable, initialize, speak]);
 
-  // Test STT
   const testSTT = useCallback(async () => {
-    if (!speechAvailable) {
-      await initialize();
-    }
-    
+    if (!speechAvailable) await initialize();
     setIsTestListening(true);
     setTestTranscript('');
     try {
-      await startListening({
-        language: 'en-US',
-        continuous: false,
-        interimResults: true
-      });
-    } catch (error) {
+      await startListening({ language: 'en-US', continuous: false, interimResults: true });
+    } catch {
       toast.error('STT test failed');
-      console.error('STT test error:', error);
       setIsTestListening(false);
     }
   }, [speechAvailable, initialize, startListening]);
 
-  // Stop STT test
   const stopSTTTest = useCallback(async () => {
-    try {
-      await stopListening();
-      setIsTestListening(false);
-    } catch (error) {
-      console.error('Stop STT test error:', error);
-    }
+    try { await stopListening(); } catch {}
+    setIsTestListening(false);
   }, [stopListening]);
 
-  // Stop TTS test
   const stopTTSTest = useCallback(() => {
     stopSpeaking();
     setIsTestSpeaking(false);
   }, [stopSpeaking]);
+
+  // ── Voice filtering ──────────────────────────────────────────────────
+  const uniqueLanguages = useMemo(() => {
+    const langs = new Set(voices.map(v => v.language));
+    return Array.from(langs).sort();
+  }, [voices]);
+
+  const filteredVoices = useMemo(() => {
+    let filtered = voices;
+    if (voiceLanguageFilter !== 'all') {
+      filtered = filtered.filter(v => v.language === voiceLanguageFilter);
+    }
+    if (voiceSearch.trim()) {
+      const q = voiceSearch.toLowerCase();
+      filtered = filtered.filter(v => v.name.toLowerCase().includes(q) || v.language.toLowerCase().includes(q));
+    }
+    return filtered;
+  }, [voices, voiceLanguageFilter, voiceSearch]);
+
+  const displayVoices = showAllVoices ? filteredVoices : filteredVoices.slice(0, 12);
 
   if (!isOpen) return null;
 
@@ -191,7 +191,7 @@ export const SpeechSettings: React.FC<SpeechSettingsProps> = ({ isOpen, onClose 
                   <div className="flex items-center gap-2">
                     <span className="text-slate-300">HTTPS:</span>
                     <span className={environmentInfo.isHTTPS ? 'text-green-400' : 'text-red-400'}>
-                      {environmentInfo.isHTTPS ? '✅ Enabled' : '❌ Disabled'}
+                      {environmentInfo.isHTTPS ? 'Enabled' : 'Disabled'}
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
@@ -200,38 +200,89 @@ export const SpeechSettings: React.FC<SpeechSettingsProps> = ({ isOpen, onClose 
                       environmentInfo.microphonePermission === 'granted' ? 'text-green-400' :
                       environmentInfo.microphonePermission === 'denied' ? 'text-red-400' : 'text-yellow-400'
                     }>
-                      {environmentInfo.microphonePermission === 'granted' ? '✅ Granted' :
-                       environmentInfo.microphonePermission === 'denied' ? '❌ Denied' : '⚠️ Unknown'}
+                      {environmentInfo.microphonePermission === 'granted' ? 'Granted' :
+                       environmentInfo.microphonePermission === 'denied' ? 'Denied' : 'Unknown'}
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-slate-300">Web Speech:</span>
                     <span className={environmentInfo.webSpeechAvailable ? 'text-green-400' : 'text-red-400'}>
-                      {environmentInfo.webSpeechAvailable ? '✅ Available' : '❌ Unavailable'}
+                      {environmentInfo.webSpeechAvailable ? 'Available' : 'Unavailable'}
                     </span>
                   </div>
                 </div>
               )}
             </div>
 
-            {/* Current Provider Info */}
+            {/* Current Provider + VAD Live Indicator */}
             <div className="bg-slate-800/50 rounded-lg p-4">
-              <h3 className="text-lg font-medium text-white mb-3">Current AI Provider</h3>
-              <div className="text-slate-300">
-                <p><strong>Provider:</strong> {currentProvider}</p>
-                <p><strong>Speech Available:</strong> {speechAvailable ? '✅ Yes' : '❌ No'}</p>
-                {speechError && (
-                  <p className="text-red-400 mt-2"><strong>Error:</strong> {speechError}</p>
-                )}
+              <h3 className="text-lg font-medium text-white mb-3 flex items-center gap-2">
+                <Activity className="w-4 h-4" />
+                Provider & Voice Activity
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="text-slate-300 text-sm space-y-1">
+                  <p><strong>Provider:</strong> {currentProvider}</p>
+                  <p><strong>Speech Available:</strong> {speechAvailable ? 'Yes' : 'No'}</p>
+                  {speechError && <p className="text-red-400"><strong>Error:</strong> {speechError}</p>}
+                </div>
+                {/* VAD live indicator */}
+                <div className="flex flex-col items-center justify-center gap-2">
+                  <div className="text-xs text-slate-400 uppercase tracking-wider">VAD State</div>
+                  <div className="flex items-center gap-3">
+                    <div className={`w-4 h-4 rounded-full transition-colors duration-200 ${
+                      vadState === 'speech' ? 'bg-green-400 shadow-lg shadow-green-400/40 animate-pulse' :
+                      vadState === 'noise' ? 'bg-yellow-400 shadow-lg shadow-yellow-400/30' :
+                      'bg-slate-600'
+                    }`} />
+                    <span className={`text-sm font-medium ${
+                      vadState === 'speech' ? 'text-green-400' :
+                      vadState === 'noise' ? 'text-yellow-400' :
+                      'text-slate-500'
+                    }`}>
+                      {vadState === 'speech' ? 'Speaking' :
+                       vadState === 'noise' ? 'Noise' :
+                       vadState === 'silence' ? 'Silence' : 'Inactive'}
+                    </span>
+                  </div>
+                  {vadStats && (
+                    <div className="text-xs text-slate-500 mt-1">
+                      {vadStats.speechSegments} segment{vadStats.speechSegments !== 1 ? 's' : ''} detected
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
-            {/* Voice Selection */}
+            {/* Voice Selection — with filtering */}
             {voices.length > 0 && (
               <div className="bg-slate-800/50 rounded-lg p-4">
                 <h3 className="text-lg font-medium text-white mb-3">Voice Selection</h3>
+                <div className="flex flex-col sm:flex-row gap-2 mb-3">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-2.5 top-2.5 w-4 h-4 text-slate-500" />
+                    <input
+                      type="text"
+                      value={voiceSearch}
+                      onChange={(e) => setVoiceSearch(e.target.value)}
+                      placeholder="Search voices..."
+                      className="w-full pl-8 pr-3 py-2 bg-slate-700/50 border border-slate-600 rounded text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
+                    />
+                  </div>
+                  <select
+                    value={voiceLanguageFilter}
+                    onChange={(e) => setVoiceLanguageFilter(e.target.value)}
+                    aria-label="Filter voices by language"
+                    className="px-3 py-2 bg-slate-700/50 border border-slate-600 rounded text-sm text-white focus:outline-none focus:ring-1 focus:ring-violet-500"
+                  >
+                    <option value="all">All languages</option>
+                    {uniqueLanguages.map(lang => (
+                      <option key={lang} value={lang}>{lang}</option>
+                    ))}
+                  </select>
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                  {voices.slice(0, 8).map((voice) => (
+                  {displayVoices.map((voice) => (
                     <button
                       key={voice.id}
                       onClick={() => setVoice(voice)}
@@ -242,10 +293,26 @@ export const SpeechSettings: React.FC<SpeechSettingsProps> = ({ isOpen, onClose 
                       }`}
                     >
                       <div className="font-medium">{voice.name}</div>
-                      <div className="text-xs text-slate-400">{voice.language}</div>
+                      <div className="text-xs text-slate-400">{voice.language}{voice.gender ? ` · ${voice.gender}` : ''}</div>
                     </button>
                   ))}
                 </div>
+                {filteredVoices.length > 12 && !showAllVoices && (
+                  <button
+                    onClick={() => setShowAllVoices(true)}
+                    className="mt-2 text-xs text-violet-400 hover:text-violet-300"
+                  >
+                    Show all {filteredVoices.length} voices
+                  </button>
+                )}
+                {showAllVoices && filteredVoices.length > 12 && (
+                  <button
+                    onClick={() => setShowAllVoices(false)}
+                    className="mt-2 text-xs text-violet-400 hover:text-violet-300"
+                  >
+                    Show fewer
+                  </button>
+                )}
               </div>
             )}
 
@@ -279,7 +346,6 @@ export const SpeechSettings: React.FC<SpeechSettingsProps> = ({ isOpen, onClose 
                     )}
                   </div>
                 </div>
-
                 {/* STT Test */}
                 <div className="space-y-2">
                   <h4 className="text-sm font-medium text-slate-300">Speech-to-Text</h4>
@@ -309,7 +375,7 @@ export const SpeechSettings: React.FC<SpeechSettingsProps> = ({ isOpen, onClose 
                 Audio Recording Test (MRecordRTC)
               </h3>
               <p className="text-slate-400 text-sm mb-4">
-                Test the new MRecordRTC audio recording and processing pipeline
+                Test the MRecordRTC audio recording and processing pipeline
               </p>
               <button
                 onClick={() => setShowAudioRecordingTest(true)}
@@ -332,19 +398,11 @@ export const SpeechSettings: React.FC<SpeechSettingsProps> = ({ isOpen, onClose 
                 className="flex items-center gap-2 px-4 py-2 bg-green-500/20 text-green-300 rounded hover:bg-green-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isTesting ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    Testing...
-                  </>
+                  <><RefreshCw className="w-4 h-4 animate-spin" />Testing...</>
                 ) : (
-                  <>
-                    <TestTube className="w-4 h-4" />
-                    Test All Providers
-                  </>
+                  <><TestTube className="w-4 h-4" />Test All Providers</>
                 )}
               </button>
-
-              {/* Test Results */}
               {testResults.length > 0 && (
                 <div className="mt-4 space-y-3">
                   <h4 className="text-sm font-medium text-slate-300">Test Results</h4>
@@ -353,21 +411,15 @@ export const SpeechSettings: React.FC<SpeechSettingsProps> = ({ isOpen, onClose 
                       <div className="flex items-center justify-between mb-2">
                         <span className="font-medium text-white capitalize">{result.provider}</span>
                         <div className="flex gap-2">
-                          <span className={`text-xs px-2 py-1 rounded ${
-                            result.sttWorking ? 'bg-green-500/20 text-green-300' : 'bg-red-500/20 text-red-300'
-                          }`}>
-                            STT {result.sttWorking ? '✅' : '❌'}
+                          <span className={`text-xs px-2 py-1 rounded ${result.sttWorking ? 'bg-green-500/20 text-green-300' : 'bg-red-500/20 text-red-300'}`}>
+                            STT {result.sttWorking ? 'OK' : 'Fail'}
                           </span>
-                          <span className={`text-xs px-2 py-1 rounded ${
-                            result.ttsWorking ? 'bg-green-500/20 text-green-300' : 'bg-red-500/20 text-red-300'
-                          }`}>
-                            TTS {result.ttsWorking ? '✅' : '❌'}
+                          <span className={`text-xs px-2 py-1 rounded ${result.ttsWorking ? 'bg-green-500/20 text-green-300' : 'bg-red-500/20 text-red-300'}`}>
+                            TTS {result.ttsWorking ? 'OK' : 'Fail'}
                           </span>
                         </div>
                       </div>
-                      {result.error && (
-                        <p className="text-xs text-red-400">{result.error}</p>
-                      )}
+                      {result.error && <p className="text-xs text-red-400">{result.error}</p>}
                     </div>
                   ))}
                 </div>
@@ -379,38 +431,27 @@ export const SpeechSettings: React.FC<SpeechSettingsProps> = ({ isOpen, onClose 
               <div className="bg-slate-800/50 rounded-lg p-4">
                 <h3 className="text-lg font-medium text-white mb-3">Current Capabilities</h3>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                  <div className="flex items-center gap-2">
-                    <span className="text-slate-300">TTS:</span>
-                    <span className={capabilities.supportsTTS ? 'text-green-400' : 'text-red-400'}>
-                      {capabilities.supportsTTS ? '✅' : '❌'}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-slate-300">STT:</span>
-                    <span className={capabilities.supportsSTT ? 'text-green-400' : 'text-red-400'}>
-                      {capabilities.supportsSTT ? '✅' : '❌'}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-slate-300">Streaming:</span>
-                    <span className={capabilities.supportsStreaming ? 'text-green-400' : 'text-red-400'}>
-                      {capabilities.supportsStreaming ? '✅' : '❌'}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-slate-300">Multi-lang:</span>
-                    <span className={capabilities.supportsMultiLanguage ? 'text-green-400' : 'text-red-400'}>
-                      {capabilities.supportsMultiLanguage ? '✅' : '❌'}
-                    </span>
-                  </div>
+                  {[
+                    ['TTS', capabilities.supportsTTS],
+                    ['STT', capabilities.supportsSTT],
+                    ['Streaming', capabilities.supportsStreaming],
+                    ['Multi-lang', capabilities.supportsMultiLanguage],
+                    ['VAD', capabilities.supportsVAD]
+                  ].map(([label, ok]) => (
+                    <div key={label as string} className="flex items-center gap-2">
+                      <span className="text-slate-300">{label as string}:</span>
+                      <span className={(ok as boolean) ? 'text-green-400' : 'text-red-400'}>
+                        {(ok as boolean) ? <CheckCircle className="w-4 h-4 inline" /> : <XCircle className="w-4 h-4 inline" />}
+                      </span>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
           </div>
         </motion.div>
       </motion.div>
-      
-      {/* Audio Recording Test Modal */}
+
       <AudioRecordingTest
         isOpen={showAudioRecordingTest}
         onClose={() => setShowAudioRecordingTest(false)}

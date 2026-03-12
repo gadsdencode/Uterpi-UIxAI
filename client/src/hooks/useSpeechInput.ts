@@ -3,19 +3,25 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSpeech } from './useSpeech';
-import { toast } from 'sonner';
+import { speechLog, classifySpeechError } from '../lib/speech/speechDebug';
+
+const TAG = 'useSpeechInput';
+
+const MIN_AUTO_CONFIRM_LENGTH = 3;
+
+export type VoiceInputPhase = 'idle' | 'listening' | 'preview' | 'applied';
 
 export interface UseSpeechInputOptions {
-  /** Callback when voice input is confirmed */
   onVoiceInputConfirmed?: (transcript: string) => void;
-  /** Auto-confirm voice input after listening stops (default: true) */
   autoConfirm?: boolean;
-  /** Delay before auto-confirming voice input in ms (default: 500) */
   autoConfirmDelay?: number;
+  /** Minimum word count before auto-confirm will fire (default 2) */
+  minWordsForAutoConfirm?: number;
+  /** If VAD is enabled and speech_end fires, auto-stop listening after this delay (ms, 0 = disabled) */
+  vadAutoStopDelay?: number;
 }
 
 export interface UseSpeechInputReturn {
-  // Speech state
   isListening: boolean;
   isSpeaking: boolean;
   speechAvailable: boolean;
@@ -24,25 +30,16 @@ export interface UseSpeechInputReturn {
   speechError: string | null;
   transcript: string;
   interimTranscript: string;
-  
-  // Voice input state (decoupled from keyboard input)
   voiceTranscript: string;
   isVoiceInputPending: boolean;
-  
-  // User typing state
+  voiceInputPhase: VoiceInputPhase;
   isUserTyping: boolean;
-  
-  // Speaking message tracking
   speakingMessageId: string | null;
-  
-  // Actions
   handleVoiceInput: () => Promise<void>;
   handleSpeak: (messageId: string, text: string) => Promise<void>;
   confirmVoiceInput: () => void;
   discardVoiceInput: () => void;
   clearTranscript: () => void;
-  
-  // Manual input management (for coordinating with keyboard input)
   setUserTyping: (isTyping: boolean) => void;
   resetUserTypingLock: () => void;
 }
@@ -51,23 +48,22 @@ export const useSpeechInput = (options: UseSpeechInputOptions = {}): UseSpeechIn
   const {
     onVoiceInputConfirmed,
     autoConfirm = true,
-    autoConfirmDelay = 500
+    autoConfirmDelay = 500,
+    minWordsForAutoConfirm = 2,
+    vadAutoStopDelay = 0
   } = options;
 
-  // Voice input state management - decoupled from main input
   const [voiceTranscript, setVoiceTranscript] = useState('');
   const [isVoiceInputPending, setIsVoiceInputPending] = useState(false);
+  const [voiceInputPhase, setVoiceInputPhase] = useState<VoiceInputPhase>('idle');
   const [voiceInputSource, setVoiceInputSource] = useState<'keyboard' | 'voice'>('keyboard');
-  
-  // Speaking state
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
-  
-  // User typing state lock - prevents transcript from overwriting manual keyboard input
+
   const isUserTypingRef = useRef(false);
   const [isUserTyping, setIsUserTyping] = useState(false);
-  const userTypingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const userTypingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const vadAutoStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Speech hook
   const {
     speak,
     stopSpeaking,
@@ -81,89 +77,99 @@ export const useSpeechInput = (options: UseSpeechInputOptions = {}): UseSpeechIn
     isAvailable: speechAvailable,
     isHTTPS,
     microphonePermission,
-    error: speechError
+    error: speechError,
+    vadState
   } = useSpeech({
     autoInitialize: true,
     onRecognitionResult: (result) => {
-      console.log('🎤 useSpeechInput onRecognitionResult:', result);
+      speechLog.info(TAG, 'Recognition result received', { isFinal: result.isFinal });
     },
     onRecognitionError: (error) => {
-      console.error('🎤 useSpeechInput speech recognition error:', error);
-      toast.error(`Speech recognition error: ${error.message}`);
+      const info = classifySpeechError(error);
+      speechLog.error(TAG, info.message);
     }
   });
 
-  // Voice transcript state management - decoupled from main input
+  // ── Sync voice transcript from recognition results ───────────────────
   useEffect(() => {
-    console.log('🎤 Voice transcript effect triggered:', {
-      transcript,
-      interimTranscript,
-      isListening,
-      voiceInputSource,
-      isUserTyping: isUserTypingRef.current
-    });
-    
-    // Only update voice transcript when actively listening and not manually typing
     if (isListening && !isUserTypingRef.current && voiceInputSource === 'voice') {
-      const currentTranscript = transcript + (interimTranscript ? ' ' + interimTranscript : '');
-      if (currentTranscript.trim()) {
-        console.log('🎤 Updating voice transcript (decoupled):', currentTranscript);
-        setVoiceTranscript(currentTranscript);
+      const current = transcript + (interimTranscript ? ' ' + interimTranscript : '');
+      if (current.trim()) {
+        setVoiceTranscript(current);
         setIsVoiceInputPending(true);
+        setVoiceInputPhase('listening');
       }
     }
   }, [transcript, interimTranscript, isListening, voiceInputSource]);
 
-  // Auto-confirm voice input when listening stops
+  // ── VAD-based auto-stop ──────────────────────────────────────────────
+  useEffect(() => {
+    if (!vadAutoStopDelay || vadAutoStopDelay <= 0) return;
+    if (vadState === 'silence' && isListening && voiceTranscript.trim().length > MIN_AUTO_CONFIRM_LENGTH) {
+      vadAutoStopTimerRef.current = setTimeout(async () => {
+        if (isListening) {
+          speechLog.info(TAG, 'VAD auto-stop: speech ended, stopping listening');
+          await stopListening();
+        }
+      }, vadAutoStopDelay);
+    }
+    return () => {
+      if (vadAutoStopTimerRef.current) {
+        clearTimeout(vadAutoStopTimerRef.current);
+        vadAutoStopTimerRef.current = null;
+      }
+    };
+  }, [vadState, isListening, voiceTranscript, vadAutoStopDelay, stopListening]);
+
+  // ── Auto-confirm when listening stops ────────────────────────────────
   useEffect(() => {
     if (!autoConfirm) return;
-    
     if (!isListening && isVoiceInputPending && voiceTranscript.trim()) {
-      console.log('🎤 Listening stopped with pending voice input, auto-confirming');
-      
-      const confirmTimer = setTimeout(() => {
+      setVoiceInputPhase('preview');
+
+      const wordCount = voiceTranscript.trim().split(/\s+/).length;
+      if (wordCount < minWordsForAutoConfirm) {
+        speechLog.info(TAG, `Transcript too short (${wordCount} words), staying in preview`);
+        return;
+      }
+
+      const timer = setTimeout(() => {
         if (isVoiceInputPending && voiceTranscript.trim() && !isUserTypingRef.current) {
-          console.log('🎤 Auto-confirming voice input:', voiceTranscript);
-          
-          if (onVoiceInputConfirmed) {
-            onVoiceInputConfirmed(voiceTranscript.trim());
-          }
-          
+          speechLog.info(TAG, 'Auto-confirming voice input');
+          onVoiceInputConfirmed?.(voiceTranscript.trim());
           setVoiceTranscript('');
           setIsVoiceInputPending(false);
           setVoiceInputSource('keyboard');
+          setVoiceInputPhase('applied');
+          setTimeout(() => setVoiceInputPhase('idle'), 1500);
         }
       }, autoConfirmDelay);
-      
-      return () => clearTimeout(confirmTimer);
-    }
-  }, [isListening, isVoiceInputPending, voiceTranscript, autoConfirm, autoConfirmDelay, onVoiceInputConfirmed]);
 
-  // Confirm voice input explicitly
+      return () => clearTimeout(timer);
+    }
+  }, [isListening, isVoiceInputPending, voiceTranscript, autoConfirm, autoConfirmDelay, minWordsForAutoConfirm, onVoiceInputConfirmed]);
+
+  // ── Manual confirm / discard ─────────────────────────────────────────
   const confirmVoiceInput = useCallback(() => {
     if (voiceTranscript.trim()) {
-      console.log('🎤 Explicitly confirming voice input:', voiceTranscript);
-      
-      if (onVoiceInputConfirmed) {
-        onVoiceInputConfirmed(voiceTranscript.trim());
-      }
-      
+      onVoiceInputConfirmed?.(voiceTranscript.trim());
       setVoiceTranscript('');
       setIsVoiceInputPending(false);
       setVoiceInputSource('keyboard');
+      setVoiceInputPhase('applied');
+      setTimeout(() => setVoiceInputPhase('idle'), 1500);
     }
   }, [voiceTranscript, onVoiceInputConfirmed]);
 
-  // Discard voice input explicitly
   const discardVoiceInput = useCallback(() => {
-    console.log('🎤 Discarding voice input');
     setVoiceTranscript('');
     setIsVoiceInputPending(false);
     setVoiceInputSource('keyboard');
+    setVoiceInputPhase('idle');
     clearTranscript();
   }, [clearTranscript]);
 
-  // Handle speak (text-to-speech)
+  // ── TTS speak toggle ─────────────────────────────────────────────────
   const handleSpeak = useCallback(async (messageId: string, text: string) => {
     try {
       if (speakingMessageId === messageId) {
@@ -176,95 +182,58 @@ export const useSpeechInput = (options: UseSpeechInputOptions = {}): UseSpeechIn
         setSpeakingMessageId(null);
       }
     } catch (error) {
-      console.error('Failed to speak:', error);
-      toast.error('Failed to speak message');
+      const info = classifySpeechError(error);
+      speechLog.error(TAG, info.message);
       setSpeakingMessageId(null);
     }
   }, [speakingMessageId, speak, stopSpeaking]);
 
-  // Handle voice input toggle (speech-to-text)
+  // ── Voice input toggle ───────────────────────────────────────────────
   const handleVoiceInput = useCallback(async () => {
     try {
-      console.log('🎤 handleVoiceInput called, isListening:', isListening);
-      
       const { isHTTPS: checkHTTPS } = await import('../lib/speech/speechUtils');
-      const isSecureContext = checkHTTPS();
-      
-      if (!isSecureContext && microphonePermission !== 'granted') {
-        toast.error('🔒 Microphone access requires HTTPS. Please use a secure connection.');
-        return;
+      if (!checkHTTPS() && microphonePermission !== 'granted') {
+        const info = classifySpeechError(new Error('Requires HTTPS'));
+        throw new Error(info.userMessage);
       }
-      
+
       if (isListening) {
-        console.log('🎤 Stopping recording...');
         const finalTranscript = await stopListening();
-        console.log('🎤 Final transcript:', finalTranscript);
-        
         if (finalTranscript) {
           setVoiceTranscript(finalTranscript);
           setIsVoiceInputPending(true);
+          setVoiceInputPhase('preview');
         }
         setVoiceInputSource('keyboard');
       } else {
-        console.log('🎤 Starting recording...');
-        
-        // Set voice input source to 'voice' to enable transcript capture
         setVoiceInputSource('voice');
-        
-        // Reset user typing lock when starting voice input
         isUserTypingRef.current = false;
         setIsUserTyping(false);
-        if (userTypingTimeoutRef.current) {
-          clearTimeout(userTypingTimeoutRef.current);
-          userTypingTimeoutRef.current = null;
-        }
-        console.log('🎤 User typing lock reset - voice input taking over');
-        
-        // Clear voice transcript state
+        if (userTypingTimeoutRef.current) { clearTimeout(userTypingTimeoutRef.current); userTypingTimeoutRef.current = null; }
         setVoiceTranscript('');
         setIsVoiceInputPending(false);
+        setVoiceInputPhase('listening');
         clearTranscript();
-        
-        await startListening({
-          language: 'en-US',
-          continuous: true,
-          interimResults: true
-        });
-        console.log('🎤 Recording started successfully');
+
+        await startListening({ language: 'en-US', continuous: true, interimResults: true });
       }
     } catch (error) {
-      console.error('🎤 Voice input error:', error);
-      const errorMessage = (error as Error).message || 'Voice input failed';
-      
-      // Reset voice state on error
+      const info = classifySpeechError(error);
       setVoiceInputSource('keyboard');
       setVoiceTranscript('');
       setIsVoiceInputPending(false);
-      
-      if (errorMessage.includes('permission')) {
-        toast.error('🎤 Microphone permission denied. Please allow microphone access and try again.');
-      } else if (errorMessage.includes('not-allowed')) {
-        toast.error('🔒 Microphone access blocked. Check your browser settings.');
-      } else if (errorMessage.includes('network')) {
-        toast.error('🌐 Network error. Please check your internet connection.');
-      } else {
-        toast.error(`🎤 ${errorMessage}`);
-      }
+      setVoiceInputPhase('idle');
+      speechLog.error(TAG, info.message);
+      throw new Error(info.userMessage);
     }
   }, [isListening, startListening, stopListening, microphonePermission, clearTranscript]);
 
-  // Set user typing state (for coordinating with keyboard input)
-  const setUserTyping = useCallback((isTyping: boolean) => {
-    isUserTypingRef.current = isTyping;
-    setIsUserTyping(isTyping);
-    
-    if (isTyping) {
-      // Clear any existing timeout
-      if (userTypingTimeoutRef.current) {
-        clearTimeout(userTypingTimeoutRef.current);
-      }
-      
-      // Reset the lock after user stops typing for 3 seconds
+  // ── User typing coordination ─────────────────────────────────────────
+  const setUserTyping = useCallback((typing: boolean) => {
+    isUserTypingRef.current = typing;
+    setIsUserTyping(typing);
+    if (typing) {
+      if (userTypingTimeoutRef.current) clearTimeout(userTypingTimeoutRef.current);
       userTypingTimeoutRef.current = setTimeout(() => {
         isUserTypingRef.current = false;
         setIsUserTyping(false);
@@ -272,33 +241,23 @@ export const useSpeechInput = (options: UseSpeechInputOptions = {}): UseSpeechIn
     }
   }, []);
 
-  // Reset user typing lock
   const resetUserTypingLock = useCallback(() => {
     isUserTypingRef.current = false;
     setIsUserTyping(false);
-    if (userTypingTimeoutRef.current) {
-      clearTimeout(userTypingTimeoutRef.current);
-      userTypingTimeoutRef.current = null;
-    }
+    if (userTypingTimeoutRef.current) { clearTimeout(userTypingTimeoutRef.current); userTypingTimeoutRef.current = null; }
   }, []);
 
-  // Cleanup on unmount
+  // ── Cleanup ──────────────────────────────────────────────────────────
   useEffect(() => {
     return () => {
-      if (isListening) {
-        stopListening();
-      }
-      if (isSpeaking) {
-        stopSpeaking();
-      }
-      if (userTypingTimeoutRef.current) {
-        clearTimeout(userTypingTimeoutRef.current);
-      }
+      if (isListening) stopListening();
+      if (isSpeaking) stopSpeaking();
+      if (userTypingTimeoutRef.current) clearTimeout(userTypingTimeoutRef.current);
+      if (vadAutoStopTimerRef.current) clearTimeout(vadAutoStopTimerRef.current);
     };
   }, [isListening, isSpeaking, stopListening, stopSpeaking]);
 
   return {
-    // Speech state
     isListening,
     isSpeaking,
     speechAvailable,
@@ -307,27 +266,17 @@ export const useSpeechInput = (options: UseSpeechInputOptions = {}): UseSpeechIn
     speechError,
     transcript,
     interimTranscript,
-    
-    // Voice input state
     voiceTranscript,
     isVoiceInputPending,
-    
-    // User typing state
+    voiceInputPhase,
     isUserTyping,
-    
-    // Speaking message tracking
     speakingMessageId,
-    
-    // Actions
     handleVoiceInput,
     handleSpeak,
     confirmVoiceInput,
     discardVoiceInput,
     clearTranscript,
-    
-    // Manual input management
     setUserTyping,
     resetUserTypingLock
   };
 };
-

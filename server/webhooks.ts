@@ -1,20 +1,27 @@
 import type { Request, Response } from 'express';
 import Stripe from 'stripe';
-import { verifyWebhookSignature, syncSubscriptionFromStripe } from './stripe';
-import { handleSubscriptionCheckoutSuccess, handleCreditsCheckoutSuccess } from './stripe-checkout';
+import { 
+  verifyWebhookSignature,
+  handleSubscriptionCheckoutSuccess, 
+  handleCreditsCheckoutSuccess, 
+  grantMonthlyCreditsForTier,
+  syncSubscriptionFromStripe,
+} from './stripe';
 import { db } from './db';
 import { users } from '@shared/schema';
 import { eq } from 'drizzle-orm';
+import { invalidateSubscriptionCache } from './subscription-middleware';
 
 /**
  * Handle Stripe webhooks for subscription events
  */
 export async function handleStripeWebhook(req: Request, res: Response): Promise<void> {
+  console.log(`🟣 [handleStripeWebhook] Received webhook request`);
   const sig = req.headers['stripe-signature'] as string;
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
   if (!webhookSecret) {
-    console.error('Stripe webhook secret not configured');
+    console.error('❌ [handleStripeWebhook] Stripe webhook secret not configured');
     res.status(500).json({ error: 'Webhook configuration error' });
     return;
   }
@@ -23,14 +30,16 @@ export async function handleStripeWebhook(req: Request, res: Response): Promise<
 
   try {
     // Verify webhook signature
+    console.log(`🟣 [handleStripeWebhook] Verifying webhook signature`);
     event = verifyWebhookSignature(req.body, sig, webhookSecret);
+    console.log(`✅ [handleStripeWebhook] Signature verified successfully`);
   } catch (error) {
-    console.error('Webhook signature verification failed:', error);
+    console.error('❌ [handleStripeWebhook] Webhook signature verification failed:', error);
     res.status(400).json({ error: 'Invalid signature' });
     return;
   }
 
-  console.log(`Processing webhook event: ${event.type}`);
+  console.log(`🟣 [handleStripeWebhook] Processing webhook event: ${event.type}, ID: ${event.id}`);
 
   try {
     switch (event.type) {
@@ -67,12 +76,13 @@ export async function handleStripeWebhook(req: Request, res: Response): Promise<
         break;
 
       default:
-        console.log(`Unhandled event type: ${event.type}`);
+        console.log(`⚠️ [handleStripeWebhook] Unhandled event type: ${event.type}`);
     }
 
+    console.log(`✅ [handleStripeWebhook] Successfully processed webhook event: ${event.type}`);
     res.json({ received: true });
   } catch (error) {
-    console.error(`Error processing webhook ${event.type}:`, error);
+    console.error(`❌ [handleStripeWebhook] Error processing webhook ${event.type}:`, error);
     res.status(500).json({ error: 'Webhook processing failed' });
   }
 }
@@ -87,6 +97,8 @@ async function handleSubscriptionCreated(subscription: Stripe.Subscription): Pro
     const userId = await getUserIdFromCustomer(subscription.customer as string);
     if (userId) {
       await syncSubscriptionFromStripe(subscription.id, userId);
+      // Invalidate cache after subscription creation
+      await invalidateSubscriptionCache(userId);
       console.log(`Synced new subscription for user ${userId}`);
     }
   } catch (error) {
@@ -104,6 +116,8 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription): Pro
     const userId = await getUserIdFromCustomer(subscription.customer as string);
     if (userId) {
       await syncSubscriptionFromStripe(subscription.id, userId);
+      // Invalidate cache after subscription update
+      await invalidateSubscriptionCache(userId);
       console.log(`Synced updated subscription for user ${userId}`);
     }
   } catch (error) {
@@ -129,6 +143,9 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription): Pro
           updatedAt: new Date()
         })
         .where(eq(users.id, userId));
+
+      // Invalidate cache after subscription deletion
+      await invalidateSubscriptionCache(userId);
 
       console.log(`Updated user ${userId} to freemium tier after subscription deletion`);
     }
@@ -159,6 +176,28 @@ async function handlePaymentSucceeded(invoice: Stripe.Invoice): Promise<void> {
           .where(eq(users.id, userId));
 
         console.log(`Payment recovery completed for user ${userId}`);
+
+        // Grant monthly credits on successful invoice for active paid tiers
+        try {
+          // We need the tier; fetch from users table after sync
+          const [user] = await db.select().from(users).where(eq(users.id, userId));
+          const tier = (user?.subscriptionTier || '').toLowerCase();
+          if (tier && tier !== 'freemium' && tier !== 'free') {
+            await grantMonthlyCreditsForTier({
+              userId,
+              tier,
+              source: 'invoice',
+              invoiceId: invoice.id,
+              subscriptionId: (invoice as any).subscription as string,
+              periodStart: (invoice?.period_start as any) || undefined,
+            });
+          }
+        } catch (grantErr) {
+          console.error('Error granting monthly credits on invoice:', grantErr);
+        }
+
+        // Invalidate cache after payment success
+        await invalidateSubscriptionCache(userId);
       }
     }
   } catch (error) {
@@ -183,6 +222,9 @@ async function handlePaymentFailed(invoice: Stripe.Invoice): Promise<void> {
             updatedAt: new Date()
           })
           .where(eq(users.id, userId));
+
+        // Invalidate cache after payment failure
+        await invalidateSubscriptionCache(userId);
 
         console.log(`Updated user ${userId} to past_due status after payment failure`);
         
@@ -266,28 +308,35 @@ async function getUserIdFromCustomer(customerId: string): Promise<number | null>
  * Handle checkout session completed event (for Checkout Sessions)
  */
 async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session): Promise<void> {
-  console.log(`Checkout session completed: ${session.id}, mode: ${session.mode}`);
+  console.log(`🟢 [handleCheckoutSessionCompleted] Checkout session completed: ${session.id}, mode: ${session.mode}`);
+  console.log(`🟢 [handleCheckoutSessionCompleted] Session metadata:`, session.metadata);
+  console.log(`🟢 [handleCheckoutSessionCompleted] Payment status: ${session.payment_status}, Customer: ${session.customer}`);
   
   try {
     // Check if this is a subscription or one-time payment
     if (session.mode === 'subscription') {
       // Handle subscription checkout completion
+      console.log(`🟢 [handleCheckoutSessionCompleted] Processing subscription checkout`);
       await handleSubscriptionCheckoutSuccess(session);
-      console.log(`Processed subscription checkout for session ${session.id}`);
+      console.log(`✅ [handleCheckoutSessionCompleted] Processed subscription checkout for session ${session.id}`);
     } else if (session.mode === 'payment') {
       // Handle AI credits checkout completion
       const isCreditsPayment = session.metadata?.type === 'ai_credits';
+      console.log(`🟢 [handleCheckoutSessionCompleted] Mode is 'payment', isCreditsPayment: ${isCreditsPayment}, metadata.type: ${session.metadata?.type}`);
+      
       if (isCreditsPayment) {
+        console.log(`🟢 [handleCheckoutSessionCompleted] Calling handleCreditsCheckoutSuccess`);
         await handleCreditsCheckoutSuccess(session);
-        console.log(`Processed AI credits checkout for session ${session.id}`);
+        console.log(`✅ [handleCheckoutSessionCompleted] Processed AI credits checkout for session ${session.id}`);
       } else {
-        console.log(`One-time payment completed but not recognized: ${session.id}`);
+        console.log(`⚠️ [handleCheckoutSessionCompleted] One-time payment completed but not recognized as credits: ${session.id}`);
+        console.log(`⚠️ [handleCheckoutSessionCompleted] Metadata:`, JSON.stringify(session.metadata, null, 2));
       }
     } else {
-      console.log(`Unknown checkout session mode: ${session.mode} for session ${session.id}`);
+      console.log(`⚠️ [handleCheckoutSessionCompleted] Unknown checkout session mode: ${session.mode} for session ${session.id}`);
     }
   } catch (error) {
-    console.error('Error handling checkout session completed:', error);
+    console.error(`❌ [handleCheckoutSessionCompleted] Error handling checkout session completed for ${session.id}:`, error);
     throw error;
   }
 }

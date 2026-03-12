@@ -5,10 +5,24 @@
 
 import type { Request, Response, NextFunction } from 'express';
 import { db } from './db';
-import { users, subscriptions, subscriptionFeatures, teams, aiCreditsTransactions } from '@shared/schema';
+import { users, subscriptions, subscriptionFeatures, teams, aiCreditsTransactions, rateLimits } from '@shared/schema';
 import { eq, desc, and, gte, sql } from 'drizzle-orm';
 import { storage } from './storage';
-import { checkCreditBalance } from './stripe-enhanced';
+import { checkCreditBalance } from './stripe';
+import { isVectorizationEnabled } from './vector-flags';
+import { cacheService, getSubscriptionCacheKey, CACHE_TTL } from './services/cacheService';
+
+// Helper: detect if request should be BYOK-exempt from app-side limits/credits
+function isBYOKNonLmstudio(req: any): boolean {
+  try {
+    const provider = (req?.body?.provider || req?.query?.provider || '').toString().toLowerCase();
+    const hasApiKey = Boolean(req?.body?.apiKey);
+    // Exempt when user supplies their own API key for non-LMStudio providers
+    return hasApiKey && provider && provider !== 'lmstudio';
+  } catch {
+    return false;
+  }
+}
 
 // Estimate required credits based on message complexity and context
 export function estimateRequiredCredits(messages: any[], enableContext: boolean = false, hasAttachments: boolean = false, model: string = ''): number {
@@ -38,8 +52,8 @@ export function estimateRequiredCredits(messages: any[], enableContext: boolean 
     estimatedCredits = 8;
   }
 
-  // Add buffer for context enhancement (but not for very simple messages)
-  if (enableContext && content.length > 10) {
+  // Add buffer for context enhancement only when vectors are enabled (and not for very simple messages)
+  if (isVectorizationEnabled() && enableContext && content.length > 10) {
     estimatedCredits += 2;
   }
 
@@ -109,7 +123,7 @@ export interface EnhancedSubscriptionCheck {
     messagesUsedThisMonth: number;
     messagesRemaining: number;
     aiProvidersAccess: string[];
-    monthlyAICredits: number;
+    monthlyAiCredits: number;
     currentCreditsBalance: number;
     maxProjects: number;
     fullCodebaseContext: boolean;
@@ -131,6 +145,29 @@ export interface EnhancedSubscriptionCheck {
   };
   isGrandfathered: boolean;
   grandfatheredFrom?: string;
+}
+
+/**
+ * Check if monthly reset is needed (lightweight check for cache validation)
+ * Does NOT perform the reset, just checks if it's needed
+ */
+async function checkIfMonthlyResetNeeded(userId: number): Promise<boolean> {
+  const now = new Date();
+  const startOfCurrentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  
+  try {
+    const [user] = await db.select({
+      messagesResetAt: users.messages_reset_at
+    }).from(users).where(eq(users.id, userId));
+
+    if (!user) return false;
+
+    // Reset is needed if messages_reset_at is null or before the start of current month
+    return !user.messagesResetAt || user.messagesResetAt < startOfCurrentMonth;
+  } catch (error) {
+    console.error('Error checking monthly reset status:', error);
+    return false;
+  }
 }
 
 /**
@@ -218,7 +255,7 @@ export async function checkSubscriptionAccess(userId: number): Promise<Subscript
         return {
           hasAccess: true,
           reason: 'admin_override',
-          tier: user.subscriptionTier || 'premium'
+          tier: user.subscriptionTier || 'pro'
         };
       }
     }
@@ -238,7 +275,7 @@ export async function checkSubscriptionAccess(userId: number): Promise<Subscript
       return {
         hasAccess: true,
         reason: user.subscriptionStatus === 'trialing' ? 'trial_period' : 'active_subscription',
-        tier: user.subscriptionTier || 'basic',
+        tier: user.subscriptionTier || 'freemium',
         expiresAt: user.subscriptionEndsAt || undefined
       };
     }
@@ -265,7 +302,7 @@ export async function checkSubscriptionAccess(userId: number): Promise<Subscript
         hasAccess: false,
         reason: 'payment_failed',
         upgradeRequired: true,
-        tier: user.subscriptionTier || 'basic'
+        tier: user.subscriptionTier || 'freemium'
       };
     }
 
@@ -273,7 +310,7 @@ export async function checkSubscriptionAccess(userId: number): Promise<Subscript
       hasAccess: false,
       reason: 'expired',
       upgradeRequired: true,
-      tier: user.subscriptionTier || 'basic'
+      tier: user.subscriptionTier || 'freemium'
     };
 
   } catch (error) {
@@ -299,11 +336,29 @@ export async function checkSubscriptionAccess(userId: number): Promise<Subscript
  * 
  * The function uses an "effective tier" concept where grandfathered users
  * get Pro tier features while maintaining their original tier for billing purposes.
+ * 
+ * Results are cached in Redis with a 60-second TTL to reduce database load.
+ * Cache is invalidated on subscription changes, credit updates, or team changes.
  */
 export async function getEnhancedSubscriptionDetails(
   userId: number
 ): Promise<EnhancedSubscriptionCheck> {
+  const cacheKey = getSubscriptionCacheKey(userId);
+  
   try {
+    // Check cache first
+    const cached = await cacheService.get<EnhancedSubscriptionCheck>(cacheKey);
+    if (cached) {
+      // Even with cached data, we need to check if monthly reset is needed
+      // This is a lightweight check that only updates if necessary
+      const needsReset = await checkIfMonthlyResetNeeded(userId);
+      if (!needsReset) {
+        return cached;
+      }
+      // If reset is needed, invalidate cache and proceed with fresh data
+      await cacheService.delete(cacheKey);
+    }
+
     // First, check and perform monthly reset if needed
     await checkAndPerformMonthlyReset(userId);
 
@@ -339,7 +394,7 @@ export async function getEnhancedSubscriptionDetails(
         unlimitedChat: true,
         monthlyMessageAllowance: 1000,
         aiProvidersAccess: ['openai', 'anthropic', 'azure'],
-        monthlyAICredits: 100,
+        monthlyAiCredits: 100,
         maxProjects: 10,
         fullCodebaseContext: true,
         gitIntegration: true,
@@ -354,7 +409,7 @@ export async function getEnhancedSubscriptionDetails(
         unlimitedChat: false,
         monthlyMessageAllowance: 10,
         aiProvidersAccess: ['basic'],
-        monthlyAICredits: 0,
+        monthlyAiCredits: 0,
         maxProjects: 1,
         fullCodebaseContext: false,
         gitIntegration: false,
@@ -416,7 +471,7 @@ export async function getEnhancedSubscriptionDetails(
     const hasAccess = user.is_grandfathered || 
                      ['active', 'trialing', 'freemium'].includes(user.subscriptionStatus || 'freemium');
 
-    return {
+    const result: EnhancedSubscriptionCheck = {
       hasAccess,
       tier,
       status: user.subscriptionStatus || 'freemium',
@@ -426,7 +481,7 @@ export async function getEnhancedSubscriptionDetails(
         messagesUsedThisMonth: messagesUsed,
         messagesRemaining,
         aiProvidersAccess: Array.isArray(features.aiProvidersAccess) ? features.aiProvidersAccess : ['basic'],
-        monthlyAICredits: features.monthlyAiCredits || 0,
+          monthlyAiCredits: features.monthlyAiCredits || 0,
         currentCreditsBalance: creditsBalance,
         maxProjects: features.maxProjects || 1,
         fullCodebaseContext: features.fullCodebaseContext || false,
@@ -443,6 +498,11 @@ export async function getEnhancedSubscriptionDetails(
       isGrandfathered: user.is_grandfathered || false,
       grandfatheredFrom: user.grandfathered_from_tier || undefined,
     };
+
+    // Cache the result with 60-second TTL
+    await cacheService.set(cacheKey, result, CACHE_TTL.SUBSCRIPTION_DETAILS);
+
+    return result;
   } catch (error) {
     console.error('Error getting subscription details:', error);
     throw error;
@@ -454,7 +514,7 @@ export async function getEnhancedSubscriptionDetails(
  */
 export function requireActiveSubscription(options: {
   allowTrial?: boolean;
-  requiredTier?: 'basic' | 'premium';
+  requiredTier?: 'freemium' | 'pro' | 'team' | 'enterprise';
   customMessage?: string;
 } = {}) {
   const { allowTrial = true, requiredTier, customMessage } = options;
@@ -514,9 +574,22 @@ export function requireActiveSubscription(options: {
 
       // Check tier requirements
       if (requiredTier) {
-        const tierHierarchy = { basic: 1, premium: 2, friends_family: 2 }; // Friends & Family gets premium access
-        const userTierLevel = tierHierarchy[accessCheck.tier as keyof typeof tierHierarchy] || 0;
-        const requiredTierLevel = tierHierarchy[requiredTier];
+        // Canonical mapping with legacy aliases for backward compatibility
+        const tierHierarchy: Record<string, number> = {
+          freemium: 0,
+          pro: 2,
+          team: 3,
+          enterprise: 4,
+          // legacy aliases
+          basic: 0,
+          premium: 2,
+          friends_family: 2,
+          nomadai_pro: 2,
+          'nomadai pro': 2,
+        };
+
+        const userTierLevel = tierHierarchy[(accessCheck.tier || '').toLowerCase()] || 0;
+        const requiredTierLevel = tierHierarchy[requiredTier.toLowerCase()] || 0;
 
         if (userTierLevel < requiredTierLevel) {
           return res.status(402).json({
@@ -588,6 +661,19 @@ export function checkFreemiumLimit() {
           error: 'Authentication required',
           code: 'NOT_AUTHENTICATED',
         });
+      }
+
+      // Check for admin override first - bypass all limits
+      const user = await storage.getUser(req.user.id);
+      if (user?.accessOverride) {
+        console.log(`✅ Admin override active for user ${req.user.id}, bypassing freemium limits`);
+        req.user.hasAdminOverride = true; // Flag for downstream middleware
+        return next();
+      }
+
+      // BYOK exemption: if user supplies their own API key for non-LMStudio providers, skip freemium gating
+      if (isBYOKNonLmstudio(req)) {
+        return next();
       }
 
       // Use database transaction to atomically check and increment
@@ -754,6 +840,11 @@ export function requireMinimumCredits(minimumCredits: number = 10, operationType
         });
       }
 
+      // BYOK exemption
+      if (isBYOKNonLmstudio(req)) {
+        return next();
+      }
+
       // If a free message was consumed upstream (freemium), skip credit check for this request
       if (req.user.freeMessageUsed) {
         console.log(`⏭️ Skipping credit check for user ${req.user.id} - free message was used`);
@@ -809,6 +900,27 @@ export function requireDynamicCredits(estimateFunction: (req: any) => number, op
           error: 'Authentication required',
           code: 'NOT_AUTHENTICATED',
         });
+      }
+
+      // Check for admin override first - bypass all credit requirements
+      if (req.user.hasAdminOverride) {
+        console.log(`✅ Admin override active for user ${req.user.id}, bypassing credit requirements`);
+        return next();
+      }
+
+      // If not already checked, fetch user to check override
+      if (!req.user.hasAdminOverride) {
+        const user = await storage.getUser(req.user.id);
+        if (user?.accessOverride) {
+          console.log(`✅ Admin override active for user ${req.user.id}, bypassing credit requirements`);
+          req.user.hasAdminOverride = true;
+          return next();
+        }
+      }
+
+      // BYOK exemption
+      if (isBYOKNonLmstudio(req)) {
+        return next();
       }
 
       // If a free message was consumed upstream (freemium), skip credit check for this request
@@ -955,60 +1067,94 @@ export function requireAIProvider(provider: string) {
  * Rate limiting based on subscription tier
  */
 export function tierBasedRateLimit() {
-  const limits: Record<string, { requests: number; window: number }> = {
-    freemium: { requests: 10, window: 60 * 1000 }, // 10 requests per minute
-    pro: { requests: 60, window: 60 * 1000 }, // 60 requests per minute
-    team: { requests: 120, window: 60 * 1000 }, // 120 requests per minute
-    enterprise: { requests: 999999, window: 60 * 1000 }, // Effectively unlimited
+  const limits: Record<string, { requests: number; windowMs: number }> = {
+    freemium: { requests: 10, windowMs: 60 * 1000 },
+    pro: { requests: 60, windowMs: 60 * 1000 },
+    team: { requests: 120, windowMs: 60 * 1000 },
+    enterprise: { requests: 999999, windowMs: 60 * 1000 },
   };
 
-  const requestCounts = new Map<string, { count: number; resetTime: number }>();
-
   return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    // Allow unauthenticated through without tier-based limits (can add a public IP limiter separately)
     if (!req.user?.id) {
-      return next(); // Skip rate limiting for unauthenticated requests
+      return next();
     }
 
     try {
-      const [user] = await db.select().from(users).where(eq(users.id, req.user.id));
-      const tier = user.subscriptionTier || 'freemium';
-      const limit = limits[tier] || limits.freemium;
-
-      const key = `${req.user.id}-${req.path}`;
-      const now = Date.now();
-      
-      let requestData = requestCounts.get(key);
-      
-      if (!requestData || requestData.resetTime < now) {
-        requestData = { count: 0, resetTime: now + limit.window };
-        requestCounts.set(key, requestData);
+      // Provider-aware skipping: only rate-limit LMStudio (Uterpi) requests
+      const providerRaw = (req.body?.provider || req.query?.provider || '').toString().toLowerCase();
+      if (providerRaw && providerRaw !== 'lmstudio') {
+        return next();
       }
 
-      requestData.count++;
+      const [user] = await db.select().from(users).where(eq(users.id, req.user.id));
+      const tier = user?.subscriptionTier || 'freemium';
+      const limit = limits[tier] || limits.freemium;
 
-      if (requestData.count > limit.requests) {
-        const retryAfter = Math.ceil((requestData.resetTime - now) / 1000);
-        
+      const route = req.path;
+      // Include provider in key to isolate limits (even if currently only lmstudio is limited)
+      const provider = providerRaw || 'lmstudio';
+      const principalKey = `user:${req.user.id}:provider:${provider}`;
+      const now = new Date();
+      const windowStart = new Date(Math.floor(now.getTime() / limit.windowMs) * limit.windowMs);
+      const windowEnd = new Date(windowStart.getTime() + limit.windowMs);
+
+      // Upsert row and increment count atomically
+      const result = await db.transaction(async (tx) => {
+        // Try update existing row
+        const updated = await tx.execute(sql`
+          UPDATE ${rateLimits}
+          SET ${rateLimits.count} = ${rateLimits.count} + 1, ${rateLimits.updatedAt} = now()
+          WHERE ${rateLimits.key} = ${principalKey}
+            AND ${rateLimits.route} = ${route}
+            AND ${rateLimits.windowStart} = ${windowStart}
+          RETURNING ${rateLimits.count}
+        ` as any);
+
+        if ((updated as any)?.rows?.length) {
+          return Number((updated as any).rows[0].count) || 1;
+        }
+
+        // Insert new window row; on conflict, increment safely
+        const inserted = await tx.execute(sql`
+          INSERT INTO rate_limits (key, route, window_start, window_end, window_ms, count)
+          VALUES (${principalKey}, ${route}, ${windowStart}, ${windowEnd}, ${limit.windowMs}, 1)
+          ON CONFLICT (key, route, window_start)
+          DO UPDATE SET count = rate_limits.count + 1, updated_at = now()
+          RETURNING count
+        `);
+        return Number((inserted as any).rows[0].count) || 1;
+      });
+
+      const used = result;
+      const remaining = Math.max(0, limit.requests - used);
+      const resetMs = windowEnd.getTime() - now.getTime();
+      const retryAfter = remaining > 0 ? 0 : Math.ceil(resetMs / 1000);
+
+      // Standard headers
+      res.setHeader('X-RateLimit-Limit', String(limit.requests));
+      res.setHeader('X-RateLimit-Remaining', String(remaining));
+      res.setHeader('X-RateLimit-Reset', String(Math.floor(windowEnd.getTime() / 1000)));
+      if (retryAfter > 0) {
+        res.setHeader('Retry-After', String(retryAfter));
+      }
+
+      if (used > limit.requests) {
         return res.status(429).json({
           error: 'Rate limit exceeded',
           code: 'RATE_LIMIT_EXCEEDED',
           tier,
           limit: limit.requests,
-          window: limit.window / 1000,
+          window: Math.floor(limit.windowMs / 1000),
           retryAfter,
         });
       }
 
-      // Add rate limit headers
-      res.setHeader('X-RateLimit-Limit', limit.requests.toString());
-      res.setHeader('X-RateLimit-Remaining', (limit.requests - requestData.count).toString());
-      res.setHeader('X-RateLimit-Reset', requestData.resetTime.toString());
-
       next();
-
     } catch (error) {
       console.error('Rate limit check error:', error);
-      next(); // Continue on error rather than blocking
+      // Fail-open to avoid breaking requests due to DB hiccups
+      next();
     }
   };
 }
@@ -1080,9 +1226,20 @@ export async function resetMonthlyMessageCounters(): Promise<void> {
         sql`${users.messages_reset_at} < ${startOfCurrentMonth} OR ${users.messages_reset_at} IS NULL`
       );
 
+    // Invalidate all subscription caches after monthly reset
+    await cacheService.invalidateAllSubscriptions();
+
     console.log(`Monthly reset completed. Updated users: ${result.rowCount}`);
   } catch (error) {
     console.error('Error during monthly reset:', error);
     throw error;
   }
+}
+
+/**
+ * Invalidate subscription cache for a specific user
+ * Should be called when subscription status, credits, or team membership changes
+ */
+export async function invalidateSubscriptionCache(userId: number): Promise<void> {
+  await cacheService.invalidateSubscription(userId);
 }

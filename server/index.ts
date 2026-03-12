@@ -12,12 +12,33 @@ if (fs.existsSync(".env.local")) {
 dotenv.config(); // Also load from .env if it exists
 
 // Now import modules that depend on environment variables
-import { registerRoutes } from "./routes";
+import { registerRoutes } from "./routes-refactored";
 import passport from "./auth";
+import { handleStripeWebhook } from "./webhooks";
+import { errorHandler, handleUnhandledErrors } from "./error-handler";
+import { embeddingWorkerPool, initializeWorkerPool } from "./services/embedding-worker-pool";
+import { vectorProcessor } from "./vector-processor";
 
 const app = express();
+
+// Register Stripe webhook BEFORE any body parsers to preserve raw body for signature verification
+app.post("/api/webhooks/stripe", express.raw({ type: "application/json" }), handleStripeWebhook);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
+
+// Sensible defaults to enable vector features for file management locally
+// Enable vectorization unless explicitly disabled
+if (!process.env.VECTORIZATION_DISABLED && !process.env.DISABLE_VECTORIZATION) {
+  if (!process.env.VECTORS_ENABLED && !process.env.ENABLE_VECTORIZATION) {
+    process.env.VECTORS_ENABLED = "true";
+  }
+}
+
+// Set a default transformers cache directory to avoid repeated downloads
+if (!process.env.TRANSFORMERS_CACHE_DIR) {
+  process.env.TRANSFORMERS_CACHE_DIR = ".cache/transformers";
+}
 
 // Session configuration
 const PgSession = ConnectPgSimple(session);
@@ -80,13 +101,11 @@ app.use((req, res, next) => {
 (async () => {
   const server = await registerRoutes(app);
 
-  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
+  // Use centralized error handler
+  app.use(errorHandler);
 
-    res.status(status).json({ message });
-    throw err;
-  });
+  // Setup unhandled error handling
+  handleUnhandledErrors();
 
   // importantly only setup vite in development and after
   // setting up all the other routes so the catch-all route
@@ -105,7 +124,56 @@ app.use((req, res, next) => {
     port,
     host: "0.0.0.0",
     reusePort: true,
-  }, () => {
+  }, async () => {
     log(`serving on port ${port}`);
+    
+    // Pre-warm the embedding worker pool in background (non-blocking)
+    if (process.env.VECTORS_ENABLED === "true" || process.env.ENABLE_VECTORIZATION === "true") {
+      log("🧵 Initializing embedding worker pool...");
+      initializeWorkerPool()
+        .then(() => log("🧵 Embedding worker pool ready"))
+        .catch(err => log(`⚠️ Worker pool init deferred: ${err.message}`));
+    }
   });
+
+  // ============================================================================
+  // GRACEFUL SHUTDOWN HANDLING
+  // ============================================================================
+  
+  const gracefulShutdown = async (signal: string) => {
+    log(`\n🛑 ${signal} received. Starting graceful shutdown...`);
+    
+    // Stop accepting new connections
+    server.close(async () => {
+      log("📡 HTTP server closed");
+      
+      try {
+        // Shutdown vector processor first (clears queues)
+        log("🔄 Shutting down vector processor...");
+        await vectorProcessor.shutdown();
+        log("✅ Vector processor shutdown complete");
+        
+        // Shutdown worker pool (waits for pending tasks)
+        log("🧵 Shutting down embedding worker pool...");
+        await embeddingWorkerPool.shutdown();
+        log("✅ Worker pool shutdown complete");
+        
+        log("👋 Graceful shutdown complete");
+        process.exit(0);
+      } catch (error) {
+        log(`❌ Error during shutdown: ${error}`);
+        process.exit(1);
+      }
+    });
+    
+    // Force exit after timeout
+    setTimeout(() => {
+      log("⚠️ Shutdown timeout - forcing exit");
+      process.exit(1);
+    }, 30000);
+  };
+  
+  // Handle shutdown signals
+  process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+  process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 })();

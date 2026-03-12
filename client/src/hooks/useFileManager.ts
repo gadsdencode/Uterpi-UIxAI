@@ -54,6 +54,7 @@ export interface UploadFileData {
   folder?: string;
   description?: string;
   tags?: string[];
+  projectId?: number; // Project scope for the upload
 }
 
 export interface UpdateFileData {
@@ -75,6 +76,7 @@ export interface ListFilesOptions {
   search?: string;
   tags?: string[];
   mimeType?: string;
+  projectId?: number; // Filter by project
   limit?: number;
   offset?: number;
 }
@@ -112,6 +114,7 @@ class FileManagerAPI {
     if (data.folder) formData.append('folder', data.folder);
     if (data.description) formData.append('description', data.description);
     if (data.tags) formData.append('tags', JSON.stringify(data.tags));
+    if (data.projectId) formData.append('projectId', data.projectId.toString());
 
     const result = await FileManagerAPI.request('/api/files/upload', {
       method: 'POST',
@@ -126,6 +129,7 @@ class FileManagerAPI {
     if (options.search) params.append('search', options.search);
     if (options.mimeType) params.append('mimeType', options.mimeType);
     if (options.tags) params.append('tags', JSON.stringify(options.tags));
+    if (options.projectId !== undefined) params.append('projectId', options.projectId.toString());
     if (options.limit) params.append('limit', options.limit.toString());
     if (options.offset) params.append('offset', options.offset.toString());
 
@@ -221,6 +225,13 @@ class FileManagerAPI {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ fileIds }),
+    });
+    return result;
+  }
+
+  static async reindexFile(fileId: number): Promise<{ success: boolean; message?: string }> {
+    const result = await FileManagerAPI.request(`/api/files/${fileId}/reindex`, {
+      method: 'POST'
     });
     return result;
   }
@@ -366,6 +377,16 @@ export const useFileManager = () => {
     },
   });
 
+  // Reindex file embeddings mutation
+  const reindexFileMutation = useMutation({
+    mutationFn: FileManagerAPI.reindexFile,
+    onSuccess: () => {
+      // Not much to invalidate; embeddings aren't listed here
+      // But we can refresh files to update any timestamps shown
+      queryClient.invalidateQueries({ queryKey: ['files'] });
+    },
+  });
+
   // Upload file with progress tracking
   const uploadFile = useCallback(async (data: UploadFileData) => {
     try {
@@ -428,6 +449,7 @@ export const useFileManager = () => {
     restoreFileVersion: restoreVersionMutation.mutate,
     shareFile: shareFileMutation.mutate,
     bulkDeleteFiles: bulkDeleteMutation.mutate,
+    reindexFile: reindexFileMutation.mutate,
     cancelUpload,
 
     // Mutation states
@@ -437,6 +459,7 @@ export const useFileManager = () => {
     isRestoring: restoreVersionMutation.isPending,
     isSharing: shareFileMutation.isPending,
     isBulkDeleting: bulkDeleteMutation.isPending,
+    isReindexing: reindexFileMutation.isPending,
 
     // Error states
     uploadError: uploadFileMutation.error,
@@ -446,5 +469,6 @@ export const useFileManager = () => {
     restoreError: restoreVersionMutation.error,
     shareError: shareFileMutation.error,
     bulkDeleteError: bulkDeleteMutation.error,
+    reindexError: reindexFileMutation.error,
   };
 }; 

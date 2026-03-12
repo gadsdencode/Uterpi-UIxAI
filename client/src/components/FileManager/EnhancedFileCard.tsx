@@ -8,6 +8,7 @@ import {
   Brain,
   Eye,
   MoreVertical,
+  RefreshCcw,
   FileText,
   Image as ImageIcon,
   Video,
@@ -21,6 +22,7 @@ import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../ui/dropdown-menu';
 import { type FileItem } from '../../hooks/useFileManager';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 
 interface EnhancedFileCardProps {
   file: FileItem;
@@ -29,6 +31,7 @@ interface EnhancedFileCardProps {
   onDownload: (file: FileItem) => void;
   onEdit: (file: FileItem) => void;
   onAnalyze: (fileId: number) => void;
+  onReindex?: (fileId: number) => void;
   onDelete: (fileId: number) => void;
   onShare: (file: FileItem) => void;
   onViewAnalysis?: (file: FileItem) => void;
@@ -50,6 +53,10 @@ const getFileIcon = (mimeType: string, size: 'sm' | 'md' | 'lg' = 'md') => {
   if (mimeType.includes('text/') || mimeType.includes('javascript') || mimeType.includes('json')) return <Code className={sizeClasses[size]} />;
   if (mimeType.includes('zip') || mimeType.includes('archive')) return <Archive className={sizeClasses[size]} />;
   return <File className={sizeClasses[size]} />;
+};
+
+const isTextLike = (mimeType: string) => {
+  return mimeType.startsWith('text/') || mimeType.includes('javascript') || mimeType.includes('json');
 };
 
 const formatFileSize = (bytes: number) => {
@@ -116,19 +123,6 @@ const HolographicBubble: React.FC<{
     <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-white/5 to-transparent" />
     <div className="relative z-10">{children}</div>
     
-    {/* Holographic shimmer effect */}
-    <motion.div
-      className="absolute inset-0 rounded-xl bg-gradient-to-r from-transparent via-white/5 to-transparent"
-      animate={{
-        x: ["-100%", "100%"],
-      }}
-      transition={{
-        duration: 8,
-        repeat: Infinity,
-        repeatType: "loop",
-        ease: "linear",
-      }}
-    />
   </motion.div>
 );
 
@@ -139,6 +133,7 @@ export const EnhancedFileCard: React.FC<EnhancedFileCardProps> = ({
   onDownload,
   onEdit,
   onAnalyze,
+  onReindex,
   onDelete,
   onShare,
   onViewAnalysis,
@@ -186,6 +181,12 @@ export const EnhancedFileCard: React.FC<EnhancedFileCardProps> = ({
               <span>{formatFileSize(file.size)}</span>
               <span>•</span>
               <span>{formatDate(file.updatedAt)}</span>
+              {isTextLike(file.mimeType) && (
+                <>
+                  <span>•</span>
+                  <Badge variant="outline" className="text-xs bg-emerald-500/15 text-emerald-300 border-emerald-400/20">Embedded</Badge>
+                </>
+              )}
               {file.description && (
                 <>
                   <span>•</span>
@@ -214,15 +215,22 @@ export const EnhancedFileCard: React.FC<EnhancedFileCardProps> = ({
           {/* AI Analysis Status */}
           {enableAIAnalysis && file.analysisStatus && (
             <div className="flex-shrink-0">
-              <Badge 
-                variant="outline"
-                className={`text-xs ${getAnalysisColor(file.analysisStatus)}`}
-              >
-                {file.analysisStatus === 'completed' && '🧠 Analyzed'}
-                {file.analysisStatus === 'analyzing' && '⏳ Analyzing'}
-                {file.analysisStatus === 'failed' && '❌ Failed'}
-                {file.analysisStatus === 'pending' && '⏸️ Pending'}
-              </Badge>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge 
+                    variant="outline"
+                    className={`text-xs ${getAnalysisColor(file.analysisStatus)}`}
+                  >
+                    {file.analysisStatus === 'completed' && '🧠 Analyzed'}
+                    {file.analysisStatus === 'analyzing' && '⏳ Analyzing'}
+                    {file.analysisStatus === 'failed' && '❌ Failed'}
+                    {file.analysisStatus === 'pending' && '⏸️ Pending'}
+                  </Badge>
+                </TooltipTrigger>
+                {isTextLike(file.mimeType) && (
+                  <TooltipContent>Available in chat context</TooltipContent>
+                )}
+              </Tooltip>
             </div>
           )}
 
@@ -236,6 +244,16 @@ export const EnhancedFileCard: React.FC<EnhancedFileCardProps> = ({
                 className="flex items-center space-x-1 flex-shrink-0"
                 onClick={(e) => e.stopPropagation()}
               >
+                {onReindex && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={(e) => handleActionClick(e, () => onReindex(file.id))}
+                    className="h-8 px-2 border-slate-600/50 text-emerald-300 hover:text-white hover:bg-slate-700/50"
+                  >
+                    Use in Chat
+                  </Button>
+                )}
                 <Button
                   size="sm"
                   variant="ghost"
@@ -278,6 +296,17 @@ export const EnhancedFileCard: React.FC<EnhancedFileCardProps> = ({
                         <Brain className="w-4 h-4" />
                       </Button>
                     )}
+                    {onReindex && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={(e) => handleActionClick(e, () => onReindex(file.id))}
+                        className="h-8 w-8 p-0 text-slate-300 hover:text-white hover:bg-slate-700/50"
+                        title="Refresh for Chat"
+                      >
+                        <RefreshCcw className="w-4 h-4" />
+                      </Button>
+                    )}
                   </>
                 )}
                 <Button
@@ -299,6 +328,12 @@ export const EnhancedFileCard: React.FC<EnhancedFileCardProps> = ({
                       <Edit className="w-4 h-4 mr-2" />
                       Edit Details
                     </DropdownMenuItem>
+                    {enableAIAnalysis && onReindex && (
+                      <DropdownMenuItem onClick={(e) => handleActionClick(e, () => onReindex(file.id))}>
+                        <RefreshCcw className="w-4 h-4 mr-2" />
+                        Refresh for Chat
+                      </DropdownMenuItem>
+                    )}
                     <DropdownMenuItem onClick={(e) => handleActionClick(e, () => onDelete(file.id))}>
                       <Trash2 className="w-4 h-4 mr-2" />
                       Delete
@@ -326,6 +361,7 @@ export const EnhancedFileCard: React.FC<EnhancedFileCardProps> = ({
       onMouseLeave={() => setIsHovered(false)}
     >
       <div className="p-4">
+        {/* Keep top-left refresh only if you still want it visible without hover. Commented out per overlap issue. */}
         {/* Primary Info Layer */}
         <div className="text-center">
           <div className="flex justify-center mb-3">
@@ -384,11 +420,27 @@ export const EnhancedFileCard: React.FC<EnhancedFileCardProps> = ({
                 {/* AI Analysis Status */}
                 {enableAIAnalysis && file.analysisStatus && (
                   <div className="text-center">
-                    <Badge 
-                      variant="outline"
-                      className={`text-xs ${getAnalysisColor(file.analysisStatus)}`}
-                    >
-                      {getAnalysisDescription(file.analysisStatus)}
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Badge 
+                          variant="outline"
+                          className={`text-xs ${getAnalysisColor(file.analysisStatus)}`}
+                        >
+                          {getAnalysisDescription(file.analysisStatus)}
+                        </Badge>
+                      </TooltipTrigger>
+                      {isTextLike(file.mimeType) && (
+                        <TooltipContent>Available in chat context</TooltipContent>
+                      )}
+                    </Tooltip>
+                  </div>
+                )}
+
+                {/* Embedded Indicator (text-like files) */}
+                {isTextLike(file.mimeType) && (
+                  <div className="text-center">
+                    <Badge variant="outline" className="text-xs bg-emerald-500/15 text-emerald-300 border-emerald-400/20">
+                      Embedded
                     </Badge>
                   </div>
                 )}
@@ -424,6 +476,17 @@ export const EnhancedFileCard: React.FC<EnhancedFileCardProps> = ({
                   >
                     <Edit className="w-4 h-4" />
                   </Button>
+                  {onReindex && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={(e) => handleActionClick(e, () => onReindex(file.id))}
+                      className="h-8 w-8 p-0 border-slate-600/50 text-emerald-300 hover:text-white hover:bg-slate-700/50"
+                      title="Refresh for Chat"
+                    >
+                      <RefreshCcw className="w-4 h-4" />
+                    </Button>
+                  )}
                   
                   {enableAIAnalysis && (
                     <>

@@ -1,9 +1,12 @@
 import { vectorService, SimilarMessage, SimilarConversation } from "./vector-service";
+import { isVectorizationEnabled } from "./vector-flags";
 import { conversationService } from "./conversation-service";
 
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
+  attachments?: string[];
+  metadata?: any;
 }
 
 export interface EnhancedContext {
@@ -11,6 +14,7 @@ export interface EnhancedContext {
   similarConversations: SimilarConversation[];
   contextualSystemMessage: string;
   enhancedMessages: ChatMessage[];
+  fileSnippets: Array<{ fileId: number; fileName: string; mimeType: string; similarity: number; snippet: string }>
 }
 
 export interface ContextEnhancementOptions {
@@ -39,13 +43,23 @@ export class ContextEnhancer {
   /**
    * Enhance messages with contextual information from past conversations
    */
+  /**
+   * Enhance messages with context from similar messages, conversations, and file chunks
+   * @param projectId - Optional project ID to scope the context search
+   */
   async enhanceMessagesWithContext(
     messages: ChatMessage[], 
     userId: number,
-    options: Partial<ContextEnhancementOptions> = {}
+    options: Partial<ContextEnhancementOptions> = {},
+    projectId?: number | null
   ): Promise<EnhancedContext> {
     const opts = { ...this.defaultOptions, ...options };
     
+    // Early exit: return basic context when vectors are disabled
+    if (!isVectorizationEnabled()) {
+      return this.createBasicContext(messages);
+    }
+
     try {
       // Get the current user message (last message in conversation)
       const currentUserMessage = this.findLastUserMessage(messages);
@@ -56,16 +70,52 @@ export class ContextEnhancer {
 
       console.log(`🔍 Enhancing context for user ${userId} with message: "${currentUserMessage.content.substring(0, 100)}..."`);
 
-      // Generate embedding for current message
-      const embeddingResult = await vectorService.generateEmbedding(currentUserMessage.content);
+      // Generate embedding for current message (never throw; service has internal fallback)
+      const embeddingResult = await vectorService.generateEmbedding(currentUserMessage.content).catch((e) => {
+        console.warn('⚠️ Embedding generation failed, proceeding with basic context. Reason:', e?.message || e);
+        return null as any;
+      });
+      if (!embeddingResult || !embeddingResult.embedding) {
+        return this.createBasicContext(messages);
+      }
       
-      // Find similar content
+      // Find similar content with attached file priority
+      const attachedIds: number[] | undefined = Array.isArray((currentUserMessage as any)?.metadata?.attachedFileIds)
+        ? (currentUserMessage as any).metadata.attachedFileIds
+        : undefined;
+
+      // Find relevant file chunks, scoped by projectId if provided
+      let relevantFileChunks = [] as Array<{ fileId: number; chunkIndex: number; text: string; similarity: number; name: string; mimeType: string }>;
+      if (attachedIds && attachedIds.length > 0) {
+        // Prioritize chunks from attached files (no similarity threshold to surface most relevant portions)
+        const attachedChunks = await vectorService.findRelevantFileChunksForFiles(
+          embeddingResult.embedding,
+          userId,
+          attachedIds,
+          12,
+          0.0,
+          projectId
+        );
+        relevantFileChunks = attachedChunks;
+
+        // Supplement with general relevant chunks (also scoped by projectId)
+        const supplemental = await vectorService.findRelevantFileChunks(embeddingResult.embedding, userId, 8, 0.7, projectId);
+        const seen = new Set(attachedChunks.map(c => `${c.fileId}:${c.chunkIndex}`));
+        for (const c of supplemental) {
+          const key = `${c.fileId}:${c.chunkIndex}`;
+          if (!seen.has(key)) relevantFileChunks.push(c);
+        }
+      } else {
+        relevantFileChunks = await vectorService.findRelevantFileChunks(embeddingResult.embedding, userId, 8, 0.7, projectId);
+      }
+
+      // Find similar messages and conversations in parallel, scoped by projectId if provided
       const [similarMessages, similarConversations] = await Promise.all([
         opts.includeMessageContext 
-          ? vectorService.findSimilarMessages(embeddingResult.embedding, userId, opts.maxSimilarMessages, opts.similarityThreshold)
+          ? vectorService.findSimilarMessages(embeddingResult.embedding, userId, opts.maxSimilarMessages, opts.similarityThreshold, projectId)
           : Promise.resolve([]),
         opts.includeConversationContext 
-          ? vectorService.findSimilarConversations(embeddingResult.embedding, userId, opts.maxSimilarConversations, opts.similarityThreshold)
+          ? vectorService.findSimilarConversations(embeddingResult.embedding, userId, opts.maxSimilarConversations, opts.similarityThreshold, projectId)
           : Promise.resolve([])
       ]);
 
@@ -75,7 +125,14 @@ export class ContextEnhancer {
       const contextualSystemMessage = await this.createContextualSystemMessage(
         similarMessages, 
         similarConversations, 
-        opts.maxContextLength
+        opts.maxContextLength,
+        (relevantFileChunks || []).map(fc => ({
+          fileId: fc.fileId,
+          fileName: fc.name,
+          mimeType: fc.mimeType,
+          similarity: fc.similarity,
+          snippet: (fc.text || '').substring(0, 400)
+        }))
       );
 
       // Create enhanced message list
@@ -85,7 +142,14 @@ export class ContextEnhancer {
         similarMessages,
         similarConversations,
         contextualSystemMessage,
-        enhancedMessages
+        enhancedMessages,
+        fileSnippets: (relevantFileChunks || []).map(fc => ({
+          fileId: fc.fileId,
+          fileName: fc.name,
+          mimeType: fc.mimeType,
+          similarity: fc.similarity,
+          snippet: (fc.text || '').substring(0, 400)
+        }))
       };
 
     } catch (error) {
@@ -97,11 +161,17 @@ export class ContextEnhancer {
 
   /**
    * Create contextual system message with relevant past conversations
+   * 
+   * IMPORTANT: This content is placed STRICTLY in the system role message, NOT in user messages.
+   * This prevents context headers like "--- RELEVANT PAST CONVERSATIONS ---" from appearing
+   * in the visible chat UI. The separation between system instructions and user conversation
+   * is critical for preventing context leaks.
    */
   private async createContextualSystemMessage(
     similarMessages: SimilarMessage[],
     similarConversations: SimilarConversation[],
-    maxLength: number
+    maxLength: number,
+    fileSnippets: Array<{ fileName: string; mimeType: string; similarity: number; snippet: string }> = []
   ): Promise<string> {
     let contextParts: string[] = [];
 
@@ -139,12 +209,23 @@ Similarity: ${(msg.similarity * 100).toFixed(1)}%`;
       }
     }
 
+    // Add relevant files context
+    if (fileSnippets.length > 0) {
+      contextParts.push("\n--- RELEVANT FILE EXCERPTS ---");
+      for (const fs of fileSnippets) {
+        const entry = `\n[${(fs.similarity * 100).toFixed(1)}%] ${fs.fileName} (${fs.mimeType})\n${fs.snippet}${fs.snippet.length >= 400 ? '...' : ''}`;
+        contextParts.push(entry);
+      }
+    }
+
     // Add usage guidelines
     contextParts.push(
       "\n--- CONTEXT USAGE GUIDELINES ---",
       "- Reference past conversations when they provide helpful context",
       "- Don't repeat information unless it adds value",
       "- Maintain conversation flow naturally",
+      "- Use the provided file excerpts to ground your answer; quote relevant parts",
+      "- Do not assume access to the entire file beyond these excerpts",
       "- If no relevant context exists, respond normally"
     );
 
@@ -199,7 +280,8 @@ Similarity: ${(msg.similarity * 100).toFixed(1)}%`;
       enhancedMessages: [
         { role: 'system', content: basicSystemMessage },
         ...messages.filter(msg => msg.role !== 'system')
-      ]
+      ],
+      fileSnippets: []
     };
   }
 

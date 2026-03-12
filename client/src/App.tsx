@@ -1,281 +1,23 @@
-import React, { useState, useEffect, useRef } from 'react'
-import { motion, AnimatePresence } from "framer-motion";
+import React, { useState } from 'react'
+import { motion } from "framer-motion";
 import FuturisticAIChat from './components/ChatView'
-import { Toaster } from './components/ui/sonner'
-import { AuthProvider, useAuth } from './hooks/useAuth'
+import Sidebar from './components/Sidebar'
+import { ProjectSettingsModal } from './components/ProjectSettingsModal'
+import { DashboardModal } from './components/DashboardModal'
+import { TeamsModal } from './components/TeamsModal'
+import { ChatProvider } from './contexts/ChatContext'
+import { useAuth } from './hooks/useAuth'
+import { type Project } from './hooks/useProjects'
 import { LoginForm } from './components/auth/LoginForm'
 import { RegisterForm } from './components/auth/RegisterForm'
 import { ForgotPasswordForm } from './components/auth/ForgotPasswordForm'
 import { UserMenu } from './components/auth/UserMenu'
 import { SubscriptionGuard } from './components/SubscriptionGuard'
 import { Button } from './components/ui/button'
-import { Card, CardContent } from './components/ui/card'
-import { Loader2, Zap } from 'lucide-react'
+import { Particles } from './components/ui/Particles'
+import { Loader2, LayoutDashboard, Users, MessageSquare } from 'lucide-react'
 // Import model migration utilities for debugging
 import './lib/modelMigration'
-
-interface ParticlesProps {
-  className?: string;
-  quantity?: number;
-  staticity?: number;
-  ease?: number;
-  size?: number;
-  refresh?: boolean;
-  color?: string;
-  vx?: number;
-  vy?: number;
-}
-
-const Particles: React.FC<ParticlesProps> = ({
-  className = "",
-  quantity = 100,
-  staticity = 50,
-  ease = 50,
-  size = 0.4,
-  refresh = false,
-  color = "#8B5CF6",
-  vx = 0,
-  vy = 0,
-}) => {
-  const [particleColor, setParticleColor] = useState<string>(color);
-
-  interface MousePosition {
-    x: number;
-    y: number;
-  }
-
-  const MousePosition = (): MousePosition => {
-    const [mousePosition, setMousePosition] = useState<MousePosition>({
-      x: 0,
-      y: 0,
-    });
-
-    useEffect(() => {
-      const handleMouseMove = (event: MouseEvent) => {
-        setMousePosition({ x: event.clientX, y: event.clientY });
-      };
-
-      window.addEventListener("mousemove", handleMouseMove);
-
-      return () => {
-        window.removeEventListener("mousemove", handleMouseMove);
-      };
-    }, []);
-
-    return mousePosition;
-  };
-
-  const hexToRgb = (hex: string): number[] => {
-    hex = hex.replace("#", "");
-    const hexInt = parseInt(hex, 16);
-    const red = (hexInt >> 16) & 255;
-    const green = (hexInt >> 8) & 255;
-    const blue = hexInt & 255;
-    return [red, green, blue];
-  };
-
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const canvasContainerRef = useRef<HTMLDivElement>(null);
-  const context = useRef<CanvasRenderingContext2D | null>(null);
-  const circles = useRef<any[]>([]);
-  const mousePosition = MousePosition();
-  const mouse = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-  const canvasSize = useRef<{ w: number; h: number }>({ w: 0, h: 0 });
-  const dpr = typeof window !== "undefined" ? window.devicePixelRatio : 1;
-
-  type Circle = {
-    x: number;
-    y: number;
-    translateX: number;
-    translateY: number;
-    size: number;
-    alpha: number;
-    targetAlpha: number;
-    dx: number;
-    dy: number;
-    magnetism: number;
-  };
-
-  const resizeCanvas = () => {
-    if (canvasContainerRef.current && canvasRef.current && context.current) {
-      circles.current.length = 0;
-      canvasSize.current.w = canvasContainerRef.current.offsetWidth;
-      canvasSize.current.h = canvasContainerRef.current.offsetHeight;
-      canvasRef.current.width = canvasSize.current.w * dpr;
-      canvasRef.current.height = canvasSize.current.h * dpr;
-      canvasRef.current.style.width = `${canvasSize.current.w}px`;
-      canvasRef.current.style.height = `${canvasSize.current.h}px`;
-      context.current.scale(dpr, dpr);
-    }
-  };
-
-  const circleParams = (): Circle => {
-    const x = Math.floor(Math.random() * canvasSize.current.w);
-    const y = Math.floor(Math.random() * canvasSize.current.h);
-    const translateX = 0;
-    const translateY = 0;
-    const pSize = Math.floor(Math.random() * 2) + size;
-    const alpha = 0;
-    const targetAlpha = parseFloat((Math.random() * 0.6 + 0.1).toFixed(1));
-    const dx = (Math.random() - 0.5) * 0.1;
-    const dy = (Math.random() - 0.5) * 0.1;
-    const magnetism = 0.1 + Math.random() * 4;
-    return {
-      x,
-      y,
-      translateX,
-      translateY,
-      size: pSize,
-      alpha,
-      targetAlpha,
-      dx,
-      dy,
-      magnetism,
-    };
-  };
-
-  const rgb = hexToRgb(particleColor);
-
-  const drawCircle = (circle: Circle, update = false) => {
-    if (context.current) {
-      const { x, y, translateX, translateY, size, alpha } = circle;
-      context.current.translate(translateX, translateY);
-      context.current.beginPath();
-      context.current.arc(x, y, size, 0, 2 * Math.PI);
-      context.current.fillStyle = `rgba(${rgb.join(", ")}, ${alpha})`;
-      context.current.fill();
-      context.current.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-      if (!update) {
-        circles.current.push(circle);
-      }
-    }
-  };
-
-  const clearContext = () => {
-    if (context.current) {
-      context.current.clearRect(
-        0,
-        0,
-        canvasSize.current.w,
-        canvasSize.current.h,
-      );
-    }
-  };
-
-  const drawParticles = () => {
-    clearContext();
-    const particleCount = quantity;
-    for (let i = 0; i < particleCount; i++) {
-      const circle = circleParams();
-      drawCircle(circle);
-    }
-  };
-
-  const remapValue = (
-    value: number,
-    start1: number,
-    end1: number,
-    start2: number,
-    end2: number,
-  ): number => {
-    const remapped =
-      ((value - start1) * (end2 - start2)) / (end1 - start1) + start2;
-    return remapped > 0 ? remapped : 0;
-  };
-
-  const animate = () => {
-    clearContext();
-    circles.current.forEach((circle: Circle, i: number) => {
-      const edge = [
-        circle.x + circle.translateX - circle.size,
-        canvasSize.current.w - circle.x - circle.translateX - circle.size,
-        circle.y + circle.translateY - circle.size,
-        canvasSize.current.h - circle.y - circle.translateY - circle.size,
-      ];
-      const closestEdge = edge.reduce((a, b) => Math.min(a, b));
-      const remapClosestEdge = parseFloat(
-        remapValue(closestEdge, 0, 20, 0, 1).toFixed(2),
-      );
-      if (remapClosestEdge > 1) {
-        circle.alpha += 0.02;
-        if (circle.alpha > circle.targetAlpha) {
-          circle.alpha = circle.targetAlpha;
-        }
-      } else {
-        circle.alpha = circle.targetAlpha * remapClosestEdge;
-      }
-      circle.x += circle.dx + vx;
-      circle.y += circle.dy + vy;
-      circle.translateX +=
-        (mouse.current.x / (staticity / circle.magnetism) - circle.translateX) /
-        ease;
-      circle.translateY +=
-        (mouse.current.y / (staticity / circle.magnetism) - circle.translateY) /
-        ease;
-
-      drawCircle(circle, true);
-
-      if (
-        circle.x < -circle.size ||
-        circle.x > canvasSize.current.w + circle.size ||
-        circle.y < -circle.size ||
-        circle.y > canvasSize.current.h + circle.size
-      ) {
-        circles.current.splice(i, 1);
-        const newCircle = circleParams();
-        drawCircle(newCircle);
-      }
-    });
-    window.requestAnimationFrame(animate);
-  };
-
-  const initCanvas = () => {
-    resizeCanvas();
-    drawParticles();
-  };
-
-  const onMouseMove = () => {
-    if (canvasRef.current) {
-      const rect = canvasRef.current.getBoundingClientRect();
-      const { w, h } = canvasSize.current;
-      const x = mousePosition.x - rect.left - w / 2;
-      const y = mousePosition.y - rect.top - h / 2;
-      const inside = x < w / 2 && x > -w / 2 && y < h / 2 && y > -h / 2;
-      if (inside) {
-        mouse.current.x = x;
-        mouse.current.y = y;
-      }
-    }
-  };
-
-  useEffect(() => {
-    if (canvasRef.current) {
-      context.current = canvasRef.current.getContext("2d");
-    }
-    initCanvas();
-    animate();
-    window.addEventListener("resize", initCanvas);
-
-    return () => {
-      window.removeEventListener("resize", initCanvas);
-    };
-  }, [particleColor]);
-
-  useEffect(() => {
-    onMouseMove();
-  }, [mousePosition.x, mousePosition.y]);
-
-  useEffect(() => {
-    initCanvas();
-  }, [refresh]);
-
-  return (
-    <div className={className} ref={canvasContainerRef} aria-hidden="true">
-      <canvas ref={canvasRef} className="h-full w-full" />
-    </div>
-  );
-};
 
 const CircuitPattern: React.FC<{ className?: string }> = ({ className }) => (
   <svg
@@ -313,19 +55,6 @@ const HolographicBubble: React.FC<{
     <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-white/5 to-transparent" />
     <div className="relative z-10">{children}</div>
     
-    {/* Holographic shimmer effect */}
-    <motion.div
-      className="absolute inset-0 rounded-2xl bg-gradient-to-r from-transparent via-white/10 to-transparent"
-      animate={{
-        x: ["-100%", "100%"],
-      }}
-      transition={{
-        duration: 3,
-        repeat: Infinity,
-        repeatType: "loop",
-        ease: "linear",
-      }}
-    />
   </motion.div>
 );
 
@@ -396,6 +125,22 @@ const AuthenticatedApp: React.FC = () => {
   const { user, loading } = useAuth();
   const [showAuth, setShowAuth] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'register' | 'forgot-password'>('login');
+  
+  // Modal states - must be declared at top level (React Hooks rule)
+  const [showProjectModal, setShowProjectModal] = useState(false);
+  const [editingProject, setEditingProject] = useState<Project | undefined>(undefined);
+  const [showDashboardModal, setShowDashboardModal] = useState(false);
+  const [showTeamsModal, setShowTeamsModal] = useState(false);
+
+  const handleOpenProjectSettings = (project?: Project) => {
+    setEditingProject(project);
+    setShowProjectModal(true);
+  };
+
+  const handleCloseProjectModal = () => {
+    setShowProjectModal(false);
+    setEditingProject(undefined);
+  };
 
   if (loading) {
     return (
@@ -608,17 +353,95 @@ const AuthenticatedApp: React.FC = () => {
   }
 
   return (
-    <main className="h-screen w-full">
-      <div className="absolute top-4 right-4 z-50">
-        <UserMenu />
-      </div>
-      <SubscriptionGuard 
-        feature="NomadAI" 
-        requiredTier="basic"
-      >
-        <FuturisticAIChat />
-      </SubscriptionGuard>
-    </main>
+    <ChatProvider>
+      <main className="h-screen w-full flex flex-col bg-slate-950">
+        {/* Top Navigation Bar - Fixed height */}
+        <header className="flex-shrink-0 h-12 bg-slate-900/95 backdrop-blur-xl border-b border-slate-800/80 z-50">
+          <div className="h-full flex items-center justify-between px-4">
+            {/* Left side - Navigation links */}
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-violet-400 bg-violet-500/10 hover:bg-violet-500/20"
+                aria-current="page"
+              >
+                <MessageSquare className="w-4 h-4 mr-2" />
+                Chat
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowDashboardModal(true)}
+                className="text-slate-300 hover:text-white hover:bg-slate-800"
+                aria-label="Open Dashboard"
+              >
+                <LayoutDashboard className="w-4 h-4 mr-2" />
+                Dashboard
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowTeamsModal(true)}
+                className="text-slate-300 hover:text-white hover:bg-slate-800"
+                aria-label="Open Team Management"
+              >
+                <Users className="w-4 h-4 mr-2" />
+                Teams
+              </Button>
+            </div>
+            
+            {/* Right side - User menu */}
+            <UserMenu />
+          </div>
+        </header>
+        
+        {/* Main content area - fills remaining height */}
+        <div className="flex-1 flex min-h-0">
+          {/* Sidebar - hidden on mobile, shown on md+ */}
+          <Sidebar 
+            onOpenProjectSettings={handleOpenProjectSettings}
+          />
+          
+          {/* Chat area - flex-1 to take remaining space */}
+          <div className="flex-1 min-w-0 h-full overflow-hidden">
+            <SubscriptionGuard 
+              feature="NomadAI" 
+              requiredTier="freemium"
+            >
+              <FuturisticAIChat />
+            </SubscriptionGuard>
+          </div>
+        </div>
+
+        {/* Project Settings Modal */}
+        <ProjectSettingsModal
+          isOpen={showProjectModal}
+          onClose={handleCloseProjectModal}
+          project={editingProject}
+        />
+
+        {/* Dashboard Modal */}
+        <DashboardModal
+          isOpen={showDashboardModal}
+          onClose={() => setShowDashboardModal(false)}
+          onNavigateToChat={() => {
+            // Chat is already the main view, just close modal
+            setShowDashboardModal(false);
+          }}
+          onOpenTeams={() => {
+            setShowDashboardModal(false);
+            setShowTeamsModal(true);
+          }}
+        />
+
+        {/* Teams Modal */}
+        <TeamsModal
+          isOpen={showTeamsModal}
+          onClose={() => setShowTeamsModal(false)}
+        />
+      </main>
+    </ChatProvider>
   );
 };
 

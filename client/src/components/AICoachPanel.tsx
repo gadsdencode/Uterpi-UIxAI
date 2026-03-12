@@ -1,7 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronDown, ChevronUp, Brain, TrendingUp, Lightbulb, Target, X, ThumbsUp, ThumbsDown, Sparkles } from 'lucide-react';
+import { ChevronDown, ChevronUp, Brain, TrendingUp, Lightbulb, Target, X, ThumbsUp, ThumbsDown, Sparkles, Settings2, Zap } from 'lucide-react';
 import { useAICoach } from '../hooks/useAICoach';
 import { cn } from '../lib/utils';
+
+// Available AI providers for the coach
+const AI_PROVIDERS = [
+  { id: 'lmstudio', name: 'LM Studio / Uterpi', description: 'Local AI' },
+  { id: 'openai', name: 'OpenAI', description: 'GPT-4o' },
+  { id: 'gemini', name: 'Google Gemini', description: 'Gemini 2.5' },
+  { id: 'azure', name: 'Azure AI', description: 'Azure OpenAI' },
+] as const;
+
+type AIProviderType = typeof AI_PROVIDERS[number]['id'];
 
 interface AICoachPanelProps {
   className?: string;
@@ -16,6 +26,8 @@ export const AICoachPanel: React.FC<AICoachPanelProps> = ({
 }) => {
   const [isExpanded, setIsExpanded] = useState(autoExpand);
   const [selectedInsight, setSelectedInsight] = useState<number | null>(null);
+  const [coachProvider, setCoachProvider] = useState<AIProviderType>('lmstudio');
+  const [showProviderSelector, setShowProviderSelector] = useState(false);
   
   const {
     insights,
@@ -24,7 +36,14 @@ export const AICoachPanel: React.FC<AICoachPanelProps> = ({
     recordFeedback,
     applyRecommendation,
     fetchInsights,
+    generateInsights,
   } = useAICoach({ enabled: true, autoFetch: true });
+
+  // Get the display name for current provider
+  const getProviderDisplayName = (providerId: string) => {
+    const provider = AI_PROVIDERS.find(p => p.id === providerId);
+    return provider?.name || providerId;
+  };
 
   // Auto-expand when new high-priority insights arrive
   useEffect(() => {
@@ -112,23 +131,62 @@ export const AICoachPanel: React.FC<AICoachPanelProps> = ({
       {isExpanded && (
         <div className="bg-slate-900/95 backdrop-blur-xl border border-slate-700/50 rounded-2xl shadow-2xl w-96 max-h-[600px] flex flex-col">
           {/* Header */}
-          <div className="p-4 border-b border-slate-700/50 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Brain className="w-5 h-5 text-violet-400" />
-              <h3 className="text-white font-semibold">AI Coach</h3>
-              {unreadCount > 0 && (
-                <span className="bg-violet-600 text-white text-xs rounded-full px-2 py-0.5">
-                  {unreadCount} new
-                </span>
-              )}
+          <div className="p-4 border-b border-slate-700/50">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Brain className="w-5 h-5 text-violet-400" />
+                <h3 className="text-white font-semibold">AI Coach</h3>
+                {unreadCount > 0 && (
+                  <span className="bg-violet-600 text-white text-xs rounded-full px-2 py-0.5">
+                    {unreadCount} new
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowProviderSelector(!showProviderSelector)}
+                  className="text-slate-400 hover:text-slate-300 transition-colors p-1 rounded-md hover:bg-slate-700/50"
+                  aria-label="Settings"
+                  title="Select AI Provider"
+                >
+                  <Settings2 className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setIsExpanded(false)}
+                  className="text-slate-400 hover:text-slate-300 transition-colors"
+                  aria-label="Minimize AI Coach panel"
+                >
+                  <ChevronDown className="w-5 h-5" />
+                </button>
+              </div>
             </div>
-            <button
-              onClick={() => setIsExpanded(false)}
-              className="text-slate-400 hover:text-slate-300 transition-colors"
-              aria-label="Minimize AI Coach panel"
-            >
-              <ChevronDown className="w-5 h-5" />
-            </button>
+            
+            {/* Provider Selector Dropdown */}
+            {showProviderSelector && (
+              <div className="mt-3 p-2 bg-slate-800/50 rounded-lg border border-slate-700/30">
+                <div className="text-xs text-slate-400 mb-2 font-medium">Select AI Provider</div>
+                <div className="space-y-1">
+                  {AI_PROVIDERS.map((provider) => (
+                    <button
+                      key={provider.id}
+                      onClick={() => {
+                        setCoachProvider(provider.id);
+                        setShowProviderSelector(false);
+                      }}
+                      className={cn(
+                        "w-full flex items-center justify-between px-2 py-1.5 rounded-md text-xs transition-colors",
+                        coachProvider === provider.id
+                          ? "bg-violet-600/20 text-violet-300 border border-violet-500/30"
+                          : "hover:bg-slate-700/50 text-slate-300"
+                      )}
+                    >
+                      <span className="font-medium">{provider.name}</span>
+                      <span className="text-slate-500">{provider.description}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Workflow Stats */}
@@ -289,16 +347,31 @@ export const AICoachPanel: React.FC<AICoachPanelProps> = ({
           </div>
 
           {/* Footer */}
-          <div className="p-3 border-t border-slate-700/50 flex items-center justify-between">
-            <button
-              onClick={fetchInsights}
-              className="text-xs text-violet-400 hover:text-violet-300 transition-colors"
-            >
-              Refresh Insights
-            </button>
-            <div className="text-xs text-slate-500">
-              Powered by Azure AI
+          <div className="p-3 border-t border-slate-700/50">
+            <div className="flex items-center justify-between mb-2">
+              <button
+                onClick={fetchInsights}
+                className="text-xs text-violet-400 hover:text-violet-300 transition-colors"
+              >
+                Refresh Insights
+              </button>
+              <div className="text-xs text-slate-500">
+                Powered by {getProviderDisplayName(coachProvider)}
+              </div>
             </div>
+            <button
+              onClick={() => generateInsights(coachProvider)}
+              disabled={isLoading}
+              className={cn(
+                "w-full flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-medium transition-all",
+                isLoading
+                  ? "bg-slate-700/50 text-slate-400 cursor-not-allowed"
+                  : "bg-violet-600 hover:bg-violet-700 text-white"
+              )}
+            >
+              <Zap className="w-3.5 h-3.5" />
+              {isLoading ? 'Generating...' : 'Generate New Insights'}
+            </button>
           </div>
         </div>
       )}

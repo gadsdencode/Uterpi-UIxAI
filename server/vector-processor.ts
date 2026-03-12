@@ -1,4 +1,8 @@
 import { vectorService } from "./vector-service";
+import { db } from "./db";
+import { files } from "@shared/schema";
+import { eq } from "drizzle-orm";
+import { isVectorizationEnabled } from "./vector-flags";
 import { conversationService, MessageData } from "./conversation-service";
 
 export interface VectorizationJob {
@@ -28,6 +32,7 @@ export interface ConversationSummaryJob {
 export class VectorProcessor {
   private messageQueue: VectorizationJob[] = [];
   private conversationQueue: ConversationSummaryJob[] = [];
+  private fileQueue: Array<{ id: string; fileId: number; userId: number; retryCount: number; maxRetries: number; createdAt: Date }>= [];
   private isProcessing = false;
   private processingInterval: NodeJS.Timeout | null = null;
   private readonly processingIntervalMs = 5000; // Process every 5 seconds
@@ -35,7 +40,11 @@ export class VectorProcessor {
   private readonly retryDelayMs = 30000; // 30 seconds between retries
 
   constructor() {
-    this.startProcessing();
+    if (isVectorizationEnabled()) {
+      this.startProcessing();
+    } else {
+      console.log('⏸️ Vector processor disabled by feature flag');
+    }
   }
 
   /**
@@ -74,6 +83,9 @@ export class VectorProcessor {
     conversationId: number, 
     priority: 'high' | 'normal' | 'low' = 'normal'
   ): Promise<void> {
+    if (!isVectorizationEnabled()) {
+      return; // no-op when disabled
+    }
     const job: VectorizationJob = {
       id: `msg_${messageId}_${Date.now()}`,
       messageId,
@@ -97,6 +109,9 @@ export class VectorProcessor {
    * Queue multiple messages for vectorization
    */
   async queueMultipleMessages(messageIds: number[], conversationId: number): Promise<void> {
+    if (!isVectorizationEnabled()) {
+      return; // no-op when disabled
+    }
     for (const messageId of messageIds) {
       await this.queueMessageVectorization(messageId, conversationId, 'normal');
     }
@@ -106,6 +121,9 @@ export class VectorProcessor {
    * Queue conversation summary for vectorization
    */
   async queueConversationSummary(conversationId: number, priority: 'high' | 'normal' | 'low' = 'low'): Promise<void> {
+    if (!isVectorizationEnabled()) {
+      return; // no-op when disabled
+    }
     // Check if already queued
     const existing = this.conversationQueue.find(job => job.conversationId === conversationId);
     if (existing) {
@@ -130,6 +148,9 @@ export class VectorProcessor {
    * Process both message and conversation queues
    */
   private async processQueues(): Promise<void> {
+    if (!isVectorizationEnabled()) {
+      return; // no-op when disabled
+    }
     if (this.isProcessing) {
       return; // Already processing
     }
@@ -140,14 +161,17 @@ export class VectorProcessor {
       // Process high priority items first
       await this.processMessageQueue('high');
       await this.processConversationQueue('high');
+      await this.processFileQueue();
       
       // Then normal priority
       await this.processMessageQueue('normal');
       await this.processConversationQueue('normal');
+      await this.processFileQueue();
       
       // Finally low priority
       await this.processMessageQueue('low');
       await this.processConversationQueue('low');
+      await this.processFileQueue();
 
     } catch (error) {
       console.error('❌ Error in vector processor queue processing:', error);
@@ -157,9 +181,97 @@ export class VectorProcessor {
   }
 
   /**
+   * Queue file for vectorization (chunk embeddings)
+   */
+  async queueFileVectorization(fileId: number, userId: number): Promise<void> {
+    if (!isVectorizationEnabled()) {
+      return;
+    }
+    const job = { id: `file_${fileId}_${Date.now()}`, fileId, userId, retryCount: 0, maxRetries: this.maxRetries, createdAt: new Date() };
+    this.fileQueue.push(job);
+    console.log(`📥 Queued file ${fileId} for vectorization (file queue size: ${this.fileQueue.length})`);
+  }
+
+  /**
+   * Process file vectorization queue
+   */
+  private async processFileQueue(): Promise<void> {
+    if (!isVectorizationEnabled()) {
+      return;
+    }
+    if (this.fileQueue.length === 0) return;
+    const jobs = [...this.fileQueue];
+    console.log(`🔄 Processing ${jobs.length} file vectorization jobs`);
+    for (const job of jobs) {
+      try {
+        await this.processSingleFileVectorization(job.fileId, job.userId);
+        this.fileQueue = this.fileQueue.filter(j => j.id !== job.id);
+      } catch (error) {
+        console.error(`❌ File vectorization failed for file ${job.fileId}:`, error);
+        if (job.retryCount < job.maxRetries) {
+          job.retryCount++;
+          console.log(`🔄 Retry ${job.retryCount}/${job.maxRetries} for file job ${job.id}`);
+        } else {
+          console.error(`❌ Max retries exceeded for file vectorization job ${job.id}, removing from queue`);
+          this.fileQueue = this.fileQueue.filter(j => j.id !== job.id);
+        }
+      }
+      await this.sleep(100);
+    }
+  }
+
+  /**
+   * Process single file vectorization
+   */
+  private async processSingleFileVectorization(fileId: number, userId: number): Promise<void> {
+    if (!isVectorizationEnabled()) {
+      return;
+    }
+    // Fetch file to ensure it belongs to user and has content
+    const result = await db.select().from(files).where(eq(files.id, fileId));
+    const file = result[0];
+    if (!file) throw new Error('File not found');
+    if (!file.content) {
+      console.log(`ℹ️ File ${fileId} has no content, skipping embedding`);
+      return;
+    }
+
+    // Determine text to embed based on encoding and mime type
+    let textForEmbedding = '';
+    const encoding = String(file.encoding || 'utf-8').toLowerCase();
+    const mime = String(file.mimeType || '').toLowerCase();
+
+    try {
+      if (encoding === 'utf-8' || encoding === 'utf8') {
+        // Already stored as UTF-8 text
+        textForEmbedding = String(file.content || '');
+      } else {
+        // Binary content (base64). Attempt extraction for supported types (pdf/docx)
+        textForEmbedding = await vectorService.extractTextForFileRecord(file);
+      }
+    } catch (e) {
+      console.warn(`⚠️ Failed to derive text for embeddings for file ${fileId}:`, e);
+      textForEmbedding = '';
+    }
+
+    if (!textForEmbedding || !textForEmbedding.trim()) {
+      console.log(`ℹ️ No extractable text for file ${fileId} (mime=${mime}). Skipping embedding.`);
+      return;
+    }
+
+    // Clear previous embeddings and re-index
+    await vectorService.clearFileEmbeddings(fileId);
+    const stored = await vectorService.indexFileContent(fileId, textForEmbedding);
+    console.log(`✅ Indexed ${stored} chunks for file ${fileId}`);
+  }
+
+  /**
    * Process message vectorization queue
    */
   private async processMessageQueue(priority: 'high' | 'normal' | 'low'): Promise<void> {
+    if (!isVectorizationEnabled()) {
+      return; // no-op when disabled
+    }
     const jobs = this.messageQueue.filter(job => 
       job.priority === priority && 
       (!job.scheduledAt || job.scheduledAt <= new Date())
@@ -201,6 +313,9 @@ export class VectorProcessor {
    * Process conversation summary vectorization queue
    */
   private async processConversationQueue(priority: 'high' | 'normal' | 'low'): Promise<void> {
+    if (!isVectorizationEnabled()) {
+      return; // no-op when disabled
+    }
     const jobs = this.conversationQueue.filter(job => job.priority === priority);
 
     if (jobs.length === 0) {
@@ -238,6 +353,9 @@ export class VectorProcessor {
    * Process individual message vectorization
    */
   private async processMessageVectorization(job: VectorizationJob): Promise<void> {
+    if (!isVectorizationEnabled()) {
+      return; // no-op when disabled
+    }
     console.log(`🔤 Processing message vectorization for message ${job.messageId}`);
     
     // Get the message
@@ -246,8 +364,14 @@ export class VectorProcessor {
       throw new Error(`Message ${job.messageId} not found`);
     }
 
-    // Generate embedding
-    const embeddingResult = await vectorService.generateEmbedding(message.content);
+    // Generate embedding (service has internal fallback and will not throw)
+    const embeddingResult = await vectorService.generateEmbedding(message.content).catch((e) => {
+      console.warn('⚠️ Message embedding generation failed, skipping store:', e?.message || e);
+      return null as any;
+    });
+    if (!embeddingResult || !embeddingResult.embedding) {
+      return; // Skip storing if we have no embedding
+    }
     
     // Store embedding
     await vectorService.storeMessageEmbedding(job.messageId, embeddingResult);
@@ -259,13 +383,22 @@ export class VectorProcessor {
    * Process conversation summary vectorization
    */
   private async processConversationSummaryVectorization(job: ConversationSummaryJob): Promise<void> {
+    if (!isVectorizationEnabled()) {
+      return; // no-op when disabled
+    }
     console.log(`📝 Processing conversation summary vectorization for conversation ${job.conversationId}`);
     
     // Generate conversation summary
     const summary = await vectorService.generateConversationSummary(job.conversationId);
     
-    // Generate embedding for summary
-    const embeddingResult = await vectorService.generateEmbedding(summary);
+    // Generate embedding for summary (non-blocking)
+    const embeddingResult = await vectorService.generateEmbedding(summary).catch((e) => {
+      console.warn('⚠️ Summary embedding generation failed, skipping store:', e?.message || e);
+      return null as any;
+    });
+    if (!embeddingResult || !embeddingResult.embedding) {
+      return;
+    }
     
     // Store conversation embedding
     await vectorService.storeConversationEmbedding(job.conversationId, summary, embeddingResult);
@@ -283,10 +416,10 @@ export class VectorProcessor {
     totalPending: number;
   } {
     return {
-      messageQueue: this.messageQueue.length,
-      conversationQueue: this.conversationQueue.length,
-      isProcessing: this.isProcessing,
-      totalPending: this.messageQueue.length + this.conversationQueue.length
+      messageQueue: isVectorizationEnabled() ? this.messageQueue.length : 0,
+      conversationQueue: isVectorizationEnabled() ? this.conversationQueue.length : 0,
+      isProcessing: isVectorizationEnabled() ? this.isProcessing : false,
+      totalPending: isVectorizationEnabled() ? (this.messageQueue.length + this.conversationQueue.length) : 0
     };
   }
 
@@ -294,6 +427,9 @@ export class VectorProcessor {
    * Clear all queues (for testing/maintenance)
    */
   public clearQueues(): void {
+    if (!isVectorizationEnabled()) {
+      return; // no-op when disabled
+    }
     this.messageQueue = [];
     this.conversationQueue = [];
     console.log('🧹 Cleared all vector processor queues');
@@ -303,6 +439,9 @@ export class VectorProcessor {
    * Process pending jobs immediately (manual trigger)
    */
   public async processPendingJobs(): Promise<void> {
+    if (!isVectorizationEnabled()) {
+      return; // no-op when disabled
+    }
     if (this.isProcessing) {
       console.log('⏳ Vector processor is already processing, skipping manual trigger');
       return;

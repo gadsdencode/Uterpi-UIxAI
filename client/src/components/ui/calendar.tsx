@@ -49,27 +49,27 @@ function Calendar({
           "absolute inset-x-0 top-0 flex w-full items-center justify-between gap-1",
           defaultClassNames.nav
         ),
-        nav_button_previous: cn(
+        button_previous: cn(
           buttonVariants({ variant: buttonVariant }),
           "h-[--cell-size] w-[--cell-size] select-none p-0 aria-disabled:opacity-50",
-          defaultClassNames.nav_button_previous
+          defaultClassNames.button_previous
         ),
-        nav_button_next: cn(
+        button_next: cn(
           buttonVariants({ variant: buttonVariant }),
           "h-[--cell-size] w-[--cell-size] select-none p-0 aria-disabled:opacity-50",
-          defaultClassNames.nav_button_next
+          defaultClassNames.button_next
         ),
-        caption: cn(
+        month_caption: cn(
           "flex h-[--cell-size] w-full items-center justify-center px-[--cell-size]",
-          defaultClassNames.caption
+          defaultClassNames.month_caption
         ),
-        dropdown: cn(
+        dropdowns: cn(
           "flex h-[--cell-size] w-full items-center justify-center gap-1.5 text-sm font-medium",
-          defaultClassNames.dropdown
+          defaultClassNames.dropdowns
         ),
-        dropdown_month: cn(
+        dropdown_root: cn(
           "has-focus:border-ring border-input shadow-xs has-focus:ring-ring/50 has-focus:ring-[3px] relative rounded-md border",
-          defaultClassNames.dropdown_month
+          defaultClassNames.dropdown_root
         ),
         caption_label: cn(
           "select-none font-medium",

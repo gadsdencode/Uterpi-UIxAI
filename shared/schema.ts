@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, date, varchar, json, decimal } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, date, varchar, json, decimal, vector, index } from "drizzle-orm/pg-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -101,16 +101,36 @@ export const subscriptions = pgTable("subscriptions", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// =============================================================================
+// PROJECTS (WORKSPACES) SYSTEM
+// =============================================================================
+
+// Projects table for isolated workspaces
+export const projects = pgTable("projects", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  name: text("name").notNull(),
+  description: text("description"),
+  instructions: text("instructions"), // Custom System Prompt for this project
+  isDefault: boolean("is_default").default(false), // Default project for user
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 // File system tables for real file integration
 export const files = pgTable("files", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").references(() => users.id).notNull(),
+  projectId: integer("project_id").references(() => projects.id), // Project scope (null = global/no project)
   name: text("name").notNull(),
   originalName: text("original_name").notNull(),
   mimeType: text("mime_type").notNull(),
   size: integer("size").notNull(), // File size in bytes
-  content: text("content"), // Store file content as base64 encoded text
+  content: text("content"), // Store file content as base64 encoded text (legacy, kept for backward compatibility)
   encoding: text("encoding"), // File encoding (e.g., utf-8, base64)
+  
+  // Replit Object Storage reference (new storage method)
+  storageKey: text("storage_key"), // Reference key for Object Storage (format: uploads/{userId}/{uuid}.{ext})
   
   // File metadata
   description: text("description"),
@@ -195,6 +215,21 @@ export const fileInteractions = pgTable("file_interactions", {
   // Timestamps
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+// Vector embeddings for file chunks
+// Uses native pgvector type for fast similarity search (384 dimensions for all-MiniLM-L6-v2)
+export const fileEmbeddings = pgTable("file_embeddings", {
+  id: serial("id").primaryKey(),
+  fileId: integer("file_id").references(() => files.id).notNull(),
+  chunkIndex: integer("chunk_index").notNull(),
+  chunkText: text("chunk_text").notNull(),
+  embedding: vector("embedding", { dimensions: 384 }).notNull(), // Native pgvector type
+  embeddingModel: text("embedding_model").notNull(),
+  embeddingDimensions: integer("embedding_dimensions").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("idx_file_embeddings_hnsw").using("hnsw", table.embedding.op("vector_cosine_ops")),
+]);
 
 // Schema for creating a user with email/password
 export const insertUserSchema = createInsertSchema(users, {
@@ -375,13 +410,44 @@ export const fileInteractionSchema = createInsertSchema(fileInteractions, {
 
 // New file system types
 export type File = typeof files.$inferSelect;
-export type InsertFile = z.infer<typeof insertFileSchema>;
+export type InsertFile = z.infer<typeof insertFileSchema> & { projectId?: number };
 export type UpdateFile = z.infer<typeof updateFileSchema>;
 export type FileVersion = typeof fileVersions.$inferSelect;
 export type FilePermission = typeof filePermissions.$inferSelect;
 export type ShareFile = z.infer<typeof shareFileSchema>;
 export type FileInteraction = typeof fileInteractions.$inferSelect;
 export type InsertFileInteraction = z.infer<typeof fileInteractionSchema>;
+
+// =============================================================================
+// PROJECT SCHEMAS AND TYPES
+// =============================================================================
+
+// Project schemas
+export const insertProjectSchema = createInsertSchema(projects, {
+  name: z.string().min(1, "Project name is required").max(100, "Project name too long"),
+  description: z.string().max(500, "Description too long").optional(),
+  instructions: z.string().max(5000, "Instructions too long").optional(),
+  isDefault: z.boolean().optional(),
+}).pick({
+  name: true,
+  description: true,
+  instructions: true,
+  isDefault: true,
+});
+
+export const updateProjectSchema = z.object({
+  name: z.string().min(1, "Project name is required").max(100, "Project name too long").optional(),
+  description: z.string().max(500, "Description too long").optional().nullable(),
+  instructions: z.string().max(5000, "Instructions too long").optional().nullable(),
+  isDefault: z.boolean().optional(),
+});
+
+export const projectSchema = createSelectSchema(projects);
+
+// Project types
+export type Project = typeof projects.$inferSelect;
+export type InsertProject = z.infer<typeof insertProjectSchema>;
+export type UpdateProject = z.infer<typeof updateProjectSchema>;
 
 // Engagement system schemas
 export const updateEmailPreferencesSchema = z.object({
@@ -551,6 +617,119 @@ export const emailSendLog = pgTable("email_send_log", {
   
   // Metadata
   createdAt: timestamp("created_at").defaultNow(),
+});
+
+// SMS notifications table for tracking SMS messages
+export const smsNotifications = pgTable("sms_notifications", {
+  id: serial("id").primaryKey(),
+  
+  // User reference
+  userId: integer("user_id").references(() => users.id),
+  
+  // Recipient details
+  recipientPhone: text("recipient_phone").notNull(),
+  recipientName: text("recipient_name"),
+  
+  // Message details
+  message: text("message").notNull(),
+  notificationType: text("notification_type").notNull(), // welcome, alert, reminder, verification, promotion
+  
+  // Twilio tracking
+  twilioMessageSid: text("twilio_message_sid").unique(),
+  twilioStatus: text("twilio_status").default("pending"), // pending, queued, sent, delivered, failed, undelivered
+  twilioErrorCode: text("twilio_error_code"),
+  twilioErrorMessage: text("twilio_error_message"),
+  
+  // Cost tracking
+  twilioPrice: decimal("twilio_price", { precision: 10, scale: 4 }), // Cost in USD
+  twilioUnit: text("twilio_unit"), // Currency unit
+  
+  // Delivery tracking
+  sentAt: timestamp("sent_at"),
+  deliveredAt: timestamp("delivered_at"),
+  failedAt: timestamp("failed_at"),
+  
+  // Template and context
+  templateId: text("template_id"),
+  templateVariables: json("template_variables"),
+  
+  // Campaign association (optional)
+  campaignId: integer("campaign_id"),
+  
+  // Metadata
+  metadata: json("metadata"),
+  priority: text("priority").default("normal"), // low, normal, high, critical
+  retryCount: integer("retry_count").default(0),
+  maxRetries: integer("max_retries").default(3),
+  
+  // Timestamps
+  scheduledFor: timestamp("scheduled_for"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// SMS preferences table for user opt-in/out
+export const smsPreferences = pgTable("sms_preferences", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull().unique(),
+  
+  // Phone verification
+  phoneNumber: text("phone_number"),
+  phoneVerified: boolean("phone_verified").default(false),
+  verificationCode: text("verification_code"),
+  verificationCodeExpiry: timestamp("verification_code_expiry"),
+  
+  // Notification preferences
+  enableSms: boolean("enable_sms").default(false),
+  alertNotifications: boolean("alert_notifications").default(true),
+  reminderNotifications: boolean("reminder_notifications").default(true),
+  promotionalNotifications: boolean("promotional_notifications").default(false),
+  
+  // Time preferences
+  quietHoursStart: text("quiet_hours_start"), // e.g., "22:00"
+  quietHoursEnd: text("quiet_hours_end"), // e.g., "08:00"
+  timezone: text("timezone").default("UTC"),
+  
+  // Frequency limits
+  dailyLimit: integer("daily_limit").default(10),
+  messagesReceivedToday: integer("messages_received_today").default(0),
+  dailyLimitResetAt: timestamp("daily_limit_reset_at"),
+  
+  // Opt-out management
+  isOptedOut: boolean("is_opted_out").default(false),
+  optOutToken: text("opt_out_token").unique(),
+  optedOutAt: timestamp("opted_out_at"),
+  optOutReason: text("opt_out_reason"),
+  
+  // Metadata
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// SMS templates for reusable message formats
+export const smsTemplates = pgTable("sms_templates", {
+  id: serial("id").primaryKey(),
+  
+  // Template details
+  name: text("name").notNull().unique(),
+  description: text("description"),
+  notificationType: text("notification_type").notNull(), // welcome, alert, reminder, verification, promotion
+  
+  // Message template
+  messageTemplate: text("message_template").notNull(), // Template with {{variables}}
+  requiredVariables: json("required_variables").$type<string[]>(), // List of required template variables
+  
+  // Usage tracking
+  usageCount: integer("usage_count").default(0),
+  lastUsedAt: timestamp("last_used_at"),
+  
+  // Status
+  isActive: boolean("is_active").default(true),
+  
+  // Metadata
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  createdBy: integer("created_by").references(() => users.id),
 });
 
 // User activity tracking for real-time engagement
@@ -738,6 +917,7 @@ export const aiCoachConversations = pgTable("ai_coach_conversations", {
 export const conversations = pgTable("conversations", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").references(() => users.id).notNull(),
+  projectId: integer("project_id").references(() => projects.id), // Project scope (null = global/no project)
   sessionId: text("session_id").notNull(),
   title: text("title"),
   provider: text("provider").notNull(), // 'uterpi', 'openai', 'gemini', 'azure', 'lmstudio'
@@ -745,6 +925,7 @@ export const conversations = pgTable("conversations", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
   archivedAt: timestamp("archived_at"),
+  isStarred: boolean("is_starred").default(false),
 });
 
 // Individual messages within conversations
@@ -774,26 +955,32 @@ export const messages = pgTable("messages", {
 });
 
 // Vector embeddings for semantic search
+// Uses native pgvector type for fast similarity search (384 dimensions for all-MiniLM-L6-v2)
 export const messageEmbeddings = pgTable("message_embeddings", {
   id: serial("id").primaryKey(),
   messageId: integer("message_id").references(() => messages.id).notNull(),
-  embedding: text("embedding").notNull(), // Stored as JSON array string
+  embedding: vector("embedding", { dimensions: 384 }).notNull(), // Native pgvector type
   embeddingModel: text("embedding_model").notNull(), // Model used for embedding
   embeddingDimensions: integer("embedding_dimensions").notNull(), // Vector dimensions
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => [
+  index("idx_message_embeddings_hnsw").using("hnsw", table.embedding.op("vector_cosine_ops")),
+]);
 
 // Conversation context vectors (aggregated summaries)
+// Uses native pgvector type for fast similarity search
 export const conversationEmbeddings = pgTable("conversation_embeddings", {
   id: serial("id").primaryKey(),
   conversationId: integer("conversation_id").references(() => conversations.id).notNull(),
-  summaryEmbedding: text("summary_embedding").notNull(), // Stored as JSON array string
+  summaryEmbedding: vector("summary_embedding", { dimensions: 384 }).notNull(), // Native pgvector type
   embeddingModel: text("embedding_model").notNull(),
   embeddingDimensions: integer("embedding_dimensions").notNull(),
   summary: text("summary"), // Text summary of conversation
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+}, (table) => [
+  index("idx_conversation_embeddings_hnsw").using("hnsw", table.summaryEmbedding.op("vector_cosine_ops")),
+]);
 
 // =============================================================================
 // NEW MULTI-TIER SUBSCRIPTION TABLES
@@ -896,3 +1083,103 @@ export const subscriptionFeatures = pgTable("subscription_features", {
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
+
+// =============================================================================
+// DISTRIBUTED RATE LIMITING TABLE
+// =============================================================================
+
+// Stores per-key, per-route request counts within a fixed window
+// A unique index on (key, route, window_start) is created via migration
+export const rateLimits = pgTable("rate_limits", {
+  id: serial("id").primaryKey(),
+  key: text("key").notNull(),
+  route: text("route").notNull(),
+  windowStart: timestamp("window_start", { precision: 6 }).notNull(),
+  windowEnd: timestamp("window_end", { precision: 6 }).notNull(),
+  windowMs: integer("window_ms").notNull(),
+  count: integer("count").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// =============================================================================
+// SMS NOTIFICATION SCHEMAS AND TYPES
+// =============================================================================
+
+// SMS notification schemas
+export const insertSmsNotificationSchema = createInsertSchema(smsNotifications, {
+  recipientPhone: z.string().regex(/^\+[1-9]\d{1,14}$/, "Phone number must be in E.164 format (e.g., +14155552671)"),
+  message: z.string().min(1, "Message is required").max(1600, "Message must be less than 1600 characters"),
+  notificationType: z.enum(["welcome", "alert", "reminder", "verification", "promotion"]),
+  priority: z.enum(["low", "normal", "high", "critical"]).default("normal"),
+}).pick({
+  recipientPhone: true,
+  recipientName: true,
+  message: true,
+  notificationType: true,
+  priority: true,
+  templateId: true,
+  templateVariables: true,
+  scheduledFor: true,
+  metadata: true,
+});
+
+export const smsNotificationSchema = createSelectSchema(smsNotifications);
+
+// SMS preferences schemas
+export const insertSmsPreferencesSchema = createInsertSchema(smsPreferences, {
+  phoneNumber: z.string().regex(/^\+[1-9]\d{1,14}$/, "Phone number must be in E.164 format").optional(),
+  enableSms: z.boolean().default(false),
+  alertNotifications: z.boolean().default(true),
+  reminderNotifications: z.boolean().default(true),
+  promotionalNotifications: z.boolean().default(false),
+  quietHoursStart: z.string().regex(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/, "Time must be in HH:MM format").optional(),
+  quietHoursEnd: z.string().regex(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/, "Time must be in HH:MM format").optional(),
+  timezone: z.string().default("UTC"),
+  dailyLimit: z.number().int().min(1).max(100).default(10),
+});
+
+export const updateSmsPreferencesSchema = insertSmsPreferencesSchema.partial();
+
+// SMS template schemas
+export const insertSmsTemplateSchema = createInsertSchema(smsTemplates, {
+  name: z.string().min(1, "Template name is required").max(100, "Template name too long"),
+  messageTemplate: z.string().min(1, "Template message is required").max(1600, "Template too long"),
+  notificationType: z.enum(["welcome", "alert", "reminder", "verification", "promotion"]),
+  requiredVariables: z.array(z.string()).optional(),
+});
+
+export const smsTemplateSchema = createSelectSchema(smsTemplates);
+
+// Phone verification schema
+export const verifyPhoneSchema = z.object({
+  phoneNumber: z.string().regex(/^\+[1-9]\d{1,14}$/, "Phone number must be in E.164 format"),
+});
+
+export const confirmPhoneVerificationSchema = z.object({
+  phoneNumber: z.string().regex(/^\+[1-9]\d{1,14}$/, "Phone number must be in E.164 format"),
+  verificationCode: z.string().length(6, "Verification code must be 6 digits"),
+});
+
+// Send SMS schema
+export const sendSmsSchema = z.object({
+  recipientPhone: z.string().regex(/^\+[1-9]\d{1,14}$/, "Phone number must be in E.164 format"),
+  message: z.string().min(1, "Message is required").max(1600, "Message must be less than 1600 characters"),
+  notificationType: z.enum(["welcome", "alert", "reminder", "verification", "promotion"]),
+  priority: z.enum(["low", "normal", "high", "critical"]).default("normal"),
+  templateId: z.string().optional(),
+  templateVariables: z.record(z.string()).optional(),
+  scheduledFor: z.string().optional(),
+});
+
+// SMS notification types
+export type SmsNotification = typeof smsNotifications.$inferSelect;
+export type InsertSmsNotification = z.infer<typeof insertSmsNotificationSchema>;
+export type SmsPreferences = typeof smsPreferences.$inferSelect;
+export type InsertSmsPreferences = z.infer<typeof insertSmsPreferencesSchema>;
+export type UpdateSmsPreferences = z.infer<typeof updateSmsPreferencesSchema>;
+export type SmsTemplate = typeof smsTemplates.$inferSelect;
+export type InsertSmsTemplate = z.infer<typeof insertSmsTemplateSchema>;
+export type SendSms = z.infer<typeof sendSmsSchema>;
+export type VerifyPhone = z.infer<typeof verifyPhoneSchema>;
+export type ConfirmPhoneVerification = z.infer<typeof confirmPhoneVerificationSchema>;

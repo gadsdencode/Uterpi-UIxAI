@@ -114,31 +114,14 @@ class VectorizationTester {
     console.log('🔤 Testing Vector Service...');
 
     try {
-      // Test embedding generation with LM Studio
+      // Test local embedding generation (Transformers.js with hash fallback)
       const testText = 'This is a test about artificial intelligence and machine learning algorithms.';
-      
-      try {
-        const embeddingResult = await vectorService.generateEmbedding(testText, 'lmstudio');
-        this.addResult('VectorService', 'Generate LM Studio Embedding', true, undefined, {
-          model: embeddingResult.model,
-          dimensions: embeddingResult.dimensions,
-          embeddingLength: embeddingResult.embedding.length
-        });
-      } catch (error) {
-        this.addResult('VectorService', 'Generate LM Studio Embedding', false, `LM Studio embedding failed: ${error}`);
-        
-        // Try OpenAI fallback
-        try {
-          const fallbackResult = await vectorService.generateEmbedding(testText, 'openai');
-          this.addResult('VectorService', 'Generate OpenAI Embedding (Fallback)', true, undefined, {
-            model: fallbackResult.model,
-            dimensions: fallbackResult.dimensions,
-            embeddingLength: fallbackResult.embedding.length
-          });
-        } catch (fallbackError) {
-          this.addResult('VectorService', 'Generate OpenAI Embedding (Fallback)', false, `OpenAI embedding also failed: ${fallbackError}`);
-        }
-      }
+      const embeddingResult = await vectorService.generateEmbedding(testText);
+      this.addResult('VectorService', 'Generate Local Embedding', true, undefined, {
+        model: embeddingResult.model,
+        dimensions: embeddingResult.dimensions,
+        embeddingLength: embeddingResult.embedding.length
+      });
 
       // Test conversation summary generation
       const conversation = await conversationService.createConversation({

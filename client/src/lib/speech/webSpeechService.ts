@@ -11,17 +11,10 @@ import {
   SpeechConfig
 } from '../../types/speech';
 
-// Extend window to include Web Speech API types
-declare global {
-  interface Window {
-    SpeechRecognition: any;
-    webkitSpeechRecognition: any;
-    speechSynthesis: SpeechSynthesis;
-  }
-}
+// Web Speech API types are now defined in speech-global.d.ts
 
 export class WebSpeechService extends BaseSpeechService {
-  private recognition: any = null;
+  private recognition: SpeechRecognition | null = null;
   private currentTranscript: string = '';
   private isRecording: boolean = false;
   private recognitionResolve?: (value: SpeechRecognitionResult) => void;
@@ -30,12 +23,26 @@ export class WebSpeechService extends BaseSpeechService {
   private restartTimer?: NodeJS.Timeout;
   private lastResultTime: number = 0;
   private silenceTimer?: NodeJS.Timeout;
+  private silenceTimeoutMs: number = 12000; // 12 seconds of silence before restart (optimized for natural speech)
+  private consecutiveSilenceCount: number = 0;
+  private maxConsecutiveSilence: number = 2; // Max 2 consecutive silence periods before forcing restart
   private isRestarting: boolean = false;
+  private performanceMetrics: {
+    totalResults: number;
+    averageConfidence: number;
+    lastPerformanceCheck: number;
+  } = {
+    totalResults: 0,
+    averageConfidence: 0,
+    lastPerformanceCheck: Date.now()
+  };
   private restartAttempts: number = 0;
   private maxRestartAttempts: number = 1000000;
   private pendingRestart: boolean = false;
   private utteranceQueue: SpeechSynthesisUtterance[] = [];
   private isSpeaking: boolean = false;
+  private explicitlyStopped: boolean = false;
+  private recognitionRunning: boolean = false;
 
   constructor() {
     super('web');
@@ -44,79 +51,145 @@ export class WebSpeechService extends BaseSpeechService {
   async initialize(config?: SpeechConfig): Promise<void> {
     await super.initialize(config);
     
+    // Check if any speech APIs are available before proceeding
+    if (!this.isSTTAvailable() && !this.isTTSAvailable()) {
+      throw new Error('Speech Recognition and Synthesis APIs are not available in this browser');
+    }
+    
     // Initialize speech recognition if available
     if (this.isSTTAvailable()) {
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      this.recognition = new SpeechRecognition();
-      this.setupRecognition();
+      try {
+        const SpeechRecognitionConstructor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        
+        if (!SpeechRecognitionConstructor) {
+          console.warn('SpeechRecognition API is not available in this browser');
+          return; // Don't throw, just skip STT initialization
+        }
+        
+        // Additional validation to ensure the constructor is callable
+        if (typeof SpeechRecognitionConstructor !== 'function') {
+          console.warn('SpeechRecognition constructor is not a function');
+          return; // Don't throw, just skip STT initialization
+        }
+        
+        // Ensure we're using the 'new' operator correctly
+        this.recognition = new SpeechRecognitionConstructor();
+        this.setupRecognition();
+        console.log('✅ SpeechRecognition initialized successfully');
+      } catch (error) {
+        console.error('Failed to create SpeechRecognition instance:', error);
+        // Don't throw the error, just log it and continue without STT
+        this.recognition = null;
+        console.warn('Speech recognition will be disabled due to initialization error');
+      }
     }
   }
 
   private setupRecognition(): void {
     if (!this.recognition) return;
 
-    this.recognition.continuous = true; // Always continuous for better experience
-    this.recognition.interimResults = this.config.interimResults ?? true;
-    this.recognition.maxAlternatives = this.config.maxAlternatives ?? 1;
+    // CRITICAL: These settings are essential for speech recognition to work
+    this.recognition.continuous = true; // Must be true for continuous recognition
+    this.recognition.interimResults = true; // Must be true to get interim results
+    this.recognition.maxAlternatives = this.config.maxAlternatives ?? 1; // Keep at 1 for faster processing
     this.recognition.lang = this.config.language ?? 'en-US';
+    
+    // Add grammar support for better accuracy (if available)
+    if ('webkitSpeechGrammarList' in window) {
+      const grammarList = new (window as any).webkitSpeechGrammarList();
+      // Add common words/phrases for better recognition
+      const grammar = '#JSGF V1.0; grammar common; public <common> = hello | hi | yes | no | stop | start | help;';
+      grammarList.addFromString(grammar, 1);
+      this.recognition.grammars = grammarList;
+    }
+    
+    console.log('[WebSpeech] Recognition configured with:', {
+      continuous: this.recognition.continuous,
+      interimResults: this.recognition.interimResults,
+      maxAlternatives: this.recognition.maxAlternatives,
+      lang: this.recognition.lang
+    });
 
     this.recognition.onresult = (event: any) => {
+      console.log(`[WebSpeech] 🎤 onresult EVENT FIRED!`, event);
       this.lastResultTime = Date.now();
       this.resetSilenceTimer();
       
       const results = event.results;
-      console.log(`[WebSpeech] onresult: ${results.length} results, resultIndex: ${event.resultIndex}`);
+      if (!results || results.length === 0) {
+        console.log(`[WebSpeech] 🎤 No results in event`);
+        return;
+      }
       
-      // Process all results from the beginning to maintain complete transcript
-      let fullTranscript = '';
+      console.log(`[WebSpeech] 🎤 Processing ${results.length} results, starting from index ${event.resultIndex}`);
+      
+      // CORRECT IMPLEMENTATION based on official documentation:
+      // interim_transcript is a local variable, and is completely rebuilt each time
+      // final_transcript is a global variable that accumulates
       let interimTranscript = '';
       
-      // Build the complete transcript from all results
-      for (let i = 0; i < results.length; i++) {
-        const r = results[i];
-        const text = r[0]?.transcript || '';
-        if (r.isFinal) {
-          // Add final results to the full transcript
-          fullTranscript += text + ' ';
-          console.log(`[WebSpeech] Final result[${i}]: "${text}"`);
+      // Process results starting from event.resultIndex (CRITICAL!)
+      for (let i = event.resultIndex; i < results.length; ++i) {
+        const result = results[i];
+        const text = result[0]?.transcript || '';
+        
+        console.log(`[WebSpeech] 🔍 Processing result[${i}]: "${text}" (isFinal: ${result.isFinal})`);
+        
+        if (result.isFinal) {
+          // Accumulate final results in the global transcript
+          this.fullTranscript += text;
+          console.log(`[WebSpeech] ✅ Final[${i}]: "${text}" -> Full transcript now: "${this.fullTranscript}"`);
+          // Reset silence count only on final results
+          this.resetSilenceCount();
         } else {
-          // Add interim results (only the last one matters)
-          interimTranscript = text;
-          console.log(`[WebSpeech] Interim result[${i}]: "${text}"`);
+          // Rebuild interim transcript completely each time
+          interimTranscript += text;
+          console.log(`[WebSpeech] ⏳ Interim[${i}]: "${text}" -> Interim transcript now: "${interimTranscript}"`);
         }
       }
       
-      // Update the persistent full transcript with all finals
-      this.fullTranscript = fullTranscript;
+      // Create display transcript: accumulated finals + current interim
+      const displayTranscript = this.fullTranscript + interimTranscript;
+      this.currentTranscript = displayTranscript;
       
-      // Current transcript is all finals + current interim
-      this.currentTranscript = (fullTranscript + (interimTranscript ? ' ' + interimTranscript : '')).trim();
-      console.log(`[WebSpeech] Current transcript: "${this.currentTranscript}"`);
+      console.log(`[WebSpeech] 📝 Display: "${displayTranscript}"`);
+      console.log(`[WebSpeech] 📝 Full transcript: "${this.fullTranscript}"`);
+      console.log(`[WebSpeech] 📝 Interim transcript: "${interimTranscript}"`);
       
-      // Get the last result for alternatives and confidence if available
+      // Get confidence from the most recent result
       const lastResult = results[results.length - 1];
-      const alternatives = Array.from(lastResult || []).map((alt: any) => ({
-        transcript: alt.transcript,
-        confidence: alt.confidence || 0
-      }));
-
+      const confidence = lastResult?.[0]?.confidence || 0.8;
+      
       const result: SpeechRecognitionResult = {
-        transcript: this.currentTranscript,
-        confidence: (lastResult && lastResult[0] && typeof lastResult[0].confidence === 'number') ? lastResult[0].confidence : 0.9,
-        isFinal: false, // Never report final while in continuous mode to keep listening
-        alternatives: alternatives.slice(1)
+        transcript: displayTranscript,
+        confidence: Math.max(confidence, 0.1),
+        isFinal: lastResult ? lastResult.isFinal : false,
+        alternatives: [],
+        // Add separate final and interim transcripts for better handling
+        finalTranscript: this.fullTranscript,
+        interimTranscript: interimTranscript
       };
 
+      // Update performance metrics
+      this.updatePerformanceMetrics(result.confidence);
+
+      console.log(`[WebSpeech] 📤 Notifying: "${result.transcript}" (final: ${result.isFinal})`);
       this.notifyRecognitionResult(result);
-      
-      // Keep the recognition going in continuous mode
-      if (this.continuousMode && !this.isRecording) {
-        this.isRecording = true;
-      }
     };
 
     this.recognition.onerror = (event: any) => {
-      console.error('[WebSpeech] Recognition error:', event.error, event);
+      console.error('[WebSpeech] ❌ Speech recognition error:', event);
+      console.error('[WebSpeech] ❌ Error details:', {
+        error: event.error,
+        message: event.message,
+        type: event.type,
+        isRecording: this.isRecording,
+        continuousMode: this.continuousMode,
+        recognitionRunning: this.recognitionRunning
+      });
+      
+      // Always reset recognition running state on error
+      this.recognitionRunning = false;
       
       // Handle different error types
       switch (event.error) {
@@ -134,10 +207,20 @@ export class WebSpeechService extends BaseSpeechService {
           // User denied permission or service not allowed
           this.continuousMode = false;
           this.isRecording = false;
+          this.explicitlyStopped = true;
           break;
         case 'no-speech':
-          // No speech detected - don't restart, just continue listening
-          // The continuous mode should handle silence naturally
+          // No speech detected - implement smart recovery
+          console.log('[WebSpeech] 🔇 No speech detected - implementing smart recovery');
+          if (this.continuousMode && this.isRecording) {
+            // Wait a bit longer before restarting for no-speech
+            setTimeout(() => {
+              if (this.isRecording && this.continuousMode) {
+                console.log('[WebSpeech] 🔄 Restarting after no-speech timeout');
+                this.scheduleRestart();
+              }
+            }, 2000); // 2 second delay for no-speech recovery
+          }
           break;
         case 'aborted':
           // Recognition was aborted - restart if in continuous mode
@@ -168,72 +251,98 @@ export class WebSpeechService extends BaseSpeechService {
     };
 
     this.recognition.onend = () => {
-      this.clearSilenceTimer();
+      console.log('[WebSpeech] 🛑 Speech recognition service ended');
+      console.log('[WebSpeech] 🛑 End event details:', {
+        isRecording: this.isRecording,
+        continuousMode: this.continuousMode,
+        isRestarting: this.isRestarting,
+        recognitionRunning: this.recognitionRunning,
+        recognitionContinuous: this.recognition?.continuous
+      });
       
-      // Always restart if we're in continuous mode and supposed to be recording
-      if (this.continuousMode && this.isRecording) {
-        // Immediately restart without delay for seamless continuous recognition
-        this.isRestarting = true;
+      this.clearSilenceTimer();
+      this.recognitionRunning = false; // Always set to false when recognition ends
+      
+      // Restart if we're supposed to be listening continuously
+      if (this.continuousMode && this.isRecording && !this.explicitlyStopped) {
+        console.log('[WebSpeech] 🔄 Restarting recognition in continuous mode');
         setTimeout(() => {
-          if (this.continuousMode && this.isRecording) {
+          if (this.continuousMode && this.isRecording && !this.explicitlyStopped) {
             try {
-              this.recognition.start();
-              this.isRestarting = false;
-              this.startSilenceTimer();
-              console.log('Recognition restarted for continuous mode');
+              console.log('[WebSpeech] 🔄 Attempting to restart recognition...');
+              if (this.recognition) {
+                this.recognition.start();
+                this.startSilenceTimer();
+                console.log('[WebSpeech] ✅ Recognition restarted for continuous mode');
+              }
             } catch (e) {
-              console.log('Failed to restart, will retry...');
-              this.isRestarting = false;
+              console.error('[WebSpeech] ❌ Failed to restart recognition:', e);
               this.scheduleRestart();
             }
           } else {
-            this.isRestarting = false;
+            console.log('[WebSpeech] ❌ Not restarting because:', {
+              continuousMode: this.continuousMode,
+              isRecording: this.isRecording,
+              explicitlyStopped: this.explicitlyStopped
+            });
           }
         }, 100); // Small delay to avoid immediate restart errors
       } else {
+        // If not in continuous mode or explicitly stopped, stop recording
         this.isRecording = false;
-        this.isRestarting = false;
+        console.log('[WebSpeech] 🛑 Recognition ended, not restarting');
       }
     };
     
     // Additional events for better handling
     this.recognition.onaudiostart = () => {
-      console.log('[WebSpeech] Audio capture started');
+      console.log('[WebSpeech] 🎙️ Audio capture started');
       this.resetSilenceTimer();
     };
     
     this.recognition.onaudioend = () => {
-      console.log('[WebSpeech] Audio capture ended');
+      console.log('[WebSpeech] 🎙️ Audio capture ended');
     };
     
     this.recognition.onsoundstart = () => {
-      console.log('[WebSpeech] Sound detected');
+      console.log('[WebSpeech] 🔊 Sound detected');
       this.resetSilenceTimer();
     };
     
     this.recognition.onsoundend = () => {
-      console.log('[WebSpeech] Sound ended');
+      console.log('[WebSpeech] 🔊 Sound ended');
+      // Don't reset silence timer on sound end - let natural pauses be handled by silence timer
+      // This prevents premature restarts when user pauses between words
     };
     
     this.recognition.onspeechstart = () => {
-      console.log('[WebSpeech] Speech detected');
+      console.log('[WebSpeech] 🗣️ Speech detected');
       this.resetSilenceTimer();
     };
     
     this.recognition.onspeechend = () => {
-      console.log('[WebSpeech] Speech ended');
+      console.log('[WebSpeech] 🗣️ Speech ended');
+      // Don't reset silence timer on speech end - let natural pauses be handled by silence timer
+      // This prevents premature restarts when user pauses between words
     };
+    
+    // onstart and onend handlers are already defined above in setupRecognition()
+    
+    // onerror handler is already defined above in setupRecognition()
 
     this.recognition.onnomatch = () => {
       console.log('[WebSpeech] No match - no words recognized');
-      // No words recognized despite audio — trigger a safe restart in continuous mode
+      // No words recognized despite audio — be less aggressive with restarts
+      // Only restart if we've had multiple consecutive no-match events
       if (this.continuousMode && this.isRecording) {
-        this.scheduleRestart();
+        // Don't immediately restart on no-match, let the silence timer handle it
+        console.log('[WebSpeech] No match detected, letting silence timer handle restart if needed');
       }
     };
     
     this.recognition.onstart = () => {
       console.log('[WebSpeech] Recognition service started');
+      this.recognitionRunning = true;
     };
   }
 
@@ -331,6 +440,45 @@ export class WebSpeechService extends BaseSpeechService {
       return;
     }
 
+    // Reset transcripts for a fresh start (not a restart)
+    if (!this.isRestarting) {
+      console.log('[WebSpeech] Fresh start - resetting all transcripts (isRestarting:', this.isRestarting, ')');
+      this.clearTranscripts();
+    } else {
+      console.log('[WebSpeech] Restart - keeping existing transcripts (isRestarting:', this.isRestarting, ')');
+    }
+
+    // CRITICAL: Request microphone permission explicitly before starting recognition
+    try {
+      console.log('[WebSpeech] 🎤 Requesting microphone permission...');
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      console.log('[WebSpeech] ✅ Microphone permission granted');
+      // Stop the stream immediately - we just needed permission
+      stream.getTracks().forEach(track => track.stop());
+    } catch (error) {
+      console.error('[WebSpeech] ❌ Microphone permission denied:', error);
+      throw new Error('Microphone permission is required for speech recognition');
+    }
+
+    // Check if recognition instance exists
+    if (!this.recognition) {
+      console.error('[WebSpeech] SpeechRecognition instance is null - attempting to reinitialize');
+      try {
+        // Try to reinitialize the recognition instance
+        const SpeechRecognitionConstructor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        if (SpeechRecognitionConstructor && typeof SpeechRecognitionConstructor === 'function') {
+          this.recognition = new SpeechRecognitionConstructor();
+          this.setupRecognition();
+          console.log('[WebSpeech] SpeechRecognition reinitialized successfully');
+        } else {
+          throw new Error('SpeechRecognition constructor not available');
+        }
+      } catch (error) {
+        console.error('[WebSpeech] Failed to reinitialize SpeechRecognition:', error);
+        throw new Error('Speech recognition is not available - failed to initialize');
+      }
+    }
+
     // Ensure no TTS is speaking which can interfere with mic capture
     try {
       if (typeof window !== 'undefined' && window.speechSynthesis) {
@@ -338,19 +486,21 @@ export class WebSpeechService extends BaseSpeechService {
       }
     } catch {}
 
-    this.currentTranscript = '';
-    this.fullTranscript = '';
     this.isRecording = true;
     this.isRestarting = false;
+    this.explicitlyStopped = false; // Reset the explicitly stopped flag
     this.restartAttempts = 0;
     this.continuousMode = options?.continuous ?? true; // Default to continuous
     this.lastResultTime = Date.now();
+    
+    console.log('[WebSpeech] Continuous mode set to:', this.continuousMode);
+    console.log('[WebSpeech] Options received:', options);
 
     // Update recognition settings with options
     if (this.recognition) {
       this.recognition.lang = options?.language ?? this.config.language ?? 'en-US';
-      this.recognition.continuous = true; // Always use continuous internally
-      this.recognition.interimResults = options?.interimResults ?? this.config.interimResults ?? true;
+      this.recognition.continuous = true; // CRITICAL: Must be true for continuous recognition
+      this.recognition.interimResults = true; // CRITICAL: Must be true to get interim results
       this.recognition.maxAlternatives = options?.maxAlternatives ?? this.config.maxAlternatives ?? 1;
       
       console.log('[WebSpeech] Recognition configured:', {
@@ -359,17 +509,110 @@ export class WebSpeechService extends BaseSpeechService {
         interimResults: this.recognition.interimResults,
         maxAlternatives: this.recognition.maxAlternatives
       });
+      
+      // Log the actual recognition object to see if it's properly configured
+      console.log('[WebSpeech] Recognition object:', this.recognition);
     }
 
     try {
-      // Start recognition
-      this.recognition.start();
-      this.startSilenceTimer();
-      console.log('[WebSpeech] Recognition started successfully');
+      // Start recognition immediately for real-time response
+      if (this.recognition) {
+        // More robust state checking to avoid InvalidStateError
+        if (this.recognitionRunning) {
+          console.log('[WebSpeech] ⚠️ Recognition already running, attempting to stop first');
+          try {
+            this.recognition.stop();
+            // Wait a bit for the stop to take effect
+            await new Promise(resolve => setTimeout(resolve, 100));
+          } catch (stopError) {
+            console.log('[WebSpeech] Stop failed, continuing with start attempt:', stopError);
+          }
+        }
+        
+        console.log('[WebSpeech] 🚀 Starting recognition...');
+        console.log('[WebSpeech] 🚀 Recognition config:', {
+          continuous: this.recognition.continuous,
+          interimResults: this.recognition.interimResults,
+          lang: this.recognition.lang,
+          maxAlternatives: this.recognition.maxAlternatives
+        });
+        
+        // Start the recognition with error handling
+        try {
+          this.recognition.start();
+          this.recognitionRunning = true;
+          this.startSilenceTimer();
+          console.log('[WebSpeech] ✅ Recognition started successfully');
+          console.log('[WebSpeech] ✅ Recognition state after start:', {
+            isRecording: this.isRecording,
+            continuousMode: this.continuousMode,
+            recognitionContinuous: this.recognition.continuous,
+            recognitionInterimResults: this.recognition.interimResults
+          });
+        } catch (startError: any) {
+          console.error('[WebSpeech] ❌ Failed to start recognition:', startError);
+          if (startError.name === 'InvalidStateError') {
+            console.log('[WebSpeech] 🔄 InvalidStateError - recognition may already be running, resetting state');
+            this.recognitionRunning = false;
+            // Try to stop and restart
+            try {
+              this.recognition.stop();
+              await new Promise(resolve => setTimeout(resolve, 200));
+              this.recognition.start();
+              this.recognitionRunning = true;
+              this.startSilenceTimer();
+              console.log('[WebSpeech] ✅ Recognition restarted after InvalidStateError');
+            } catch (restartError) {
+              console.error('[WebSpeech] ❌ Failed to restart recognition:', restartError);
+              throw restartError;
+            }
+          } else {
+            throw startError;
+          }
+        }
+        
+        // Add a timeout to detect if recognition hangs without accessing microphone
+        setTimeout(() => {
+          if (this.isRecording && this.recognition) {
+            console.log('[WebSpeech] ⏰ Recognition timeout check - no audio events detected');
+            console.log('[WebSpeech] ⏰ This may indicate microphone access issues');
+          }
+        }, 3000); // 3 second timeout
+        
+        // Add a longer timeout to keep recognition alive and check status
+        setTimeout(() => {
+          if (this.isRecording && this.recognition) {
+            console.log('[WebSpeech] 🔄 Keeping recognition alive...');
+            console.log('[WebSpeech] 🔄 Current state:', {
+              isRecording: this.isRecording,
+              continuousMode: this.continuousMode,
+              recognitionContinuous: this.recognition.continuous
+            });
+            
+            // Check if recognition is still active
+            if (this.continuousMode && this.isRecording) {
+              console.log('[WebSpeech] 🔄 Ensuring continuous recognition stays active');
+              // The recognition should stay active due to continuous: true
+            }
+          } else {
+            console.log('[WebSpeech] ❌ Recognition not active:', {
+              isRecording: this.isRecording,
+              hasRecognition: !!this.recognition
+            });
+          }
+        }, 2000); // 2 second check
+        
+      } else {
+        console.error('[WebSpeech] ❌ Cannot start recognition:', {
+          hasRecognition: !!this.recognition,
+          isRecording: this.isRecording
+        });
+      }
     } catch (error) {
       console.error('[WebSpeech] Failed to start recognition:', error);
       this.isRecording = false;
       this.continuousMode = false;
+      this.explicitlyStopped = true;
       throw error;
     }
   }
@@ -386,6 +629,8 @@ export class WebSpeechService extends BaseSpeechService {
       }
 
       this.continuousMode = false; // Stop continuous mode
+      this.explicitlyStopped = true; // Mark that we've explicitly stopped
+      this.recognitionRunning = false; // Mark recognition as not running
       this.isRestarting = false;
       this.clearTimers();
       this.recognitionResolve = resolve;
@@ -401,6 +646,9 @@ export class WebSpeechService extends BaseSpeechService {
           this.recognitionResolve = undefined;
         }
         this.isRecording = false;
+        
+        // Reset transcripts for next session
+        this.clearTranscripts();
       };
       
       // Listen for the end event
@@ -428,61 +676,38 @@ export class WebSpeechService extends BaseSpeechService {
       clearTimeout(this.restartTimer);
     }
     
-    // Delay restart slightly to avoid rapid restarts and throttling
+    // Delay restart to avoid rapid restarts and throttling
     this.restartTimer = setTimeout(() => {
       if (this.continuousMode && this.isRecording) {
         try {
-          // Prefer stop→onend→start sequencing to avoid InvalidStateError
-          this.fullTranscript = this.currentTranscript;
+          console.log('[WebSpeech] 🔄 Attempting restart...');
           this.pendingRestart = true;
-          try { this.recognition.stop(); } catch {}
-          // If engine is already ended, attempt immediate start
-          try {
-            this.recognition.start();
-            this.pendingRestart = false;
-            this.isRestarting = false;
-            this.startSilenceTimer();
-            console.log('Recognition restarted successfully');
-          } catch (immediateErr) {
-            // Will start on onend
-            this.isRestarting = false;
-          }
-        } catch (error) {
-          console.warn('Failed to restart recognition:', error);
-          // Attempt to fully re-initialize the recognition engine
-          try {
-            const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-            if (SpeechRecognition) {
-              this.recognition = new SpeechRecognition();
-              this.setupRecognition();
-              this.recognition.lang = this.config.language ?? 'en-US';
-              this.recognition.continuous = true;
-              this.recognition.interimResults = this.config.interimResults ?? true;
-              this.recognition.maxAlternatives = this.config.maxAlternatives ?? 1;
-              try {
-                this.recognition.start();
-                this.isRestarting = false;
-                this.startSilenceTimer();
-                console.log('Recognition re-initialized and restarted successfully');
-              } catch {
-                // If start fails immediately, request onend-driven restart
-                this.pendingRestart = true;
-                this.isRestarting = false;
-              }
-            } else {
-              this.isRecording = false;
+          if (this.recognition) {
+            try { 
+              this.recognition.stop(); 
+            } catch (stopError) {
+              console.log('[WebSpeech] Stop failed, will restart on onend:', stopError);
+            }
+            // Try immediate restart if possible
+            try {
+              this.recognition.start();
+              this.pendingRestart = false;
+              this.isRestarting = false;
+              this.startSilenceTimer();
+              console.log('[WebSpeech] ✅ Recognition restarted immediately');
+            } catch (immediateErr) {
+              console.log('[WebSpeech] Immediate restart failed, waiting for onend:', immediateErr);
               this.isRestarting = false;
             }
-          } catch (e) {
-            console.warn('Re-initialization failed:', e);
-            this.isRecording = false;
-            this.isRestarting = false;
           }
+        } catch (error) {
+          console.warn('[WebSpeech] Restart failed:', error);
+          this.isRestarting = false;
         }
       } else {
         this.isRestarting = false;
       }
-    }, 300); // Slightly larger delay to reduce throttling and improve stability
+    }, 500); // Increased delay to reduce throttling
   }
   
   private startSilenceTimer(): void {
@@ -492,22 +717,68 @@ export class WebSpeechService extends BaseSpeechService {
   private resetSilenceTimer(): void {
     this.clearSilenceTimer();
     
-    // Set a timer to check for prolonged silence (60 seconds for better tolerance)
+    // Set a timer to check for prolonged silence (optimized timeout)
     this.silenceTimer = setTimeout(() => {
       if (this.isRecording && this.continuousMode) {
         const timeSinceLastResult = Date.now() - this.lastResultTime;
-        if (timeSinceLastResult > 60000) { // 60 seconds of silence
-          console.log('Restarting due to prolonged silence');
-          this.scheduleRestart();
+        if (timeSinceLastResult > this.silenceTimeoutMs) {
+          this.consecutiveSilenceCount++;
+          console.log(`[WebSpeech] 🔇 Prolonged silence detected (${this.consecutiveSilenceCount}/${this.maxConsecutiveSilence})`);
+          
+          if (this.consecutiveSilenceCount >= this.maxConsecutiveSilence) {
+            console.log('[WebSpeech] 🔄 Forcing restart due to consecutive silence periods');
+            this.scheduleRestart();
+          } else {
+            // Reset timer for next check
+            this.resetSilenceTimer();
+          }
         }
       }
-    }, 60000);
+    }, this.silenceTimeoutMs);
   }
   
   private clearSilenceTimer(): void {
     if (this.silenceTimer) {
       clearTimeout(this.silenceTimer);
       this.silenceTimer = undefined;
+    }
+  }
+
+  private resetSilenceCount(): void {
+    this.consecutiveSilenceCount = 0; // Only reset silence count on final results
+  }
+
+  private clearTranscripts(): void {
+    console.log('[WebSpeech] 🧹 Clearing transcripts - before:', {
+      fullTranscript: this.fullTranscript,
+      currentTranscript: this.currentTranscript
+    });
+    this.fullTranscript = '';
+    this.currentTranscript = '';
+    console.log('[WebSpeech] 🧹 Transcripts cleared - after:', {
+      fullTranscript: this.fullTranscript,
+      currentTranscript: this.currentTranscript
+    });
+  }
+
+  private updatePerformanceMetrics(confidence: number): void {
+    this.performanceMetrics.totalResults++;
+    const totalConfidence = this.performanceMetrics.averageConfidence * (this.performanceMetrics.totalResults - 1) + confidence;
+    this.performanceMetrics.averageConfidence = totalConfidence / this.performanceMetrics.totalResults;
+    
+    // Adaptive timeout based on performance
+    const now = Date.now();
+    if (now - this.performanceMetrics.lastPerformanceCheck > 30000) { // Check every 30 seconds
+      if (this.performanceMetrics.averageConfidence < 0.7) {
+        // Lower confidence - increase timeout for better accuracy
+        this.silenceTimeoutMs = Math.min(this.silenceTimeoutMs + 2000, 15000);
+        console.log(`[WebSpeech] 📊 Low confidence detected, increased timeout to ${this.silenceTimeoutMs}ms`);
+      } else if (this.performanceMetrics.averageConfidence > 0.9) {
+        // High confidence - can use shorter timeout
+        this.silenceTimeoutMs = Math.max(this.silenceTimeoutMs - 1000, 5000);
+        console.log(`[WebSpeech] 📊 High confidence detected, decreased timeout to ${this.silenceTimeoutMs}ms`);
+      }
+      this.performanceMetrics.lastPerformanceCheck = now;
     }
   }
   
@@ -571,6 +842,12 @@ export class WebSpeechService extends BaseSpeechService {
     return this.isTTSAvailable() || this.isSTTAvailable();
   }
 
+  isListening(): boolean {
+    // Return true if user has started listening and hasn't explicitly stopped
+    // This prevents the button from flickering during restart/error recovery cycles
+    return this.isRecording && !this.explicitlyStopped;
+  }
+
   getCapabilities(): SpeechServiceCapabilities {
     return {
       supportsTTS: this.isTTSAvailable(),
@@ -579,23 +856,38 @@ export class WebSpeechService extends BaseSpeechService {
       supportsVoiceCloning: false,
       supportsEmotions: false,
       supportsMultiLanguage: true,
+      supportsVAD: true,
       availableVoices: [],
       availableLanguages: this.getAvailableLanguages()
     };
   }
 
   dispose(): void {
+    console.log('[WebSpeech] 🧹 Disposing WebSpeechService resources');
+    
     if (this.recognition) {
       this.continuousMode = false;
       this.isRecording = false;
       this.isRestarting = false;
+      this.explicitlyStopped = false;
+      this.recognitionRunning = false;
+      this.consecutiveSilenceCount = 0;
       this.clearTimers();
       this.recognition.abort();
       this.recognition = null;
     }
+    
+    // Cancel any pending TTS
     if (window.speechSynthesis) {
       window.speechSynthesis.cancel();
     }
+    
+    // Clear transcript data and reset state
+    this.currentTranscript = '';
+    this.fullTranscript = '';
+    this.lastResultTime = 0;
+    this.restartAttempts = 0;
+    
     super.dispose();
   }
 
@@ -604,8 +896,15 @@ export class WebSpeechService extends BaseSpeechService {
   }
 
   private isSTTAvailable(): boolean {
-    return typeof window !== 'undefined' && 
-           ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window);
+    if (typeof window === 'undefined') return false;
+    
+    try {
+      const SpeechRecognitionConstructor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      return !!(SpeechRecognitionConstructor && typeof SpeechRecognitionConstructor === 'function');
+    } catch (error) {
+      console.warn('Error checking SpeechRecognition availability:', error);
+      return false;
+    }
   }
 
   private guessGenderFromName(name: string): 'male' | 'female' | 'neutral' {
@@ -622,5 +921,15 @@ export class WebSpeechService extends BaseSpeechService {
       'it-IT', 'pt-BR', 'pt-PT', 'ru-RU', 'zh-CN', 'zh-TW',
       'ja-JP', 'ko-KR', 'ar-SA', 'hi-IN', 'nl-NL', 'pl-PL'
     ];
+  }
+
+  // Web Speech API doesn't support direct audio data processing
+  // This is a limitation of the browser's native API
+  supportsAudioProcessing(): boolean {
+    return false;
+  }
+
+  async processAudioData(audioData: Blob | ArrayBuffer | string, options?: STTOptions): Promise<SpeechRecognitionResult> {
+    throw new Error('Web Speech API does not support direct audio data processing. Use startRecognition() for microphone-based recognition.');
   }
 }

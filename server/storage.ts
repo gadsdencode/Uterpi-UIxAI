@@ -1,11 +1,29 @@
-import { users, type User, type InsertUser, type RegisterUser, type OAuthUser, type UpdateProfile } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { 
+  users, 
+  projects,
+  type User, 
+  type InsertUser, 
+  type RegisterUser, 
+  type OAuthUser, 
+  type UpdateProfile,
+  type Project,
+  type InsertProject,
+  type UpdateProject,
+  smsNotifications,
+  smsPreferences,
+  smsTemplates,
+  type SmsNotification,
+  type InsertSmsNotification,
+  type SmsPreferences,
+  type UpdateSmsPreferences,
+  type SmsTemplate,
+  type InsertSmsTemplate
+} from "@shared/schema";
+import { eq, and } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { db } from "./db";
 import { engagementService } from "./engagement";
-import dotenv from "dotenv";
 import { Profile } from "passport";
-dotenv.config();
 
 export interface IStorage {
   // User CRUD operations
@@ -29,6 +47,34 @@ export interface IStorage {
   validatePasswordResetToken(token: string): Promise<User | null>;
   resetPassword(token: string, newPassword: string): Promise<boolean>;
   clearPasswordResetToken(userId: number): Promise<void>;
+  
+  // SMS notification methods
+  getSmsNotification(id: number): Promise<SmsNotification | undefined>;
+  getSmsNotificationsByUser(userId: number, limit?: number): Promise<SmsNotification[]>;
+  createSmsNotification(notification: InsertSmsNotification): Promise<SmsNotification>;
+  updateSmsNotification(id: number, updates: Partial<SmsNotification>): Promise<SmsNotification | undefined>;
+  
+  // SMS preferences methods
+  getSmsPreferences(userId: number): Promise<SmsPreferences | undefined>;
+  createSmsPreferences(prefs: Partial<SmsPreferences>): Promise<SmsPreferences>;
+  updateSmsPreferences(userId: number, updates: UpdateSmsPreferences): Promise<SmsPreferences | undefined>;
+  
+  // SMS template methods
+  getSmsTemplate(id: number): Promise<SmsTemplate | undefined>;
+  getSmsTemplateByName(name: string): Promise<SmsTemplate | undefined>;
+  getAllSmsTemplates(): Promise<SmsTemplate[]>;
+  createSmsTemplate(template: InsertSmsTemplate): Promise<SmsTemplate>;
+  updateSmsTemplate(id: number, updates: Partial<SmsTemplate>): Promise<SmsTemplate | undefined>;
+  
+  // Project methods
+  createProject(userId: number, project: InsertProject): Promise<Project>;
+  getProject(id: number): Promise<Project | undefined>;
+  getUserProjects(userId: number): Promise<Project[]>;
+  updateProject(id: number, updates: UpdateProject): Promise<Project | undefined>;
+  deleteProject(id: number): Promise<void>;
+  getDefaultProject(userId: number): Promise<Project | undefined>;
+  setDefaultProject(userId: number, projectId: number): Promise<Project | undefined>;
+  clearDefaultProject(userId: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -212,9 +258,16 @@ export class DatabaseStorage implements IStorage {
 
   async updateUserProfile(id: number, profileData: UpdateProfile): Promise<User | undefined> {
     try {
+      // Convert dateOfBirth string to Date object if provided
+      const updateData: any = { ...profileData, updatedAt: new Date() };
+      
+      if (profileData.dateOfBirth) {
+        updateData.dateOfBirth = new Date(profileData.dateOfBirth);
+      }
+      
       const result = await db
         .update(users)
-        .set({ ...profileData, updatedAt: new Date() } as any)
+        .set(updateData)
         .where(eq(users.id, id))
         .returning();
       return result[0];
@@ -352,6 +405,318 @@ export class DatabaseStorage implements IStorage {
     } catch (error) {
       console.error("Error clearing password reset token:", error);
       // Don't throw, as this is a cleanup operation
+    }
+  }
+
+  // SMS notification methods
+  async getSmsNotification(id: number): Promise<SmsNotification | undefined> {
+    try {
+      const result = await db.select().from(smsNotifications).where(eq(smsNotifications.id, id));
+      return result[0];
+    } catch (error) {
+      console.error("Error getting SMS notification:", error);
+      return undefined;
+    }
+  }
+
+  async getSmsNotificationsByUser(userId: number, limit = 50): Promise<SmsNotification[]> {
+    try {
+      const result = await db.select()
+        .from(smsNotifications)
+        .where(eq(smsNotifications.userId, userId))
+        .orderBy(smsNotifications.createdAt)
+        .limit(limit);
+      return result;
+    } catch (error) {
+      console.error("Error getting SMS notifications by user:", error);
+      return [];
+    }
+  }
+
+  async createSmsNotification(notification: InsertSmsNotification): Promise<SmsNotification> {
+    try {
+      const result = await db.insert(smsNotifications).values(notification).returning();
+      return result[0];
+    } catch (error) {
+      console.error("Error creating SMS notification:", error);
+      throw error;
+    }
+  }
+
+  async updateSmsNotification(id: number, updates: Partial<SmsNotification>): Promise<SmsNotification | undefined> {
+    try {
+      const result = await db.update(smsNotifications)
+        .set({
+          ...updates,
+          updatedAt: new Date()
+        })
+        .where(eq(smsNotifications.id, id))
+        .returning();
+      return result[0];
+    } catch (error) {
+      console.error("Error updating SMS notification:", error);
+      return undefined;
+    }
+  }
+
+  // SMS preferences methods
+  async getSmsPreferences(userId: number): Promise<SmsPreferences | undefined> {
+    try {
+      const result = await db.select().from(smsPreferences).where(eq(smsPreferences.userId, userId));
+      return result[0];
+    } catch (error) {
+      console.error("Error getting SMS preferences:", error);
+      return undefined;
+    }
+  }
+
+  async createSmsPreferences(prefs: Partial<SmsPreferences>): Promise<SmsPreferences> {
+    try {
+      const { id, createdAt, updatedAt, ...insertableData } = prefs as any;
+      const result = await db.insert(smsPreferences).values(insertableData).returning();
+      return result[0];
+    } catch (error) {
+      console.error("Error creating SMS preferences:", error);
+      throw error;
+    }
+  }
+
+  async updateSmsPreferences(userId: number, updates: UpdateSmsPreferences): Promise<SmsPreferences | undefined> {
+    try {
+      const existing = await this.getSmsPreferences(userId);
+      
+      if (existing) {
+        const result = await db.update(smsPreferences)
+          .set({
+            ...updates,
+            updatedAt: new Date()
+          })
+          .where(eq(smsPreferences.userId, userId))
+          .returning();
+        return result[0];
+      } else {
+        // Create preferences if they don't exist
+        const result = await db.insert(smsPreferences)
+          .values({
+            userId,
+            ...updates
+          })
+          .returning();
+        return result[0];
+      }
+    } catch (error) {
+      console.error("Error updating SMS preferences:", error);
+      return undefined;
+    }
+  }
+
+  // SMS template methods
+  async getSmsTemplate(id: number): Promise<SmsTemplate | undefined> {
+    try {
+      const result = await db.select().from(smsTemplates).where(eq(smsTemplates.id, id));
+      return result[0];
+    } catch (error) {
+      console.error("Error getting SMS template:", error);
+      return undefined;
+    }
+  }
+
+  async getSmsTemplateByName(name: string): Promise<SmsTemplate | undefined> {
+    try {
+      const result = await db.select().from(smsTemplates).where(eq(smsTemplates.name, name));
+      return result[0];
+    } catch (error) {
+      console.error("Error getting SMS template by name:", error);
+      return undefined;
+    }
+  }
+
+  async getAllSmsTemplates(): Promise<SmsTemplate[]> {
+    try {
+      const result = await db.select()
+        .from(smsTemplates)
+        .where(eq(smsTemplates.isActive, true))
+        .orderBy(smsTemplates.name);
+      return result;
+    } catch (error) {
+      console.error("Error getting all SMS templates:", error);
+      return [];
+    }
+  }
+
+  async createSmsTemplate(template: InsertSmsTemplate): Promise<SmsTemplate> {
+    try {
+      const result = await db.insert(smsTemplates).values(template).returning();
+      return result[0];
+    } catch (error) {
+      console.error("Error creating SMS template:", error);
+      throw error;
+    }
+  }
+
+  async updateSmsTemplate(id: number, updates: Partial<SmsTemplate>): Promise<SmsTemplate | undefined> {
+    try {
+      const result = await db.update(smsTemplates)
+        .set({
+          ...updates,
+          updatedAt: new Date()
+        })
+        .where(eq(smsTemplates.id, id))
+        .returning();
+      return result[0];
+    } catch (error) {
+      console.error("Error updating SMS template:", error);
+      return undefined;
+    }
+  }
+
+  // =============================================================================
+  // PROJECT METHODS
+  // =============================================================================
+
+  async createProject(userId: number, project: InsertProject): Promise<Project> {
+    try {
+      // If this is set as default, unset any existing default for this user
+      if (project.isDefault) {
+        await db.update(projects)
+          .set({ isDefault: false, updatedAt: new Date() })
+          .where(eq(projects.userId, userId));
+      }
+
+      const result = await db.insert(projects).values({
+        userId,
+        name: project.name,
+        description: project.description || null,
+        instructions: project.instructions || null,
+        isDefault: project.isDefault || false,
+      }).returning();
+
+      console.log(`✅ Created project ${result[0].id} for user ${userId}`);
+      return result[0];
+    } catch (error) {
+      console.error("Error creating project:", error);
+      throw error;
+    }
+  }
+
+  async getProject(id: number): Promise<Project | undefined> {
+    try {
+      const result = await db.select().from(projects).where(eq(projects.id, id));
+      return result[0];
+    } catch (error) {
+      console.error("Error getting project:", error);
+      return undefined;
+    }
+  }
+
+  async getUserProjects(userId: number): Promise<Project[]> {
+    try {
+      const result = await db.select()
+        .from(projects)
+        .where(eq(projects.userId, userId))
+        .orderBy(projects.createdAt);
+      return result;
+    } catch (error) {
+      console.error("Error getting user projects:", error);
+      return [];
+    }
+  }
+
+  async updateProject(id: number, updates: UpdateProject): Promise<Project | undefined> {
+    try {
+      // If setting as default, first unset any existing default for the user
+      if (updates.isDefault === true) {
+        const project = await this.getProject(id);
+        if (project) {
+          await db.update(projects)
+            .set({ isDefault: false, updatedAt: new Date() })
+            .where(eq(projects.userId, project.userId));
+        }
+      }
+
+      const result = await db.update(projects)
+        .set({
+          ...updates,
+          updatedAt: new Date()
+        })
+        .where(eq(projects.id, id))
+        .returning();
+
+      return result[0];
+    } catch (error) {
+      console.error("Error updating project:", error);
+      return undefined;
+    }
+  }
+
+  async deleteProject(id: number): Promise<void> {
+    try {
+      // Note: Associated files and conversations will have their projectId set to null
+      // due to ON DELETE SET NULL behavior, or we can handle it explicitly here
+      
+      // First, unlink files from this project (set projectId to null)
+      await db.execute(
+        `UPDATE files SET project_id = NULL, updated_at = NOW() WHERE project_id = ${id}`
+      );
+      
+      // Unlink conversations from this project
+      await db.execute(
+        `UPDATE conversations SET project_id = NULL, updated_at = NOW() WHERE project_id = ${id}`
+      );
+      
+      // Delete the project
+      await db.delete(projects).where(eq(projects.id, id));
+      console.log(`✅ Deleted project ${id}`);
+    } catch (error) {
+      console.error("Error deleting project:", error);
+      throw error;
+    }
+  }
+
+  async getDefaultProject(userId: number): Promise<Project | undefined> {
+    try {
+      const result = await db.select()
+        .from(projects)
+        .where(and(eq(projects.userId, userId), eq(projects.isDefault, true)))
+        .limit(1);
+      return result[0];
+    } catch (error) {
+      console.error("Error getting default project:", error);
+      return undefined;
+    }
+  }
+
+  async setDefaultProject(userId: number, projectId: number): Promise<Project | undefined> {
+    try {
+      // Unset any existing default
+      await db.update(projects)
+        .set({ isDefault: false, updatedAt: new Date() })
+        .where(eq(projects.userId, userId));
+
+      // Set new default
+      const result = await db.update(projects)
+        .set({ isDefault: true, updatedAt: new Date() })
+        .where(eq(projects.id, projectId))
+        .returning();
+
+      return result[0];
+    } catch (error) {
+      console.error("Error setting default project:", error);
+      return undefined;
+    }
+  }
+
+  async clearDefaultProject(userId: number): Promise<void> {
+    try {
+      // Unset any existing default for this user
+      await db.update(projects)
+        .set({ isDefault: false, updatedAt: new Date() })
+        .where(eq(projects.userId, userId));
+      
+      console.log(`✅ Cleared default project for user ${userId}`);
+    } catch (error) {
+      console.error("Error clearing default project:", error);
+      throw error;
     }
   }
 }
@@ -505,7 +870,14 @@ export class MemStorage implements IStorage {
     const user = this.users.get(id);
     if (!user) return undefined;
 
-    const updatedUser = { ...user, ...profileData, updatedAt: new Date() } as any;
+    // Convert dateOfBirth string to Date object if provided
+    const updateData: any = { ...profileData, updatedAt: new Date() };
+    
+    if (profileData.dateOfBirth) {
+      updateData.dateOfBirth = new Date(profileData.dateOfBirth);
+    }
+
+    const updatedUser = { ...user, ...updateData } as any;
     this.users.set(id, updatedUser);
     return updatedUser;
   }
@@ -585,6 +957,102 @@ export class MemStorage implements IStorage {
       };
       this.users.set(userId, updatedUser);
     }
+  }
+
+  // SMS notification methods - stub implementations for MemStorage
+  async getSmsNotification(id: number): Promise<SmsNotification | undefined> {
+    // MemStorage doesn't support SMS notifications
+    return undefined;
+  }
+
+  async getSmsNotificationsByUser(userId: number, limit?: number): Promise<SmsNotification[]> {
+    // MemStorage doesn't support SMS notifications
+    return [];
+  }
+
+  async createSmsNotification(notification: InsertSmsNotification): Promise<SmsNotification> {
+    // MemStorage doesn't support SMS notifications - throw error
+    throw new Error("SMS notifications not supported in memory storage");
+  }
+
+  async updateSmsNotification(id: number, updates: Partial<SmsNotification>): Promise<SmsNotification | undefined> {
+    // MemStorage doesn't support SMS notifications
+    return undefined;
+  }
+
+  // SMS preferences methods - stub implementations for MemStorage
+  async getSmsPreferences(userId: number): Promise<SmsPreferences | undefined> {
+    // MemStorage doesn't support SMS preferences
+    return undefined;
+  }
+
+  async createSmsPreferences(prefs: Partial<SmsPreferences>): Promise<SmsPreferences> {
+    // MemStorage doesn't support SMS preferences - throw error
+    throw new Error("SMS preferences not supported in memory storage");
+  }
+
+  async updateSmsPreferences(userId: number, updates: UpdateSmsPreferences): Promise<SmsPreferences | undefined> {
+    // MemStorage doesn't support SMS preferences
+    return undefined;
+  }
+
+  // SMS template methods - stub implementations for MemStorage
+  async getSmsTemplate(id: number): Promise<SmsTemplate | undefined> {
+    // MemStorage doesn't support SMS templates
+    return undefined;
+  }
+
+  async getSmsTemplateByName(name: string): Promise<SmsTemplate | undefined> {
+    // MemStorage doesn't support SMS templates
+    return undefined;
+  }
+
+  async getAllSmsTemplates(): Promise<SmsTemplate[]> {
+    // MemStorage doesn't support SMS templates
+    return [];
+  }
+
+  async createSmsTemplate(template: InsertSmsTemplate): Promise<SmsTemplate> {
+    // MemStorage doesn't support SMS templates - throw error
+    throw new Error("SMS templates not supported in memory storage");
+  }
+
+  async updateSmsTemplate(id: number, updates: Partial<SmsTemplate>): Promise<SmsTemplate | undefined> {
+    // MemStorage doesn't support SMS templates
+    return undefined;
+  }
+
+  // Project methods - stub implementations for MemStorage
+  async createProject(userId: number, project: InsertProject): Promise<Project> {
+    throw new Error("Projects not supported in memory storage");
+  }
+
+  async getProject(id: number): Promise<Project | undefined> {
+    return undefined;
+  }
+
+  async getUserProjects(userId: number): Promise<Project[]> {
+    return [];
+  }
+
+  async updateProject(id: number, updates: UpdateProject): Promise<Project | undefined> {
+    return undefined;
+  }
+
+  async deleteProject(id: number): Promise<void> {
+    // No-op for memory storage
+  }
+
+  async getDefaultProject(userId: number): Promise<Project | undefined> {
+    return undefined;
+  }
+
+  async setDefaultProject(userId: number, projectId: number): Promise<Project | undefined> {
+    return undefined;
+  }
+
+  async clearDefaultProject(userId: number): Promise<void> {
+    // No-op for MemStorage
   }
 }
 

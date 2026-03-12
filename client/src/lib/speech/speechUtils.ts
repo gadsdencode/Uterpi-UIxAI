@@ -1,14 +1,45 @@
 // Speech Service Utilities
 
 /**
- * Check if the current page is served over HTTPS
+ * Check if the current page is served over HTTPS or is a development environment
  * Required for persistent microphone permissions
  */
 export function isHTTPS(): boolean {
-  return typeof window !== 'undefined' && 
-         (window.location.protocol === 'https:' || 
-          window.location.hostname === 'localhost' ||
-          window.location.hostname === '127.0.0.1');
+  if (typeof window === 'undefined') return false;
+  
+  const { protocol, hostname, port } = window.location;
+  
+  console.log(`[isHTTPS] Checking: protocol=${protocol}, hostname=${hostname}, port=${port}`);
+  
+  // HTTPS is always allowed
+  if (protocol === 'https:') {
+    console.log('[isHTTPS] HTTPS protocol detected - returning true');
+    return true;
+  }
+  
+  // Development environments are allowed
+  const devHosts = [
+    'localhost',
+    '127.0.0.1',
+    '0.0.0.0',
+    '::1'
+  ];
+  
+  if (devHosts.includes(hostname)) {
+    console.log(`[isHTTPS] Development hostname detected (${hostname}) - returning true`);
+    return true;
+  }
+  
+  // Check for common development ports and patterns
+  if (hostname.startsWith('192.168.') || 
+      hostname.startsWith('10.') || 
+      hostname.startsWith('172.')) {
+    console.log(`[isHTTPS] Private network detected (${hostname}) - returning true`);
+    return true;
+  }
+  
+  console.log(`[isHTTPS] No secure context detected - returning false`);
+  return false;
 }
 
 /**
@@ -125,6 +156,40 @@ export async function requestMicrophonePermission(): Promise<boolean> {
     return true;
   } catch (error) {
     console.error('Microphone permission denied:', error);
+    return false;
+  }
+}
+
+/**
+ * Get HTTPS requirement message for user
+ */
+export function getHTTPSRequirementMessage(): string {
+  const { protocol, hostname } = window.location;
+  
+  if (protocol === 'https:') {
+    return 'HTTPS is enabled. Speech recognition should work.';
+  }
+  
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    return 'Running on localhost. Speech recognition should work.';
+  }
+  
+  return `Speech recognition requires HTTPS. Current URL: ${protocol}//${hostname}. Please use HTTPS or run on localhost for development.`;
+}
+
+/**
+ * Check if we can request microphone permission despite HTTP
+ */
+export async function canRequestMicrophoneOnHTTP(): Promise<boolean> {
+  if (isHTTPS()) return true;
+  
+  try {
+    // Try to request permission even on HTTP
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream.getTracks().forEach(track => track.stop());
+    return true;
+  } catch (error) {
+    console.warn('Cannot request microphone on HTTP:', error);
     return false;
   }
 }

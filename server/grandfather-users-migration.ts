@@ -143,10 +143,13 @@ export async function grandfatherExistingUsers(): Promise<MigrationResult> {
               // For grandfathered paid users, maintain their original price
               if (shouldGrandfather && subscription.status === 'active') {
                 // Add metadata to track grandfathered pricing
+                const existingMetadata = typeof subscription.metadata === 'object' && subscription.metadata !== null 
+                  ? subscription.metadata 
+                  : {};
                 await tx.update(subscriptions)
                   .set({
                     metadata: {
-                      ...subscription.metadata,
+                      ...existingMetadata,
                       isGrandfathered: true,
                       originalTier: currentTier,
                       originalPrice: currentTier === 'nomadai pro' ? '5.00' : 
@@ -246,10 +249,10 @@ export async function verifyGrandfatherStatus(userId: number): Promise<{
   const userData = user[0];
   
   return {
-    isGrandfathered: userData.is_grandfathered || false,
-    originalTier: userData.grandfathered_from_tier || undefined,
-    currentTier: userData.subscriptionTier || undefined,
-    specialPricing: userData.is_grandfathered && 
+    isGrandfathered: userData.is_grandfathered ?? false,
+    originalTier: userData.grandfathered_from_tier ?? undefined,
+    currentTier: userData.subscriptionTier ?? undefined,
+    specialPricing: (userData.is_grandfathered ?? false) && 
                    (userData.grandfathered_from_tier === 'nomadai pro' || 
                     userData.grandfathered_from_tier === 'friends_family')
   };

@@ -23,7 +23,7 @@ CONVERSATION GUIDELINES:
 CORE PRINCIPLES:
 1. **Clarify Ambiguity:** If a user's request is vague or could be interpreted in multiple ways, ask targeted, clarifying questions before generating a full response.
 2. **Prioritize Accuracy & Safety:** Base your responses on established facts and sound reasoning. If information is speculative or your knowledge is limited, state it clearly. Do not provide dangerous or harmful instructions.
-3. **Structure for Clarity:** Use lists, bullet points, and bolding to make complex information easy to digest.
+3. **Structure for Clarity:** Prefer cohesive paragraphs with smooth transitions; use lists only when explicitly requested.
 4. **Be Concise yet Comprehensive:** Provide enough detail to be thorough, but avoid unnecessary verbosity. Get to the point efficiently.`,
 
   /**
@@ -140,7 +140,7 @@ const azureAIConfig: AIProviderConfig<AzureAIService> = {
   
   defaultModel: {
     id: "nomadic-icdu-v8",
-    name: "Nomadic ICDU v8 (Uterpi AI)",
+    name: "Uterpi AI",
     provider: "Uterpi AI via LM Studio", 
     performance: 99,
     cost: 0,

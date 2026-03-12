@@ -6,8 +6,6 @@ import { createServer as createViteServer, createLogger, type ServerOptions } fr
 import { type Server } from "http";
 import viteConfig from "../vite.config";
 import { nanoid } from "nanoid";
-import dotenv from "dotenv";
-dotenv.config();
 
 // Get __dirname equivalent for ES modules
 const __filename = fileURLToPath(import.meta.url);

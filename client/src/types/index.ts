@@ -16,6 +16,7 @@ export interface Message {
     purchaseUrl?: string;
     upgradeUrl?: string;
     message?: string;
+    attachedFileIds?: number[];
   };
 }
 
@@ -48,6 +49,8 @@ export interface ChatCompletionOptions {
   presencePenalty?: number;
   stop?: string | string[];
   logitBias?: Record<string, number>;
+  // Project scoping - when set, only retrieves context from this project
+  projectId?: number;
 }
 
 // Model-specific configuration types

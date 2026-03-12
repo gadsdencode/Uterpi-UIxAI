@@ -251,6 +251,10 @@ export class GoogleSpeechService extends BaseSpeechService {
     return !!apiKey;
   }
 
+  isListening(): boolean {
+    return this.isRecording;
+  }
+
   getCapabilities(): SpeechServiceCapabilities {
     return {
       supportsTTS: true,
@@ -259,6 +263,7 @@ export class GoogleSpeechService extends BaseSpeechService {
       supportsVoiceCloning: false,
       supportsEmotions: false,
       supportsMultiLanguage: true,
+      supportsVAD: false,
       availableVoices: [],
       availableLanguages: this.getAvailableLanguages()
     };

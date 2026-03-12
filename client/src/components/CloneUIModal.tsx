@@ -22,6 +22,7 @@ import { toast } from 'sonner';
 import { AICreditsDisplay } from './AICreditsDisplay';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
+import { FileEmptyStates } from './EmptyStates';
 
 interface CloneUIModalProps {
   isOpen: boolean;
@@ -208,11 +209,23 @@ const ImageFileManagerModal: React.FC<ImageFileManagerModalProps> = ({ onFileSel
             <p className="text-slate-400">Loading images...</p>
           </div>
         ) : imageFiles.length === 0 ? (
-          <div className="p-8 text-center text-slate-400">
-            <ImageIcon className="w-12 h-12 mx-auto mb-4 opacity-50" />
-            <p>No images found</p>
-            <p className="text-sm">Upload some UI screenshots first</p>
-          </div>
+          <FileEmptyStates.NoFiles 
+            onUpload={() => {
+              // Trigger image upload
+              const input = document.createElement('input');
+              input.type = 'file';
+              input.multiple = true;
+              input.accept = 'image/*';
+              input.onchange = (e) => {
+                const files = (e.target as HTMLInputElement).files;
+                if (files) {
+                  // Handle image upload
+                  console.log('Images selected for upload:', files);
+                }
+              };
+              input.click();
+            }}
+          />
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-4">
             {imageFiles.map((file) => (

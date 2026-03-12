@@ -903,13 +903,11 @@ const FuturisticAIChat: React.FC = () => {
   const {
     analyzeConversation,
     trackAction,
-    showOptimizationTip,
-    showPerformanceAlert,
     clearRecommendationCache,
     forceClearRecommendation,
     forceClearInsightCaches,
     testShowRecommendation,
-    getRecommendationCacheStatus
+    getRecommendationCacheStatus,
   } = useIntelligentToast({
     enabled: !!aiServiceRef.current, // Only enable if we have a compatible AI service
     aiService: aiServiceRef.current,
@@ -1089,7 +1087,7 @@ const FuturisticAIChat: React.FC = () => {
         console.log(`
 🔧 Intelligent Toast Debug Commands:
 - intelligentToastDebug.clearCache() - Clear all caches
-- intelligentToastDebug.clearInsights() - Clear only insight caches (for immediate testing)
+- intelligentToastDebug.clearInsights() - Clear all toast history and slot usage (for immediate testing)
 - intelligentToastDebug.forceClear('recommendation-id') - Clear specific recommendation
 - intelligentToastDebug.testInsight() - Show test insight
 - intelligentToastDebug.testSuggestion() - Show test suggestion  
@@ -1114,96 +1112,6 @@ const FuturisticAIChat: React.FC = () => {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
-
-    // Performance monitoring and contextual tips
-  useEffect(() => {
-    if (messages.length > 3) { // Reduced from 4 to 3 for earlier feedback
-      const lastMessage = messages[messages.length - 1];
-      const userMessages = messages.filter(m => m.role === 'user');
-      
-      // Contextual coding tips - reduced threshold
-      const codeMessages = userMessages.filter(m => m.content.includes('```'));
-      if (codeMessages.length >= 1 && lastMessage.role === 'user' && lastMessage.content.includes('```')) {
-        setTimeout(() => {
-          if (selectedLLMModel?.id !== 'gpt-4o' && selectedLLMModel?.id !== 'gpt-4-turbo') {
-            showOptimizationTip(
-              "For extensive code analysis, GPT-4 models provide more accurate responses",
-              () => {
-                toast.success("Consider switching to GPT-4 for better code assistance!");
-              }
-            );
-          }
-        }, 3000); // Reduced delay from 5000 to 3000
-      }
-
-      // Lower conversation length warning threshold 
-      if (messages.length > 20) { // Reduced from 35 to 20
-        setTimeout(() => {
-          showPerformanceAlert(
-            "Long conversation detected. Performance may start to degrade. Consider starting a new chat.",
-            'low'
-          );
-        }, 5000); // Reduced delay from 8000 to 5000
-      }
-
-      // Expert-level complexity detection - reduced requirements
-      const complexTerms = ['algorithm', 'optimization', 'architecture', 'scalability', 'distributed', 'microservices'];
-      const recentUserMessages = userMessages.slice(-3);
-      const techMessageCount = recentUserMessages.filter(m => 
-        complexTerms.some(term => m.content.toLowerCase().includes(term))
-      ).length;
-      
-      if (techMessageCount >= 1 && selectedSystemPreset === 'DEFAULT' && messages.length > 4) { // Reduced requirements
-        setTimeout(() => {
-          showOptimizationTip(
-            "For sustained technical discussions, the Technical system preset provides more detailed responses",
-            () => {
-              handleSystemPresetChange('TECHNICAL');
-              toast.success("Switched to Technical system preset!");
-            }
-          );
-        }, 4000); // Reduced delay from 6000 to 4000
-      }
-    }
-  }, [messages, selectedLLMModel, selectedSystemPreset, showOptimizationTip, showPerformanceAlert]);
-
-   // Periodic performance monitoring - reduced thresholds
-   useEffect(() => {
-     if (!selectedLLMModel || messages.length < 5) return; // Reduced from 10 to 5
-
-     const checkPerformance = () => {
-       // Alert for conversation getting very long - reduced threshold
-       if (messages.length > 30) { // Reduced from 50 to 30
-         showPerformanceAlert(
-           "Very long conversation detected. Performance may degrade. Consider starting a new chat.",
-           'medium'
-         );
-       }
-
-       // Model efficiency tips based on usage patterns
-       const recentUserMessages = messages.filter(m => m.role === 'user').slice(-5); // Reduced from 8 to 5
-       const codeQuestions = recentUserMessages.filter(m => 
-         m.content.toLowerCase().includes('code') || 
-         m.content.toLowerCase().includes('programming') ||
-         m.content.includes('```')
-       );
-
-       // Suggest if half or more of recent messages are code-related
-       if (codeQuestions.length >= 2 && selectedLLMModel.category !== 'code' && selectedLLMModel.id !== 'gpt-4o') { // Reduced from 4 to 2
-         setTimeout(() => {
-           showOptimizationTip(
-             "You're doing a lot of coding work. GPT-4o would provide more accurate code assistance",
-             () => {
-               toast.success("Consider a code-optimized model for programming tasks!");
-             }
-           );
-         }, 3000); // Reduced delay from 5000 to 3000
-       }
-     };
-
-     const interval = setInterval(checkPerformance, 180000); // Reduced from 5 minutes to 3 minutes
-     return () => clearInterval(interval);
-   }, [messages, selectedLLMModel, showOptimizationTip, showPerformanceAlert]);
 
   useEffect(() => {
     if (input.startsWith('/')) {
@@ -1335,43 +1243,14 @@ const FuturisticAIChat: React.FC = () => {
         }
       }
 
-      // Trigger intelligent analysis and track performance - earlier triggering
       const responseTime = Date.now() - startTime;
-      const estimatedTokens = userMessage.content.length * 1.3; // Rough estimate
+      const estimatedTokens = userMessage.content.length * 1.3;
       
-      console.log(`📊 Message sent. Total messages: ${updatedMessages.length}, Response time: ${responseTime}ms, Estimated tokens: ${estimatedTokens}`);
-      
-      // Credit balance will be updated automatically via real-time updates from AI response
-      
-      // Track message sending and analyze conversation - reduced threshold for earlier analysis
-      if (updatedMessages.length >= 2) { // Temporarily reduced to 2 for immediate testing
-        console.log(`🚀 Triggering conversation analysis for ${updatedMessages.length} messages...`);
-        console.log(`🔧 AI Service available: ${!!aiServiceRef.current}`);
-        console.log(`🔧 Selected LLM Model: ${selectedLLMModel?.name || 'none'}`);
-        
+      if (updatedMessages.length >= 6 && selectedLLMModel) {
         setTimeout(() => {
-          if (selectedLLMModel) {
-            console.log('📞 Calling analyzeConversation...');
-            // Wrap in try-catch to prevent analysis errors from breaking chat
-            try {
-              analyzeConversation(updatedMessages, selectedLLMModel, responseTime, estimatedTokens, isChatActive)
-                .then(() => {
-                  console.log('✅ analyzeConversation completed successfully');
-                })
-                .catch((error) => {
-                  // Log error but don't let it break the chat
-                  console.error('⚠️ analyzeConversation failed (non-critical):', error);
-                });
-            } catch (error) {
-              // Catch any synchronous errors
-              console.error('⚠️ analyzeConversation error (non-critical):', error);
-            }
-          } else {
-            console.warn('⚠️ No selectedLLMModel available for analysis');
-          }
-        }, 2000); // Reduced delay from 5000 to 2000 for quicker feedback
-      } else {
-        console.log(`⏳ Not enough messages for analysis yet (${updatedMessages.length}/2)`);
+          analyzeConversation(updatedMessages, selectedLLMModel, responseTime, estimatedTokens, isChatActive)
+            .catch(() => { /* analysis is non-critical */ });
+        }, 4000);
       }
 
     } catch (err) {
@@ -1537,23 +1416,6 @@ const FuturisticAIChat: React.FC = () => {
         inputRef.current?.focus();
     }
 
-    // Show feature enhancement tips for advanced commands - only for first-time usage
-    setTimeout(() => {
-      if (command.prefix === "/analyze" && messages.length < 8) {
-        const hasUsedAnalyzeBefore = messages.some(m => 
-          m.content.includes('/analyze') || m.content.toLowerCase().includes('analyze')
-        );
-        
-        if (!hasUsedAnalyzeBefore) {
-          showOptimizationTip(
-            "Pro tip: Analysis works best with detailed conversations and specific questions",
-            () => {
-              toast.success("Try asking detailed questions for better analysis!");
-            }
-          );
-        }
-      }
-    }, 4000);
   };
 
 

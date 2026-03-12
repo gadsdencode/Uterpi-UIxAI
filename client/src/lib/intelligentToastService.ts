@@ -12,6 +12,16 @@ type ToastFunction = (title: string, options?: {
   };
 }) => void;
 
+export type SlotId = 'onboarding' | 'efficiency' | 'focus' | 'model-choice' | 'feature';
+
+const SLOT_CONFIG: Record<SlotId, { maxPerConversation: number }> = {
+  onboarding:     { maxPerConversation: 1 },
+  efficiency:     { maxPerConversation: 2 },
+  focus:          { maxPerConversation: 1 },
+  'model-choice': { maxPerConversation: 1 },
+  feature:        { maxPerConversation: 2 },
+};
+
 export interface SmartToast {
   id: string;
   title: string;
@@ -19,11 +29,27 @@ export interface SmartToast {
   category: 'optimization' | 'suggestion' | 'insight' | 'enhancement' | 'alert';
   priority: 'low' | 'medium' | 'high' | 'urgent';
   actionable: boolean;
+  slot: SlotId;
   action?: {
     label: string;
     callback: () => void;
   };
   data?: any;
+}
+
+// Options for improving UX behavior and wiring UI actions
+interface IntelligentToastOptions {
+  debug?: boolean;
+  maxToastsPerMinute?: number;
+  shouldDisplay?: () => boolean;
+  getLatestContext?: () => { isChatActive?: boolean };
+  actions?: {
+    openModelSelector?: () => void;
+    openSystemPreset?: () => void;
+    openFileUpload?: () => void;
+  };
+  cooldowns?: Partial<Record<SmartToast['category'], number>>;
+  getExternalInsights?: () => any | null;
 }
 
 export interface ConversationInsights {
@@ -116,12 +142,15 @@ export class IntelligentToastService {
   private modelSwitchCallback?: (modelId: string) => void;
   private newChatCallback?: () => void;
   private isAnalyzing: boolean = false; // Track if analysis is in progress
+  private options: IntelligentToastOptions = {};
 
   // Toast queue management to avoid rapid-fire notifications
   private toastQueue: SmartToast[] = [];
   private isShowingToast: boolean = false;
   private lastToastTimestamp: number = 0;
   private readonly MIN_TOAST_GAP_MS: number = 3000; // Minimum gap between toasts
+  private toastsThisMinute: number = 0;
+  private minuteWindowStart: number = 0;
 
   // Cache rules by category
   private readonly CACHE_RULES = {
@@ -132,11 +161,19 @@ export class IntelligentToastService {
     'enhancement': { permanent: false, cooldownMinutes: 2 }    // Show again after 2 minutes (was 5)
   };
 
+  // Display history and threshold tracking for edge-triggering and backoff
+  private displayHistory: Map<string, { count: number; lastShown: number; backoffMs: number }> = new Map();
+  private lastThresholds = { longConversation: 0, tokens: 0 };
+  private slowResponseStreak: number = 0;
+  private suppressedIds: Set<string> = new Set();
+  private slotUsage: Map<SlotId, number> = new Map();
+
   constructor(
     aiService: AzureAIService | any, // Accept any AI service with sendChatCompletion method
     toastFunction?: ToastFunction,
     modelSwitchCallback?: (modelId: string) => void,
-    newChatCallback?: () => void
+    newChatCallback?: () => void,
+    options?: IntelligentToastOptions
   ) {
     this.aiService = aiService;
     this.toastFunction = toastFunction || this.defaultToastFunction;
@@ -144,6 +181,15 @@ export class IntelligentToastService {
     this.newChatCallback = newChatCallback;
     this.metrics = this.initializeMetrics();
     this.loadAvailableModels();
+    this.options = { debug: false, maxToastsPerMinute: 2, ...options };
+    this.loadSuppressedIds();
+    if (this.options.cooldowns) {
+      for (const k of Object.keys(this.options.cooldowns) as Array<keyof typeof this.CACHE_RULES>) {
+        if (this.CACHE_RULES[k] && !this.CACHE_RULES[k].permanent && typeof this.options.cooldowns[k] === 'number') {
+          this.CACHE_RULES[k].cooldownMinutes = this.options.cooldowns[k] as number;
+        }
+      }
+    }
   }
 
   private loadAvailableModels(): void {
@@ -201,106 +247,44 @@ export class IntelligentToastService {
     responseTime?: number,
     tokenUsage?: number
   ): Promise<void> {
-    // Prevent concurrent analysis to avoid interference
-    if (this.isAnalyzing) {
-      console.log('⏸️ Analysis already in progress, skipping to prevent interference');
-      return;
-    }
+    if (this.isAnalyzing) return;
 
     this.isAnalyzing = true;
-    console.log(`🔍 Starting analysis for ${messages.length} messages with model ${currentModel.name}`);
-    
-    // Don't show analysis in progress notification - it can interfere with chat
-    // The analysis should happen silently in the background
-    
-    // Update metrics
     this.updateMetrics(messages, currentModel, responseTime, tokenUsage);
 
-    // Reduce analysis frequency throttling even further for testing
     const now = Date.now();
-    if (now - this.lastAnalysisTime < 10000) { // Reduced from 30s to 10s for faster testing
-      console.log('⚠️ Analysis throttled - waiting for cooldown');
+    if (now - this.lastAnalysisTime < 30000) {
       this.isAnalyzing = false;
       return;
     }
     this.lastAnalysisTime = now;
 
     try {
-      console.log('🔍 Performing conversation analysis...');
-      
-      // Try AI service analysis first
       let analysis = null;
       try {
-        console.log('🚀 Attempting AI service analysis...');
         analysis = await this.performConversationAnalysis(messages, currentModel);
-        console.log('✅ AI service analysis completed successfully');
-        console.log('📋 Analysis result structure:', {
-          hasUserInteractionStyle: !!analysis?.userInteractionStyle,
-          hasBehavioralInsights: !!analysis?.behavioralInsights,
-          hasConversationDynamics: !!analysis?.conversationDynamics,
-          hasHiddenInsights: !!analysis?.hiddenInsights,
-          hasInteractionQuality: !!analysis?.interactionQuality,
-          keys: Object.keys(analysis || {})
-        });
       } catch (aiError) {
-        console.warn('⚠️ AI service analysis failed, using fallback:', aiError);
-        console.warn('🔍 Error details:', aiError instanceof Error ? aiError.message : String(aiError));
-        // Generate fallback analysis without AI service
         analysis = this.generateEnhancedFallbackAnalysis(messages, currentModel);
-        console.log('🔄 Fallback analysis completed');
-        console.log('📋 Fallback analysis structure:', {
-          hasUserInteractionStyle: !!analysis?.userInteractionStyle,
-          hasBehavioralInsights: !!analysis?.behavioralInsights,
-          hasConversationDynamics: !!analysis?.conversationDynamics,
-          hasHiddenInsights: !!analysis?.hiddenInsights,
-          hasInteractionQuality: !!analysis?.interactionQuality,
-          keys: Object.keys(analysis || {})
-        });
-      }
-      
-      // Generate recommendations based on analysis (or fallback)
-      const recommendations = this.generateRecommendations(analysis, currentModel);
-      console.log(`💡 Generated ${recommendations.length} recommendations:`, recommendations.map((r: SmartToast) => r.title));
-      console.log('📊 Analysis data received:', JSON.stringify(analysis, null, 2));
-      
-      console.log('📋 All recommendations before selection:', recommendations);
-      console.log('🔍 Previously shown recommendations:', Array.from(this.shownRecommendations));
-      
-      // Show the most relevant recommendation
-      const topRecommendation = this.selectTopRecommendation(recommendations);
-      console.log('🎯 Selected top recommendation:', topRecommendation);
-      
-      if (topRecommendation && this.canShowRecommendation(topRecommendation)) {
-        console.log('📢 Showing smart recommendation:', topRecommendation.title);
-        this.showSmartToast(topRecommendation);
-        this.markRecommendationShown(topRecommendation);
-        console.log('✅ Recommendation shown and added to cache');
-      } else if (topRecommendation) {
-        console.log('🔄 Top recommendation already shown or blocked:', topRecommendation.title);
-        console.log('🔄 Recommendation ID:', topRecommendation.id);
-        console.log('🔄 Previously shown IDs:', Array.from(this.shownRecommendations));
-      } else {
-        console.log('ℹ️ No new recommendations to show');
       }
 
-    } catch (error) {
-      console.error('❌ Analysis completely failed:', error);
-      
-      // Don't show any toast on error - just fail silently to avoid disrupting chat
-      // The chat functionality is more important than analysis notifications
+      const recommendations = this.generateRecommendations(analysis, currentModel, messages);
+
+      const topRecommendation = this.selectTopRecommendation(recommendations);
+
+      if (topRecommendation && this.canShowRecommendation(topRecommendation)) {
+        this.showSmartToast(topRecommendation);
+        this.markRecommendationShown(topRecommendation);
+      }
+
+    } catch {
+      // Fail silently — chat UX is more important than analysis notifications
     } finally {
-      // Always clear the analyzing flag
       this.isAnalyzing = false;
     }
   }
 
   private async performConversationAnalysis(messages: Message[], currentModel: LLMModel): Promise<any> {
-    if (messages.length < 2) {
-      console.log('⚠️ Not enough messages for analysis yet');
-      return null;
-    }
-
-    console.log(`🔍 Starting enhanced conversation analysis for ${messages.length} messages...`);
+    if (messages.length < 4) return null;
 
     const recentMessages = messages.slice(-15); // Analyze last 15 messages for better context
     const conversationText = recentMessages.map(m => `${m.role}: ${m.content}`).join('\n');
@@ -434,22 +418,13 @@ Return ONLY a JSON object with this structure:
 }`;
 
     try {
-      // Check if the AI service is available and properly configured
       if (!this.aiService || typeof this.aiService.sendChatCompletion !== 'function') {
-        console.warn('⚠️ AI service not properly configured for analysis, using fallback');
         return this.generateEnhancedFallbackAnalysis(messages, currentModel);
       }
 
-      // Get the service type for logging
       const serviceName = this.aiService.constructor?.name || 'Unknown';
-      console.log(`🤖 Using ${serviceName} for conversation analysis`);
-
-      // Adjust token limit based on provider (Gemini needs more tokens for JSON responses)
-      // Increased from 2048 to 4096 for Gemini to prevent truncation
       const maxTokens = serviceName.includes('Gemini') ? 4096 : 1500;
-      console.log(`📊 Requesting ${maxTokens} max tokens for analysis`);
 
-      // Try to use the AI service for analysis (works with any provider that supports sendChatCompletion)
       const response = await this.aiService.sendChatCompletion([
         {
           role: "system",
@@ -461,22 +436,9 @@ Return ONLY a JSON object with this structure:
         }
       ], { maxTokens, temperature: 0.3 });
 
-      console.log('📡 Enhanced analysis response received:', response.substring(0, 200) + '...');
-      
       const parsed = this.parseAnalysisResponse(response);
-      if (parsed) {
-        console.log('✅ Successfully parsed enhanced analysis:', parsed);
-        return parsed;
-      } else {
-        console.warn('⚠️ Could not parse enhanced analysis, using fallback');
-        return this.generateEnhancedFallbackAnalysis(messages, currentModel);
-      }
-    } catch (apiError: any) {
-      console.error('❌ Enhanced analysis failed:', apiError);
-      // Don't log the full error if it's a known issue (like service not available)
-      if (apiError.message?.includes('endpoint error') || apiError.message?.includes('403') || apiError.message?.includes('API key')) {
-        console.log('ℹ️ AI service not available for analysis, using fallback');
-      }
+      return parsed ?? this.generateEnhancedFallbackAnalysis(messages, currentModel);
+    } catch {
       return this.generateEnhancedFallbackAnalysis(messages, currentModel);
     }
   }
@@ -486,10 +448,6 @@ Return ONLY a JSON object with this structure:
    */
   private parseAnalysisResponse(response: string): any {
     try {
-      console.log('📡 Raw AI response length:', response.length);
-      console.log('📡 Raw AI response preview:', response.substring(0, 300) + '...');
-      
-      // Strategy 0: First check if response is wrapped in markdown code blocks
       let cleanedResponse = response.trim();
       
       // Remove markdown code block wrapper if present
@@ -505,108 +463,48 @@ Return ONLY a JSON object with this structure:
       
       cleanedResponse = cleanedResponse.trim();
       
-      // Strategy 1: Try parsing cleaned response first
       try {
         const parsed = JSON.parse(cleanedResponse);
-        console.log('✅ JSON parsed successfully after cleaning markdown');
-        
-        if (this.validateAnalysisResponse(parsed)) {
-          return parsed;
-        } else {
-          console.warn('⚠️ Parsed JSON but validation failed:', parsed);
-        }
-      } catch (directParseError) {
-        console.log('❌ Direct JSON parse failed after cleaning:', directParseError);
-        
-        // Try original response as fallback
+        if (this.validateAnalysisResponse(parsed)) return parsed;
+      } catch {
         try {
           const parsed = JSON.parse(response);
-          console.log('✅ JSON parsed successfully without cleaning');
-          
-          if (this.validateAnalysisResponse(parsed)) {
-            return parsed;
-          }
-        } catch (originalError) {
-          console.log('❌ Original response parse also failed:', originalError);
-        }
+          if (this.validateAnalysisResponse(parsed)) return parsed;
+        } catch { /* continue to extraction strategies */ }
       }
 
-      // Strategy 2: Extract JSON from text
       const jsonExtractionPatterns = [
-        // Look for complete JSON objects
         /\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g,
-        // Look for JSON that might be wrapped in markdown code blocks
         /```(?:json)?\s*(\{[\s\S]*?\})\s*```/gi,
-        // Look for JSON starting after a colon or other delimiter
-        /[:\n]\s*(\{[\s\S]*\})/g
+        /[:\n]\s*(\{[\s\S]*\})/g,
       ];
 
-      for (let patternIndex = 0; patternIndex < jsonExtractionPatterns.length; patternIndex++) {
-        const pattern = jsonExtractionPatterns[patternIndex];
+      for (const pattern of jsonExtractionPatterns) {
         const matches = response.match(pattern);
-        
-        if (matches) {
-          console.log(`🎯 Found ${matches.length} potential JSON matches with pattern ${patternIndex + 1}`);
-          
-          for (let matchIndex = 0; matchIndex < matches.length; matchIndex++) {
-            let jsonStr = matches[matchIndex];
-            
-            // Clean up the match
-            if (pattern.source.includes('```')) {
-              // Extract from markdown code block
-              const codeBlockMatch = jsonStr.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/i);
-              if (codeBlockMatch) {
-                jsonStr = codeBlockMatch[1];
-              }
-            } else if (pattern.source.includes('[:\\n]')) {
-              // Remove leading delimiter
-              jsonStr = jsonStr.replace(/^[:\n]\s*/, '');
-            }
-            
-            console.log(`🧪 Trying to parse match ${matchIndex + 1}:`, jsonStr.substring(0, 200) + '...');
-            
-            // Strategy 3: Try with conservative sanitization
+        if (!matches) continue;
+
+        for (let jsonStr of matches) {
+          if (pattern.source.includes('```')) {
+            const cb = jsonStr.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/i);
+            if (cb) jsonStr = cb[1];
+          } else if (pattern.source.includes('[:\\n]')) {
+            jsonStr = jsonStr.replace(/^[:\n]\s*/, '');
+          }
+
+          try {
+            const parsed = JSON.parse(this.conservativeSanitizeJSON(jsonStr));
+            if (this.validateAnalysisResponse(parsed)) return parsed;
+          } catch {
             try {
-              const sanitized = this.conservativeSanitizeJSON(jsonStr);
-              console.log('🧽 Sanitized JSON:', sanitized.substring(0, 200) + '...');
-              
-              const parsed = JSON.parse(sanitized);
-              
-              if (this.validateAnalysisResponse(parsed)) {
-                console.log('✅ Successfully parsed and validated JSON with conservative sanitization');
-                return parsed;
-              } else {
-                console.warn('⚠️ Parsed JSON but validation failed');
-              }
-            } catch (conservativeError) {
-              console.warn(`⚠️ Conservative sanitization failed for match ${matchIndex + 1}:`, conservativeError);
-              
-              // Strategy 4: Try with aggressive sanitization as last resort
-              try {
-                const aggressiveSanitized = this.aggressiveSanitizeJSON(jsonStr);
-                console.log('🔧 Aggressively sanitized JSON:', aggressiveSanitized.substring(0, 200) + '...');
-                
-                const parsed = JSON.parse(aggressiveSanitized);
-                
-                if (this.validateAnalysisResponse(parsed)) {
-                  console.log('✅ Successfully parsed and validated JSON with aggressive sanitization');
-                  return parsed;
-                }
-              } catch (aggressiveError) {
-                console.warn(`⚠️ Aggressive sanitization failed for match ${matchIndex + 1}:`, aggressiveError);
-                
-                // Log detailed error information for debugging
-                this.logDetailedParsingError(jsonStr, aggressiveError);
-              }
-            }
+              const parsed = JSON.parse(this.aggressiveSanitizeJSON(jsonStr));
+              if (this.validateAnalysisResponse(parsed)) return parsed;
+            } catch { /* continue */ }
           }
         }
       }
 
-      console.warn('⚠️ No valid JSON found in Azure AI response after all attempts');
       return null;
-    } catch (error) {
-      console.error('❌ JSON parsing completely failed:', error);
+    } catch {
       return null;
     }
   }
@@ -621,13 +519,10 @@ Return ONLY a JSON object with this structure:
       .replace(/^[^{]*/, '')
       .replace(/[^}]*$/, '');
     
-    // Check if the JSON seems to be incomplete (missing closing braces)
     const openBraces = (result.match(/{/g) || []).length;
     const closeBraces = (result.match(/}/g) || []).length;
     
     if (openBraces > closeBraces) {
-      console.log(`🔧 Fixing incomplete JSON: ${openBraces} open braces, ${closeBraces} close braces`);
-      // Add missing closing braces
       const missingBraces = openBraces - closeBraces;
       for (let i = 0; i < missingBraces; i++) {
         result += '}';
@@ -656,8 +551,6 @@ Return ONLY a JSON object with this structure:
     // Additional check: if JSON appears truncated, try to complete it with minimal structure
     // Look for the last complete property
     if (jsonStr.includes('"userInteractionStyle"') && !jsonStr.includes('"conversationDynamics"')) {
-      console.log('🔧 JSON appears truncated after userInteractionStyle, attempting to complete structure');
-      // Try to complete with minimal valid structure
       const lastCompleteObject = jsonStr.lastIndexOf('}');
       if (lastCompleteObject > -1) {
         // Check if we're inside an object that needs completion
@@ -744,37 +637,6 @@ Return ONLY a JSON object with this structure:
   }
 
   /**
-   * Log detailed information about parsing errors for debugging
-   */
-  private logDetailedParsingError(jsonStr: string, error: any): void {
-    console.error('🔍 Detailed parsing error analysis:');
-    console.error('Error:', error.message);
-    
-    if (error.message.includes('position')) {
-      const positionMatch = error.message.match(/position (\d+)/);
-      if (positionMatch) {
-        const position = parseInt(positionMatch[1]);
-        const start = Math.max(0, position - 50);
-        const end = Math.min(jsonStr.length, position + 50);
-        const context = jsonStr.substring(start, end);
-        const pointer = ' '.repeat(Math.min(50, position - start)) + '^';
-        
-        console.error('Context around error position:');
-        console.error(context);
-        console.error(pointer);
-        console.error(`Character at error position: "${jsonStr[position]}" (code: ${jsonStr.charCodeAt(position)})`);
-      }
-    }
-    
-    // Show first few lines of the JSON for structure analysis
-    const lines = jsonStr.split('\n').slice(0, 10);
-    console.error('First 10 lines of JSON:');
-    lines.forEach((line, index) => {
-      console.error(`${index + 1}: ${line}`);
-    });
-  }
-
-  /**
    * Validate that the parsed response has the expected structure
    */
   private validateAnalysisResponse(obj: any): boolean {
@@ -784,12 +646,58 @@ Return ONLY a JSON object with this structure:
             obj.taskType || obj.complexity || obj.modelOptimal !== undefined);
   }
 
+  // Exponential backoff calculation for non-permanent categories
+  private getBackoffMsFor(rec: SmartToast): number {
+    const rules = this.CACHE_RULES[rec.category as keyof typeof this.CACHE_RULES];
+    const baseMinutes = (rules?.cooldownMinutes ?? 1);
+    const base = baseMinutes * 60000;
+    const hist = this.displayHistory.get(rec.id);
+    const count = hist?.count ?? 0;
+    const factor = Math.min(8, count); // cap growth
+    return base * Math.pow(2, factor);
+  }
+
+  // User suppression persistence
+  private loadSuppressedIds(): void {
+    try {
+      const raw = localStorage.getItem('smartToast:suppressed');
+      if (raw) this.suppressedIds = new Set(JSON.parse(raw));
+    } catch {}
+  }
+
+  private persistSuppressedIds(): void {
+    try {
+      localStorage.setItem('smartToast:suppressed', JSON.stringify(Array.from(this.suppressedIds)));
+    } catch {}
+  }
+
+  // Public suppression API
+  suppress(id: string): void {
+    this.suppressedIds.add(id);
+    this.persistSuppressedIds();
+  }
+
+  unsuppress(id: string): void {
+    this.suppressedIds.delete(id);
+    this.persistSuppressedIds();
+  }
+
+  private hasSlotBudget(slot: SlotId): boolean {
+    const cfg = SLOT_CONFIG[slot];
+    if (!cfg) return true;
+    const used = this.slotUsage.get(slot) ?? 0;
+    return used < cfg.maxPerConversation;
+  }
+
+  private markSlotUsage(slot: SlotId): void {
+    const used = this.slotUsage.get(slot) ?? 0;
+    this.slotUsage.set(slot, used + 1);
+  }
+
   /**
    * Generate enhanced fallback analysis when Azure AI is not available
    */
-  private generateEnhancedFallbackAnalysis(messages: Message[], currentModel: LLMModel): any {
-    console.log('🔄 Generating enhanced fallback analysis...');
-    
+  private generateEnhancedFallbackAnalysis(messages: Message[], _currentModel: LLMModel): any {
     const userMessages = messages.filter(m => m.role === 'user');
     const assistantMessages = messages.filter(m => m.role === 'assistant');
     
@@ -917,424 +825,204 @@ Return ONLY a JSON object with this structure:
     return "General-purpose conversations";
   }
 
-  /**
-   * Generate insight-based recommendations from conversation analysis
-   */
-  private generateInsightBasedRecommendations(insights: any): SmartToast[] {
-    const recommendations: SmartToast[] = [];
-    
-    console.log('🧠 Generating insight-based recommendations from:', insights);
-    
-    // Communication style insights
-    if (insights.userInteractionStyle?.communicationType === 'detailed') {
-      recommendations.push({
-        id: 'communication-style-detailed',
-        title: "📝 Detailed Communicator Detected",
-        description: "You prefer comprehensive explanations. The AI is adapting to provide more thorough responses.",
-        category: 'insight',
-        priority: 'low',
-        actionable: false
-      });
-    }
-    
-    if (insights.userInteractionStyle?.communicationType === 'iterative') {
-      recommendations.push({
-        id: 'communication-style-iterative',
-        title: "🔄 Iterative Problem Solver",
-        description: "You build solutions step by step. This approach often leads to better results!",
-        category: 'insight',
-        priority: 'low',
-        actionable: false
-      });
-    }
-    
-    if (insights.userInteractionStyle?.communicationType === 'exploratory') {
-      recommendations.push({
-        id: 'communication-style-exploratory',
-        title: "🔍 Exploratory Thinker",
-        description: "You explore topics thoroughly. This helps uncover the best solutions!",
-        category: 'insight',
-        priority: 'low',
-        actionable: false
-      });
-    }
-    
-    // Learning style insights
-    if (insights.behavioralInsights?.learningStyle === 'practical') {
-      recommendations.push({
-        id: 'learning-style-practical',
-        title: "🔧 Hands-On Learner",
-        description: "You learn best through practical examples. Try asking for code samples or step-by-step guides.",
-        category: 'suggestion',
-        priority: 'medium',
-        actionable: false
-      });
-    }
-    
-    if (insights.behavioralInsights?.learningStyle === 'theoretical') {
-      recommendations.push({
-        id: 'learning-style-theoretical',
-        title: "📚 Theoretical Learner",
-        description: "You prefer understanding concepts deeply. The AI is providing comprehensive explanations.",
-        category: 'insight',
-        priority: 'low',
-        actionable: false
-      });
-    }
-    
-    // Confidence insights
-    if (insights.behavioralInsights?.confidenceLevel === 'low') {
-      recommendations.push({
-        id: 'confidence-boost',
-        title: "💪 Building Confidence",
-        description: "Your questions show you're learning. Don't hesitate to ask for clarification - it's a sign of good thinking!",
-        category: 'insight',
-        priority: 'low',
-        actionable: false
-      });
-    }
-    
-    if (insights.behavioralInsights?.confidenceLevel === 'high') {
-      recommendations.push({
-        id: 'confidence-high',
-        title: "🚀 Confident Problem Solver",
-        description: "Your confident approach helps you tackle complex challenges effectively!",
-        category: 'insight',
-        priority: 'low',
-        actionable: false
-      });
-    }
-    
-    // Efficiency insights
-    if (insights.interactionQuality?.efficiencyScore < 6) {
-      recommendations.push({
-        id: 'efficiency-tip',
-        title: "⚡ Efficiency Tip",
-        description: "Try being more specific in your questions. It helps the AI provide more targeted, useful responses.",
-        category: 'suggestion',
-        priority: 'medium',
-        actionable: false
-      });
-    }
-    
-    if (insights.interactionQuality?.efficiencyScore >= 8) {
-      recommendations.push({
-        id: 'efficiency-high',
-        title: "⚡ Highly Efficient",
-        description: "Your communication style is very efficient! You get great results with clear, focused questions.",
-        category: 'insight',
-        priority: 'low',
-        actionable: false
-      });
-    }
-    
-    // Hidden pattern insights
-    if (insights.hiddenInsights?.thinkingPattern) {
-      recommendations.push({
-        id: 'thinking-pattern',
-        title: "🧠 Your Thinking Pattern",
-        description: insights.hiddenInsights.thinkingPattern,
-        category: 'insight',
-        priority: 'low',
-        actionable: false
-      });
-    }
-    
-    if (insights.hiddenInsights?.motivation) {
-      recommendations.push({
-        id: 'motivation-insight',
-        title: "🎯 Your Motivation",
-        description: insights.hiddenInsights.motivation,
-        category: 'insight',
-        priority: 'low',
-        actionable: false
-      });
-    }
-    
-    // Interaction quality insights
-    if (insights.interactionQuality?.satisfactionPrediction >= 8) {
-      recommendations.push({
-        id: 'high-satisfaction',
-        title: "😊 Great Interaction Quality",
-        description: "You're having a highly effective conversation! Your clear communication style is working well.",
-        category: 'insight',
-        priority: 'low',
-        actionable: false
-      });
-    }
-    
-    if (insights.interactionQuality?.satisfactionPrediction < 6) {
-      recommendations.push({
-        id: 'satisfaction-improvement',
-        title: "🎯 Improving Satisfaction",
-        description: "Try being more specific about what you need. It helps the AI provide better, more relevant responses.",
-        category: 'suggestion',
-        priority: 'medium',
-        actionable: false
-      });
-    }
-    
-    // Topic depth insights
-    if (insights.conversationDynamics?.topicDepth === 'deep') {
-      recommendations.push({
-        id: 'topic-depth-deep',
-        title: "🔬 Deep Dive Expert",
-        description: "You're exploring topics in depth. This approach reveals valuable insights and solutions.",
-        category: 'insight',
-        priority: 'low',
-        actionable: false
-      });
-    }
-    
-    if (insights.conversationDynamics?.topicDepth === 'expert') {
-      recommendations.push({
-        id: 'topic-depth-expert',
-        title: "🎓 Expert Level Analysis",
-        description: "You're working at an expert level. Consider using the Technical system preset for even more detailed responses.",
-        category: 'enhancement',
-        priority: 'medium',
-        actionable: true
-      });
-    }
-    
-    // Focus pattern insights
-    if (insights.conversationDynamics?.focusPattern === 'multi-topic') {
-      recommendations.push({
-        id: 'focus-multi-topic',
-        title: "🎯 Multi-Topic Explorer",
-        description: "You're covering multiple topics. This shows broad thinking, but focusing on one area at a time can lead to deeper insights.",
-        category: 'suggestion',
-        priority: 'low',
-        actionable: false
-      });
-    }
-    
-    console.log(`💡 Generated ${recommendations.length} insight-based recommendations`);
-    return recommendations;
+  // =========================================================================
+  // EVENT-DRIVEN TIP BUILDERS — each maps to exactly one slot
+  // =========================================================================
+
+  private buildOnboardingTip(messages: Message[]): SmartToast | null {
+    if (messages.length < 3 || !this.hasSlotBudget('onboarding')) return null;
+    return {
+      id: 'onboarding-shortcuts',
+      slot: 'onboarding',
+      title: '💡 Pro tip',
+      description: 'Press Ctrl/Cmd+N any time to start a fresh chat. Use / in the input bar for quick commands.',
+      category: 'insight',
+      priority: 'low',
+      actionable: false,
+    };
   }
 
-  private generateRecommendations(analysis: any, currentModel: LLMModel): SmartToast[] {
-    const recommendations: SmartToast[] = [];
+  private buildEfficiencyTip(analysis: any, messages: Message[]): SmartToast | null {
+    if (!this.hasSlotBudget('efficiency')) return null;
+    const userMsgs = messages.filter(m => m.role === 'user');
+    if (userMsgs.length < 3) return null;
 
-    console.log('💡 Generating recommendations with analysis:', analysis);
-    console.log('📊 Current metrics:', this.metrics);
+    const recent = userMsgs.slice(-3);
+    const codeMessages = recent.filter(m => m.content.includes('```'));
 
-    // PRIORITY 1: Long conversation warnings (highest priority - actionable)
-    if (this.metrics.messageCount >= 20) {
-      recommendations.push({
-        id: 'long-conversation-warning',
-        title: "📊 Long Conversation Alert",
-        description: `You've had ${this.metrics.messageCount} messages. Consider starting a new chat for better performance and context clarity.`,
-        category: 'alert',
-        priority: 'high',
-        actionable: true,
-        action: {
-          label: "New Chat",
-          callback: () => this.triggerNewChat()
-        }
-      });
-    }
-
-    // PRIORITY 2: Token usage optimization (lowered threshold for earlier warnings)
-    if (this.metrics.totalTokens > 10000) { // Reduced from 15000
-      recommendations.push({
-        id: 'token-optimization',
-        title: "📊 Token Usage Alert",
-        description: `High token usage (${this.metrics.totalTokens.toLocaleString()}). Consider starting a new conversation for optimal context`,
-        category: 'alert',
-        priority: 'high',
-        actionable: true,
-        action: {
-          label: "New Chat",
-          callback: () => this.triggerNewChat()
-        }
-      });
-    }
-
-    // PRIORITY 3: AI-generated insights (only if analysis is available and has real insights)
-    if (analysis && (analysis.userInteractionStyle || analysis.behavioralInsights || analysis.hiddenInsights)) {
-      console.log('🧠 Analysis has insight data, generating insight-based recommendations...');
-      console.log('📋 userInteractionStyle:', analysis.userInteractionStyle);
-      console.log('📋 behavioralInsights:', analysis.behavioralInsights);
-      console.log('📋 hiddenInsights:', analysis.hiddenInsights);
-      
-      const insightRecommendations = this.generateInsightBasedRecommendations(analysis);
-      recommendations.push(...insightRecommendations);
-      console.log(`💡 Generated ${insightRecommendations.length} insight-based recommendations:`, 
-        insightRecommendations.map((r: SmartToast) => r.title));
-    } else {
-      console.log('⚠️ Analysis missing insight data. Available keys:', Object.keys(analysis || {}));
-    }
-
-    // PRIORITY 4: Performance insights
-    if (this.metrics.averageResponseTime > 3000) {
-      recommendations.push({
-        id: 'performance-slow',
-        title: "⚡ Performance Insight",
-        description: `Average response time is ${(this.metrics.averageResponseTime/1000).toFixed(1)}s. Consider a faster model for better experience`,
-        category: 'insight',
-        priority: 'medium',
-        actionable: true
-      });
-    }
-
-    // PRIORITY 5: Model optimization recommendations
-    if (!analysis?.modelOptimal && 
-        analysis?.modelRecommendation && 
-        analysis.modelRecommendation !== currentModel.id &&
-        analysis?.confidenceScore >= 7) {
-      
-      const recommendedModel = this.availableModels.find(m => m.id === analysis.modelRecommendation);
-      if (recommendedModel) {
-        const efficiencyGain = this.calculateRealEfficiencyGain(currentModel, recommendedModel, analysis.taskType);
-        
-        recommendations.push({
-          id: `model-opt-${analysis.modelRecommendation}`,
-          title: "🚀 Model Optimization",
-          description: `${recommendedModel.name} would be ${efficiencyGain}% more effective for ${analysis.taskType} tasks. ${analysis.improvementReason || 'Better suited for this type of work.'}`,
-          category: 'optimization',
-          priority: 'medium',
-          actionable: true,
-          action: {
-            label: "Switch Model",
-            callback: () => this.triggerModelSwitch(analysis.modelRecommendation)
-          }
-        });
-      }
-    }
-
-    // PRIORITY 6: Context quality recommendations
-    if (analysis?.focusScore < 6 && this.metrics.messageCount > 6) {
-      recommendations.push({
-        id: 'context-focus',
-        title: "🎯 Context Enhancement",
-        description: "Conversation is covering multiple topics. Consider focusing on one area for better assistance",
+    if (codeMessages.length >= 2) {
+      const last = recent[recent.length - 1];
+      const lines = last.content.split('\n').filter(l => l.trim()).length;
+      return {
+        id: `efficiency-code-${lines > 80 ? 'large' : 'small'}`,
+        slot: 'efficiency',
+        title: '💻 Code analysis tip',
+        description: lines > 80
+          ? 'Large snippet detected. Consider sharing just the relevant function or section for faster, more focused help.'
+          : 'Adding a short comment above your code explaining the goal helps the model give more precise fixes.',
         category: 'suggestion',
-        priority: 'low',
-        actionable: false
-      });
+        priority: 'medium',
+        actionable: false,
+      };
     }
 
-    // PRIORITY 7: Feature enhancement suggestions
-    if (analysis?.taskType === 'coding' && this.metrics.attachmentUsage === 0 && this.metrics.messageCount > 3) {
-      recommendations.push({
-        id: 'coding-enhancement',
-        title: "💻 Coding Enhancement",
-        description: "Upload code files for more accurate analysis and suggestions",
-        category: 'enhancement',
-        priority: 'low',
-        actionable: false
-      });
+    if (this.metrics.averageResponseTime > 3000 && this.slowResponseStreak >= 3) {
+      return {
+        id: 'efficiency-slow-responses',
+        slot: 'efficiency',
+        title: '⚡ Response time tip',
+        description: `Responses are averaging ${(this.metrics.averageResponseTime / 1000).toFixed(1)}s. Shorter, focused questions often get faster answers.`,
+        category: 'suggestion',
+        priority: 'medium',
+        actionable: false,
+      };
     }
 
-    // PRIORITY 8: Advanced usage patterns
-    if (analysis?.complexity === 'expert' && this.metrics.systemMessageChanges === 0 && this.metrics.messageCount > 4) {
-      recommendations.push({
-        id: 'expert-system-message',
-        title: "🧠 Expert Mode",
-        description: "Try the Technical system preset for more detailed, expert-level responses",
+    return null;
+  }
+
+  private buildFocusTip(analysis: any, messages: Message[]): SmartToast | null {
+    if (!this.hasSlotBudget('focus')) return null;
+
+    const longConvThresholds = [25, 50, 75];
+    const crossed = this.nextCrossedThreshold(this.metrics.messageCount, longConvThresholds, this.lastThresholds.longConversation);
+    if (crossed !== null) {
+      this.lastThresholds.longConversation = crossed;
+      return {
+        id: `focus-long-conversation-${crossed}`,
+        slot: 'focus',
+        title: '📊 Long conversation',
+        description: `You're at ${crossed} messages. Starting a new chat can improve clarity and response quality.`,
+        category: 'alert',
+        priority: 'high',
+        actionable: true,
+        action: this.newChatCallback
+          ? { label: 'New Chat', callback: () => this.triggerNewChat() }
+          : undefined,
+      };
+    }
+
+    if (messages.length >= 10 && analysis?.conversationDynamics?.focusPattern === 'multi-topic') {
+      return {
+        id: 'focus-split-chats',
+        slot: 'focus',
+        title: '🎯 Keep threads focused',
+        description: 'This chat covers several topics. Consider a new chat for the next topic so context stays clean.',
+        category: 'suggestion',
+        priority: 'medium',
+        actionable: true,
+        action: this.newChatCallback
+          ? { label: 'New Chat', callback: () => this.triggerNewChat() }
+          : undefined,
+      };
+    }
+
+    return null;
+  }
+
+  private buildModelChoiceTip(analysis: any, currentModel: LLMModel): SmartToast | null {
+    if (!this.hasSlotBudget('model-choice')) return null;
+    if (!analysis?.modelRecommendation || analysis.modelOptimal) return null;
+    if ((analysis.confidenceScore ?? 0) < 7) return null;
+
+    const recommended = this.availableModels.find(m => m.id === analysis.modelRecommendation);
+    if (!recommended || recommended.id === currentModel.id) return null;
+
+    const gain = this.calculateRealEfficiencyGain(currentModel, recommended, analysis.taskType ?? 'general');
+    return {
+      id: `model-choice-${recommended.id}`,
+      slot: 'model-choice',
+      title: '🚀 Better model for this task',
+      description: `${recommended.name} is estimated ~${gain}% more effective for the kind of work you're doing in this chat.`,
+      category: 'optimization',
+      priority: 'high',
+      actionable: !!this.modelSwitchCallback,
+      action: this.modelSwitchCallback
+        ? { label: `Switch to ${recommended.name}`, callback: () => this.triggerModelSwitch(recommended.id) }
+        : undefined,
+    };
+  }
+
+  private buildFeatureTip(analysis: any, messages: Message[]): SmartToast | null {
+    if (!this.hasSlotBudget('feature')) return null;
+    const userMsgs = messages.filter(m => m.role === 'user');
+    if (userMsgs.length < 5) return null;
+
+    const hasAttachments = messages.some(m => m.attachments?.length);
+    const longMessages = userMsgs.slice(-4).filter(m => m.content.length > 400);
+
+    if (!hasAttachments && longMessages.length >= 2 && this.options.actions?.openFileUpload) {
+      return {
+        id: 'feature-file-manager',
+        slot: 'feature',
+        title: '📁 Easier file sharing',
+        description: 'Instead of pasting long content, try using the File Manager so Uterpi can analyze the full file.',
         category: 'enhancement',
         priority: 'medium',
-        actionable: true
-      });
+        actionable: true,
+        action: { label: 'Open File Manager', callback: this.options.actions.openFileUpload },
+      };
     }
 
-    // PRIORITY 9: Basic conversation milestone (ONLY if no other recommendations exist)
-    if (recommendations.length === 0 && this.metrics.messageCount >= 3 && this.metrics.messageCount % 5 === 0) {
-      recommendations.push({
-        id: `conversation-milestone-${this.metrics.messageCount}`,
-        title: "🎯 Conversation Milestone",
-        description: `You've had ${this.metrics.messageCount} messages in this conversation. Great job exploring!`,
-        category: 'insight',
-        priority: 'low',
-        actionable: false
-      });
+    if (analysis?.conversationDynamics?.topicDepth === 'expert'
+        && this.metrics.systemMessageChanges === 0
+        && this.options.actions?.openSystemPreset) {
+      return {
+        id: 'feature-system-preset',
+        slot: 'feature',
+        title: '🧠 Expert mode available',
+        description: 'For expert-level discussions, the Technical system preset gives more detailed, in-depth responses.',
+        category: 'enhancement',
+        priority: 'medium',
+        actionable: true,
+        action: { label: 'Open Presets', callback: this.options.actions.openSystemPreset },
+      };
     }
 
-    // PRIORITY 10: Basic performance note (ONLY if no other recommendations exist)
-    if (recommendations.length === 0 && this.metrics.averageResponseTime > 1000) {
-      recommendations.push({
-        id: 'basic-performance',
-        title: "⚡ Performance Note",
-        description: `Response time averaging ${(this.metrics.averageResponseTime/1000).toFixed(1)}s. This is normal for complex queries.`,
-        category: 'insight',
-        priority: 'low',
-        actionable: false
-      });
-    }
+    return null;
+  }
 
-    console.log(`📝 Generated ${recommendations.length} total recommendations`);
-    return recommendations;
+  // =========================================================================
+  // RECOMMENDATION GENERATOR — collects tips from builders, respects slots
+  // =========================================================================
+
+  private generateRecommendations(analysis: any, currentModel: LLMModel, messages: Message[]): SmartToast[] {
+    const out: SmartToast[] = [];
+
+    const push = (tip: SmartToast | null) => {
+      if (tip) out.push(tip);
+    };
+
+    push(this.buildOnboardingTip(messages));
+    push(this.buildEfficiencyTip(analysis, messages));
+    push(this.buildFocusTip(analysis, messages));
+    push(this.buildModelChoiceTip(analysis, currentModel));
+    push(this.buildFeatureTip(analysis, messages));
+
+    return out;
   }
 
   private selectTopRecommendation(recommendations: SmartToast[]): SmartToast | null {
     if (recommendations.length === 0) return null;
 
-    console.log('🎯 Selecting top recommendation from:', recommendations.map(r => ({
-      id: r.id,
-      title: r.title,
-      priority: r.priority,
-      category: r.category,
-      actionable: r.actionable
-    })));
+    const PRIORITY_SCORE: Record<string, number> = { urgent: 100, high: 75, medium: 50, low: 25 };
+    const CATEGORY_SCORE: Record<string, number> = { alert: 25, optimization: 20, suggestion: 15, enhancement: 12, insight: 10 };
 
-    // Prioritize by urgency and actionability
-    const priorityScore = (rec: SmartToast) => {
-      let score = 0;
-      
-      // Priority scoring (highest to lowest)
-      if (rec.priority === 'urgent') score += 100;
-      else if (rec.priority === 'high') score += 75;
-      else if (rec.priority === 'medium') score += 50;
-      else score += 25;
-
-      // Actionable items get bonus points
-      if (rec.actionable) score += 30;
-      
-      // Category bonuses
-      if (rec.category === 'alert') score += 25; // Alerts are important
-      if (rec.category === 'optimization') score += 20;
-      if (rec.category === 'suggestion') score += 15;
-      if (rec.category === 'insight') score += 10;
-      
-      // Specific recommendation type bonuses
-      if (rec.id.includes('long-conversation-warning')) score += 40; // Long conversation warnings are critical
-      if (rec.id.includes('token-optimization')) score += 35; // Token optimization is important
-      if (rec.id.includes('thinking-pattern')) score += 25; // AI insights are valuable
-      if (rec.id.includes('communication-style')) score += 20; // Communication insights are helpful
-      
-      // Penalize basic milestones when other recommendations exist
-      if (rec.id.includes('conversation-milestone')) score -= 20;
-      if (rec.id.includes('basic-performance')) score -= 15;
-      
-      return score;
+    const score = (rec: SmartToast) => {
+      let s = PRIORITY_SCORE[rec.priority] ?? 0;
+      s += CATEGORY_SCORE[rec.category] ?? 0;
+      if (rec.actionable) s += 20;
+      return s;
     };
 
-    const sortedRecommendations = recommendations.sort((a, b) => priorityScore(b) - priorityScore(a));
-    const topRecommendation = sortedRecommendations[0];
-    
-    console.log('🏆 Top recommendation selected:', {
-      id: topRecommendation.id,
-      title: topRecommendation.title,
-      priority: topRecommendation.priority,
-      category: topRecommendation.category,
-      actionable: topRecommendation.actionable,
-      score: priorityScore(topRecommendation)
-    });
-    
-    // Log why this recommendation was selected over others
-    if (sortedRecommendations.length > 1) {
-      console.log('📊 Recommendation ranking:');
-      sortedRecommendations.slice(0, 3).forEach((rec, index) => {
-        console.log(`  ${index + 1}. ${rec.title} (${rec.priority}, ${rec.category}, actionable: ${rec.actionable}, score: ${priorityScore(rec)})`);
-      });
+    const sorted = recommendations.slice().sort((a, b) => score(b) - score(a));
+    for (const rec of sorted) {
+      if (this.canShowRecommendation(rec)) return rec;
     }
-
-    return topRecommendation;
+    return null;
   }
 
   private showSmartToast(smartToast: SmartToast): void {
-    console.log('🎬 Queueing toast:', smartToast.title);
     this.toastQueue.push(smartToast);
     this.processToastQueue();
   }
@@ -1351,15 +1039,24 @@ Return ONLY a JSON object with this structure:
     this.isShowingToast = true;
 
     window.setTimeout(() => {
+      // Gate: rate limit, chat-active revalidation, and optional shouldDisplay
+      const isActive = !!this.options.getLatestContext?.().isChatActive;
+      if (!this.withinRateLimit() || isActive || (this.options.shouldDisplay && !this.options.shouldDisplay())) {
+        this.isShowingToast = false;
+        this.processToastQueue();
+        return;
+      }
+
       const duration = next.priority === 'urgent' ? 10000 :
                        next.priority === 'high' ? 8000 : 6000;
 
-      console.log('🚀 Displaying queued toast:', next.title);
       this.toastFunction(next.title, {
         description: next.description,
         duration,
         action: next.action ? { label: next.action.label, onClick: next.action.callback } : undefined
       });
+
+      this.toastsThisMinute += 1;
 
       // Schedule ready for next toast after this one finishes plus a small buffer
       window.setTimeout(() => {
@@ -1379,6 +1076,25 @@ Return ONLY a JSON object with this structure:
       case 'alert': return '⚠️';
       default: return '💡';
     }
+  }
+
+  // Rate limiting window
+  private withinRateLimit(): boolean {
+    const now = Date.now();
+    if (now - this.minuteWindowStart >= 60000) {
+      this.minuteWindowStart = now;
+      this.toastsThisMinute = 0;
+    }
+    const cap = this.options.maxToastsPerMinute ?? 2;
+    return this.toastsThisMinute < cap;
+  }
+
+  // Threshold helper: returns crossed threshold value or null
+  private nextCrossedThreshold(value: number, thresholds: number[], last: number): number | null {
+    for (const t of thresholds) {
+      if (value >= t && last < t) return t;
+    }
+    return null;
   }
 
   private updateMetrics(
@@ -1408,6 +1124,8 @@ Return ONLY a JSON object with this structure:
       }
 
       this.metrics.averageResponseTime = this.performanceHistory.reduce((sum, p) => sum + p.responseTime, 0) / this.performanceHistory.length;
+      // Track slow response streak for gating performance toasts
+      this.slowResponseStreak = responseTime > 3000 ? this.slowResponseStreak + 1 : 0;
     }
 
     if (tokenUsage) {
@@ -1570,8 +1288,12 @@ Return ONLY a JSON object with this structure:
     this.performanceHistory = [];
     this.shownRecommendations.clear();
     this.recommendationTimestamps.clear();
+    this.displayHistory.clear();
+    this.slotUsage.clear();
+    this.lastThresholds = { longConversation: 0, tokens: 0 };
+    this.slowResponseStreak = 0;
     this.lastAnalysisTime = 0;
-    console.log('🔄 Session reset - all metrics, recommendation cache, and timestamps cleared');
+    this.toastQueue = [];
   }
 
   /**
@@ -1596,24 +1318,13 @@ Return ONLY a JSON object with this structure:
    * Force clear all insight caches (for testing)
    */
   forceClearInsightCaches(): void {
-    // Clear all insight-related recommendations from both caches
-    const insightIds = Array.from(this.recommendationTimestamps.keys()).filter(id => 
-      id.includes('thinking-pattern') || 
-      id.includes('communication-style') || 
-      id.includes('motivation') ||
-      id.includes('confidence') ||
-      id.includes('learning-style') ||
-      id.includes('satisfaction') ||
-      id.includes('topic-depth') ||
-      id.includes('focus-')
-    );
-    
-    insightIds.forEach(id => {
+    const allIds = Array.from(this.recommendationTimestamps.keys());
+    allIds.forEach(id => {
       this.shownRecommendations.delete(id);
       this.recommendationTimestamps.delete(id);
     });
-    
-    console.log(`🗑️ Forced clear ${insightIds.length} insight caches:`, insightIds);
+    this.displayHistory.clear();
+    this.slotUsage.clear();
   }
 
   /**
@@ -1625,11 +1336,10 @@ Return ONLY a JSON object with this structure:
       title,
       description,
       category,
+      slot: 'feature',
       priority: 'medium',
-      actionable: false
+      actionable: false,
     };
-    
-    console.log('🧪 Testing recommendation:', testRecommendation);
     this.showSmartToast(testRecommendation);
     this.markRecommendationShown(testRecommendation);
   }
@@ -1637,24 +1347,29 @@ Return ONLY a JSON object with this structure:
   /**
    * Get current recommendation cache status (for debugging)
    */
-  getRecommendationCacheStatus(): { 
-    permanentCacheSize: number; 
+  getRecommendationCacheStatus(): {
+    permanentCacheSize: number;
     permanentCachedIds: string[];
     timestampCacheSize: number;
-    timestampCachedIds: Array<{id: string, lastShown: number, minutesAgo: number}>;
+    timestampCachedIds: Array<{ id: string; lastShown: number; minutesAgo: number }>;
+    slotUsage: Record<string, number>;
   } {
     const now = Date.now();
     const timestampEntries = Array.from(this.recommendationTimestamps.entries()).map(([id, timestamp]) => ({
       id,
       lastShown: timestamp,
-      minutesAgo: Math.round((now - timestamp) / 1000 / 60)
+      minutesAgo: Math.round((now - timestamp) / 1000 / 60),
     }));
+
+    const slots: Record<string, number> = {};
+    for (const [k, v] of this.slotUsage.entries()) slots[k] = v;
 
     return {
       permanentCacheSize: this.shownRecommendations.size,
       permanentCachedIds: Array.from(this.shownRecommendations),
       timestampCacheSize: this.recommendationTimestamps.size,
-      timestampCachedIds: timestampEntries
+      timestampCachedIds: timestampEntries,
+      slotUsage: slots,
     };
   }
 
@@ -1662,64 +1377,42 @@ Return ONLY a JSON object with this structure:
    * Check if a recommendation can be shown based on category-aware caching rules
    */
   private canShowRecommendation(recommendation: SmartToast): boolean {
-    const { id, category } = recommendation;
+    const { id, category, slot } = recommendation;
+
+    if (this.suppressedIds.has(id)) return false;
+
+    if (!this.hasSlotBudget(slot)) return false;
+
     const rules = this.CACHE_RULES[category as keyof typeof this.CACHE_RULES];
-    
-    // If no rules defined for this category, default to permanent cache
-    if (!rules) {
-      console.log(`⚠️ No cache rules for category: ${category}, defaulting to permanent cache`);
-      return !this.shownRecommendations.has(id);
-    }
-    
-    // If permanent cache, only show once
-    if (rules.permanent) {
-      const canShow = !this.shownRecommendations.has(id);
-      console.log(`🔒 Permanent cache check for ${id}: ${canShow ? 'CAN SHOW' : 'BLOCKED'}`);
-      return canShow;
-    }
-    
-    // For non-permanent cache, check cooldown period
+    if (!rules) return !this.shownRecommendations.has(id);
+
+    if (rules.permanent) return !this.shownRecommendations.has(id);
+
     const lastShown = this.recommendationTimestamps.get(id);
-    if (!lastShown) {
-      console.log(`🆕 First time showing recommendation: ${id}`);
-      return true;
-    }
-    
-    const cooldownMs = rules.cooldownMinutes * 60 * 1000;
-    const toleranceMs = 10 * 1000; // 10 second tolerance buffer for timing precision
-    const timeSinceLastShown = Date.now() - lastShown;
-    const canShow = timeSinceLastShown >= (cooldownMs - toleranceMs);
-    
-    const minutesAgo = Math.round(timeSinceLastShown / 1000 / 60 * 10) / 10; // One decimal place
-    const cooldownMinutes = rules.cooldownMinutes;
-    
-    console.log(`⏰ Cooldown check for ${id}: ${minutesAgo}min ago, cooldown: ${cooldownMinutes}min, tolerance: 10s, ${canShow ? 'CAN SHOW' : 'BLOCKED'}`);
-    
-    if (!canShow) {
-      const remainingMs = (cooldownMs - toleranceMs) - timeSinceLastShown;
-      const remainingSeconds = Math.ceil(remainingMs / 1000);
-      console.log(`⏰ ${id} blocked for ${remainingSeconds} more seconds`);
-    }
-    
-    return canShow;
+    if (!lastShown) return true;
+
+    return Date.now() - lastShown >= this.getBackoffMsFor(recommendation);
   }
 
   /**
    * Mark a recommendation as shown
    */
   private markRecommendationShown(recommendation: SmartToast): void {
-    const { id, category } = recommendation;
+    const { id, category, slot } = recommendation;
     const rules = this.CACHE_RULES[category as keyof typeof this.CACHE_RULES];
-    
-    // Always track timestamp
+
+    const hist = this.displayHistory.get(id) || { count: 0, lastShown: 0, backoffMs: 0 };
+    hist.count += 1;
+    hist.lastShown = Date.now();
+    hist.backoffMs = this.getBackoffMsFor(recommendation);
+    this.displayHistory.set(id, hist);
+
     this.recommendationTimestamps.set(id, Date.now());
-    
-    // For permanent cache categories, also add to the set
+
     if (rules?.permanent) {
       this.shownRecommendations.add(id);
-      console.log(`🔒 Permanently cached: ${id}`);
-    } else {
-      console.log(`⏰ Time-cached: ${id} (can show again in ${rules?.cooldownMinutes || 0} minutes)`);
     }
+
+    this.markSlotUsage(slot);
   }
 } 

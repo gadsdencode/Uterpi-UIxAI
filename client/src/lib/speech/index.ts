@@ -6,11 +6,12 @@ export { AzureSpeechService } from './azureSpeechService';
 export { OpenAISpeechService } from './openaiSpeechService';
 export { GoogleSpeechService } from './googleSpeechService';
 export { LMStudioSpeechService } from './lmstudioSpeechService';
-export { SpeechServiceFactory } from './speechServiceFactory';
+export { SpeechServiceFactory, probeBrowserSpeechCaps } from './speechServiceFactory';
 
 // Export utilities
 export * from './speechUtils';
 export * from './speechTestUtils';
+export * from './speechDebug';
 
 // Re-export types
 export type {

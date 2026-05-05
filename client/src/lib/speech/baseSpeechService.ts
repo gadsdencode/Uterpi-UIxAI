@@ -11,6 +11,9 @@ import {
   SpeechServiceCapabilities,
   SpeechProvider
 } from '../../types/speech';
+import { speechLog } from './speechDebug';
+
+const TAG = 'BaseSpeech';
 
 export abstract class BaseSpeechService implements ISpeechService {
   protected config: SpeechConfig = {};
@@ -31,7 +34,6 @@ export abstract class BaseSpeechService implements ISpeechService {
   abstract getCapabilities(): SpeechServiceCapabilities;
   abstract isListening(): boolean;
 
-  // Default implementation for audio data processing
   async processAudioData?(audioData: Blob | ArrayBuffer | string, options?: STTOptions): Promise<SpeechRecognitionResult> {
     throw new Error(`Audio data processing not implemented for ${this.provider} provider`);
   }
@@ -46,45 +48,47 @@ export abstract class BaseSpeechService implements ISpeechService {
   }
 
   onRecognitionResult(callback: (result: SpeechRecognitionResult) => void): void {
-    console.log(`[BaseSpeech] 📝 Registering recognition callback, total callbacks: ${this.recognitionCallbacks.length + 1}`);
+    speechLog.info(TAG, `Registering recognition callback (total: ${this.recognitionCallbacks.length + 1})`);
     this.recognitionCallbacks.push(callback);
   }
 
   protected notifyRecognitionResult(result: SpeechRecognitionResult): void {
-    console.log(`[BaseSpeech] 📤 notifyRecognitionResult called with:`, result);
-    console.log(`[BaseSpeech] 📤 Number of callbacks: ${this.recognitionCallbacks.length}`);
-    this.recognitionCallbacks.forEach((callback, index) => {
-      console.log(`[BaseSpeech] 📤 Calling callback[${index}]`);
-      callback(result);
-    });
+    speechLog.info(TAG, `Notifying ${this.recognitionCallbacks.length} callback(s): final=${result.isFinal} transcript="${result.transcript?.slice(0, 60)}"`);
+    this.recognitionCallbacks.forEach(cb => cb(result));
   }
 
   dispose(): void {
-    // stop any active audio
     this.cancelSynthesis();
     this.recognitionCallbacks = [];
     this.isInitialized = false;
   }
 
-  // Helper method to create audio element and play audio
-  protected async playAudioData(audioData: ArrayBuffer | Blob | string): Promise<void> {
+  /**
+   * Play audio data through an HTMLAudioElement.
+   * Accepts ArrayBuffer, Blob, or a URL string.
+   * When receiving an ArrayBuffer, `mimeType` tells us the correct content-type
+   * so we don't assume audio/mpeg for every provider.
+   */
+  protected async playAudioData(
+    audioData: ArrayBuffer | Blob | string,
+    mimeType?: string
+  ): Promise<void> {
     return new Promise((resolve, reject) => {
       const audio = new Audio();
       this.activeAudioElements.add(audio);
-      
+
       if (typeof audioData === 'string') {
         audio.src = audioData;
       } else if (audioData instanceof Blob) {
         audio.src = URL.createObjectURL(audioData);
       } else {
-        const blob = new Blob([audioData], { type: 'audio/mpeg' });
+        const effectiveMime = mimeType || 'audio/mpeg';
+        const blob = new Blob([audioData], { type: effectiveMime });
         audio.src = URL.createObjectURL(blob);
       }
 
       audio.onended = () => {
-        if (audio.src.startsWith('blob:')) {
-          URL.revokeObjectURL(audio.src);
-        }
+        if (audio.src.startsWith('blob:')) URL.revokeObjectURL(audio.src);
         this.activeAudioElements.delete(audio);
         resolve();
       };
@@ -93,6 +97,7 @@ export abstract class BaseSpeechService implements ISpeechService {
         this.activeAudioElements.delete(audio);
         reject(e as any);
       };
+
       audio.play().catch((e) => {
         this.activeAudioElements.delete(audio);
         reject(e);
@@ -100,12 +105,10 @@ export abstract class BaseSpeechService implements ISpeechService {
     });
   }
 
-  // Helper to convert text to SSML for providers that support it
   protected textToSSML(text: string, options?: TTSOptions): string {
     const rate = options?.rate ?? 1.0;
     const pitch = options?.pitch ?? 1.0;
     const volume = options?.volume ?? 1.0;
-
     return `
       <speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis">
         <prosody rate="${rate}" pitch="${pitch}x" volume="${volume * 100}">
@@ -116,19 +119,15 @@ export abstract class BaseSpeechService implements ISpeechService {
   }
 
   cancelSynthesis(): void {
-    // Cancel Web Speech if present
     try {
       if (typeof window !== 'undefined' && (window as any).speechSynthesis) {
         (window as any).speechSynthesis.cancel();
       }
     } catch {}
-    // Pause and cleanup any active <audio> elements
     this.activeAudioElements.forEach((audio) => {
       try { audio.pause(); } catch {}
       try {
-        if (audio.src && audio.src.startsWith('blob:')) {
-          URL.revokeObjectURL(audio.src);
-        }
+        if (audio.src?.startsWith('blob:')) URL.revokeObjectURL(audio.src);
       } catch {}
     });
     this.activeAudioElements.clear();

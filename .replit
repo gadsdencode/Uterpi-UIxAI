@@ -36,7 +36,11 @@ args = "npm run dev"
 waitForPort = 5000
 
 [objectStorage]
-defaultBucketID = "replit-objstore-be684d58-e807-48d6-a358-7b053ac85f95"
+defaultBucketID = "replit-objstore-407ad3b9-74ca-460d-bcc6-5249ade5d6b0"
 
 [agent]
 integrations = ["javascript_stripe:1.0.0", "twilio:1.0.0"]
+
+[postMerge]
+path = "scripts/post-merge.sh"
+timeoutMs = 120000

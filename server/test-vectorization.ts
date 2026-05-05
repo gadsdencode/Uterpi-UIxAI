@@ -161,11 +161,12 @@ class VectorizationTester {
 
     try {
       // Get processor status
-      const status = vectorProcessor.getQueueStatus();
+      const status = await vectorProcessor.getQueueStatus();
       this.addResult('VectorProcessor', 'Get Queue Status', true, undefined, {
         messageQueue: status.messageQueue,
         conversationQueue: status.conversationQueue,
-        isProcessing: status.isProcessing
+        isProcessing: status.isProcessing,
+        mode: status.mode
       });
 
       // Test queueing (without actual processing to avoid external dependencies)
@@ -184,16 +185,16 @@ class VectorizationTester {
       // Queue message for vectorization
       await vectorProcessor.queueMessageVectorization(message.id, conversation.id, 'high');
       
-      const newStatus = vectorProcessor.getQueueStatus();
+      const newStatus = await vectorProcessor.getQueueStatus();
       this.addResult('VectorProcessor', 'Queue Message', newStatus.messageQueue > status.messageQueue,
         newStatus.messageQueue <= status.messageQueue ? 'Message was not queued' : undefined,
-        { queueSize: newStatus.messageQueue }
+        { queueSize: newStatus.messageQueue, mode: newStatus.mode }
       );
 
       // Clear queue for clean test environment
-      vectorProcessor.clearQueues();
+      await vectorProcessor.clearQueues();
       
-      const clearedStatus = vectorProcessor.getQueueStatus();
+      const clearedStatus = await vectorProcessor.getQueueStatus();
       this.addResult('VectorProcessor', 'Clear Queues', clearedStatus.totalPending === 0,
         clearedStatus.totalPending > 0 ? 'Queues were not cleared' : undefined,
         { totalPending: clearedStatus.totalPending }

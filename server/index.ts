@@ -18,6 +18,7 @@ import { handleStripeWebhook } from "./webhooks";
 import { errorHandler, handleUnhandledErrors } from "./error-handler";
 import { embeddingWorkerPool, initializeWorkerPool } from "./services/embedding-worker-pool";
 import { vectorProcessor } from "./vector-processor";
+import { closeRedisConnection } from "./services/redis-connection";
 
 const app = express();
 
@@ -148,15 +149,20 @@ app.use((req, res, next) => {
       log("📡 HTTP server closed");
       
       try {
-        // Shutdown vector processor first (clears queues)
+        // Shutdown vector processor (stops BullMQ workers and queues)
         log("🔄 Shutting down vector processor...");
         await vectorProcessor.shutdown();
         log("✅ Vector processor shutdown complete");
         
-        // Shutdown worker pool (waits for pending tasks)
+        // Shutdown embedding worker pool (waits for pending tasks)
         log("🧵 Shutting down embedding worker pool...");
         await embeddingWorkerPool.shutdown();
         log("✅ Worker pool shutdown complete");
+        
+        // Close Redis connection
+        log("🔌 Closing Redis connection...");
+        await closeRedisConnection();
+        log("✅ Redis connection closed");
         
         log("👋 Graceful shutdown complete");
         process.exit(0);

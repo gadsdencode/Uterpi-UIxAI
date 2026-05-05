@@ -387,7 +387,7 @@ export class ConversationController {
    */
   async getVectorizationStatus(req: Request, res: Response): Promise<void> {
     try {
-      const queueStatus = vectorProcessor.getQueueStatus();
+      const queueStatus = await vectorProcessor.getQueueStatus();
       const workerPoolStats = vectorService.getWorkerPoolStats();
       
       res.json({
